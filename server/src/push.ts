@@ -12,6 +12,7 @@
  */
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import https from 'node:https'
 import os from 'node:os'
 import path from 'node:path'
 import webpush from 'web-push'
@@ -19,8 +20,12 @@ import webpush from 'web-push'
 const DATA_DIR = path.join(os.homedir(), '.orbit')
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
 const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'push-subscriptions.json')
-/** Apple wants a contact for the pushing application; nothing is sent to it. */
-const CONTACT = 'mailto:orbit@localhost'
+/* The VAPID subject identifies whoever is pushing, and Apple validates it:
+   `mailto:orbit@localhost` — the obvious choice for a machine that only talks to
+   itself — comes back 403 BadJwtToken, because localhost is not a real mail
+   domain. A reserved example domain is syntactically valid and goes nowhere.
+   Override with `vapidContact` in ~/.orbit/config.json to be reachable. */
+const DEFAULT_CONTACT = 'mailto:orbit@example.com'
 
 export interface Subscription {
   endpoint: string
@@ -51,7 +56,13 @@ const loadKeys = (): { publicKey: string; privateKey: string } => {
 }
 
 const keys = loadKeys()
-webpush.setVapidDetails(CONTACT, keys.publicKey, keys.privateKey)
+const contact = (() => {
+  const configured = readConfig().vapidContact
+  return typeof configured === 'string' && /^(mailto:|https:)/.test(configured)
+    ? configured
+    : DEFAULT_CONTACT
+})()
+webpush.setVapidDetails(contact, keys.publicKey, keys.privateKey)
 
 export const publicKey = (): string => keys.publicKey
 
@@ -73,6 +84,15 @@ const persist = () => {
 }
 
 export const count = () => subscriptions.length
+
+/* Apple's push host resolves to both families, and Node's happy-eyeballs racer
+   times out against every address of both on this network while curl connects
+   in under a second. Turning the race off is enough; if the machine ever does
+   prefer a broken IPv6 answer, {@link send} falls back to forcing IPv4. A
+   loopback mock cannot reproduce any of this — it only showed up against the
+   real service. */
+const agent = new https.Agent({ autoSelectFamily: false })
+const ipv4Agent = new https.Agent({ autoSelectFamily: false, family: 4 })
 
 export function subscribe(subscription: Subscription): void {
   if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
@@ -100,17 +120,33 @@ export function unsubscribe(endpoint: string): void {
 export async function send(title: string, body: string): Promise<number> {
   if (subscriptions.length === 0) return 0
   const payload = JSON.stringify({ title, body })
-  const results = await Promise.all(
-    subscriptions.map((s) =>
-      webpush
-        .sendNotification(s, payload)
-        .then(() => true)
-        .catch((err: { statusCode?: number }) => {
-          if (err.statusCode === 404 || err.statusCode === 410) unsubscribe(s.endpoint)
-          else console.error('[orbit] push failed:', err.statusCode ?? err)
-          return false
-        }),
-    ),
-  )
+
+  const deliver = async (subscription: Subscription): Promise<boolean> => {
+    try {
+      await webpush.sendNotification(subscription, payload, { agent })
+      return true
+    } catch (err) {
+      const status = (err as { statusCode?: number }).statusCode
+      // The push service answered — it just said no.
+      if (status === 404 || status === 410) {
+        unsubscribe(subscription.endpoint)
+        return false
+      }
+      if (status !== undefined) {
+        console.error(`[orbit] push rejected (${status}):`, (err as { body?: string }).body ?? '')
+        return false
+      }
+      // Never got that far: retry once on IPv4 before giving up on the network.
+      try {
+        await webpush.sendNotification(subscription, payload, { agent: ipv4Agent })
+        return true
+      } catch (retry) {
+        console.error('[orbit] push unreachable:', (retry as { code?: string }).code ?? retry)
+        return false
+      }
+    }
+  }
+
+  const results = await Promise.all(subscriptions.map(deliver))
   return results.filter(Boolean).length
 }

@@ -188,8 +188,20 @@ standalone context ของ WebKit
 สองนัดติด เพราะ iOS แช่แข็งหน้าเว็บและตัด WebSocket ทิ้ง ข้อความจึงไม่ถึงใครเลย
 (สถาปัตยกรรมเดิมให้ **หน้าเว็บ** เป็นคนแสดง notification) แก้ด้วยสองชั้น: เก็บ
 notice ที่ส่งไม่ถึงแล้วส่งซ้ำตอนต่อกลับมา + Web Push ที่ปลุก service worker ได้
-แม้แอปปิด — **ยังไม่ได้ทดสอบบนเครื่องจริง** ต้องรีสตาร์ต server แล้วกด Turn on
-ในแท็บ Sessions ก่อน
+แม้แอปปิด
+
+**ทดสอบกับ Apple จริงแล้ว และเจอสองอย่างที่ mock ในเครื่องจับไม่ได้เลย:**
+
+1. `pushed: 0` เงียบ ๆ — Node ต่อ `web.push.apple.com` ไม่ได้ ทั้งที่ `curl` ต่อได้
+   ใน 0.27 วิ สาเหตุคือ happy-eyeballs ของ Node เอง (`autoSelectFamily`) ที่
+   ETIMEDOUT ทุก address ทั้ง IPv4/IPv6 บนเน็ตวงนี้ แก้ด้วย agent เฉพาะของ push
+   ที่ปิด autoSelectFamily + retry ด้วย IPv4 ถ้ายังไม่ติด
+2. `403 BadJwtToken` — Apple ไม่ยอมรับ `mailto:orbit@localhost` เป็น VAPID subject
+   เพราะ localhost ไม่ใช่โดเมนอีเมลจริง เปลี่ยนเป็น `mailto:orbit@example.com`
+   (ตั้งเองได้ด้วย `vapidContact` ใน `~/.orbit/config.json`) แล้วได้ **201** จาก Apple
+
+ทั้งสองข้อ mock บน loopback มองไม่เห็น — ข้อคิดคือ push ต้องทดสอบกับ push service
+จริงเท่านั้น
 
 ยังเหลือ (ฝั่งมือถือล้วน ๆ): HTTPS ผ่าน Tailscale + แฟล็ก `Secure` ของ cookie,
 voice ภาษาไทย, Web Push บนเครื่องจริง, `codex resume --last`
