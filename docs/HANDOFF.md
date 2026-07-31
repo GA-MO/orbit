@@ -114,10 +114,15 @@ HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
 2. ~~**ลงทะเบียน MCP**~~ — ลงแล้วที่ user scope (`claude mcp list` ขึ้น ✔ Connected)
    ชี้ไปที่ path เต็มของ `server/dist/mcp.js` ใช้ได้ทุกโฟลเดอร์ `.mcp.json` ใน repo
    ถูกลบออกแล้วเพราะซ้ำกัน
-3. ~~**ติดตั้ง hook อนุมัติ**~~ — ลงแล้วใน `~/.claude/settings.json` เป็น PreToolUse
-   ของ Bash พร้อม `"timeout": 190` (จำเป็น — ค่าเริ่มต้น 60 วิ จะตัด hook ทิ้งกลางทาง
-   แล้วปล่อยคำสั่งผ่าน) ก่อนรีสตาร์ต server ตัวเก่ายังไม่มี `/api/ask` hook เลย
-   ปล่อยผ่านทันทีใน ~40ms — ไม่มีอะไรพังระหว่างรอ
+3. **hook อนุมัติ — ถอดออกแล้วตามที่เจ้าของเครื่องเลือก** เคยลงไว้ใน
+   `~/.claude/settings.json` และทดสอบผ่านทั้งบล็อกและปล่อย แต่เจ้าของใช้ auto mode
+   อยู่และไม่ต้องการให้มีอะไรมาถาม ตัวสคริปต์ยังอยู่ที่ `scripts/orbit-approve.mjs`
+   เผื่อเปลี่ยนใจ — วิธีติดตั้งอยู่ใน `docs/MCP.md` และ **ต้องมี `"timeout": 190`**
+   ไม่งั้น Claude Code ตัด hook ทิ้งที่ 60 วิแล้วปล่อยคำสั่งผ่านตอนยังไม่มีใครอนุมัติ
+
+   ผลข้างเคียงที่ต้องรู้: ใน auto mode ไม่มีอะไรถามก่อนรันคำสั่งอีกแล้ว ด่านกรอง
+   คำสั่งอันตรายเหลือเฉพาะสิ่งที่ **คน** พิมพ์/วางลง terminal ของ Orbit (ฝั่ง server)
+   คำสั่งที่ agent รันเองไม่ผ่านด่านไหนเลย
 4. **สิทธิ์ Screen Recording** — System Settings → Privacy & Security → Screen &
    System Audio Recording → เปิดให้แอปที่รัน server (Terminal/iTerm/VS Code) แล้ว
    **ปิดเปิดแอปนั้นใหม่** เป็น GUI ล้วน agent แตะไม่ได้
