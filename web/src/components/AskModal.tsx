@@ -19,7 +19,7 @@ export default function AskModal({ request, onAnswer }: Props) {
   const layout = options.length === 2 ? 'flex-row-reverse' : 'flex-col'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-[2px]">
+    <div className="app-fill z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-[2px]">
       <div className="flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-accent/40 bg-surface p-5">
         <div className="flex items-center justify-between gap-3">
           <span className="font-display text-[15px] font-semibold text-accent">

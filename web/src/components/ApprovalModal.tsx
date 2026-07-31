@@ -9,7 +9,7 @@ interface Props {
 
 export default function ApprovalModal({ request, onApprove, onDeny }: Props) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-[2px]">
+    <div className="app-fill z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-[2px]">
       <div className="flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-danger/40 bg-surface p-5">
         <div className="font-display text-[15px] font-semibold text-danger">
           Dangerous command held

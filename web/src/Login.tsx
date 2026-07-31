@@ -27,7 +27,7 @@ export default function Login({ onSuccess }: Props) {
   }
 
   return (
-    <div className="flex h-dvh items-center justify-center p-6">
+    <div className="app-fill flex items-center justify-center p-6">
       <div className="flex w-full max-w-xs flex-col items-center gap-5">
         <OrbitMark size={64} />
         <div className="text-center">

@@ -38,7 +38,16 @@ body,
   color: var(--color-fore);
   font-family: var(--font-sans);
   overscroll-behavior: none;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The whole visible area, and nothing outside it. Fixed rather than 100dvh in
+   the flow: an installed web app must never hand iOS a document taller than
+   the viewport, or it insets the entire scroll view and the app slides down. */
+.app-fill {
+  position: fixed;
+  inset: 0;
 }
 
 /* ---- Signature: the orbit ring — a satellite tracing a slow orbit ---- */

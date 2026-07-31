@@ -212,7 +212,7 @@ export function Sheet({
 }) {
   return (
     <div
-      className={`fixed inset-0 z-40 flex justify-center bg-black/60 backdrop-blur-[2px] ${
+      className={`app-fill z-40 flex justify-center bg-black/60 backdrop-blur-[2px] ${
         side === 'bottom' ? 'items-end' : 'items-stretch'
       }`}
       onClick={onClose}

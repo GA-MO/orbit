@@ -263,7 +263,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
 
       {viewing && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
+          className="app-fill z-50 flex items-center justify-center bg-black/85 p-4"
           onClick={() => setViewing(null)}
         >
           <img

@@ -225,7 +225,7 @@ export default function App() {
   if (locked === true) return <Login onSuccess={() => setLocked(false)} />
 
   return (
-    <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)]">
+    <div className="app-fill flex flex-col pt-[env(safe-area-inset-top)]">
       <main className="relative min-h-0 flex-1">
         {/* Terminal stays mounted across tab switches — the PTY connection survives. */}
         <div className={`h-full ${view === 'terminal' ? '' : 'hidden'}`}>
