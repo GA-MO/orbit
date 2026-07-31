@@ -21,7 +21,7 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 **Phase 3 complete** — persistent session management:
 
 - Session metadata + terminal history persisted to `~/.orbit/` (`sessions.json` + `scrollback/<id>.txt`, debounced writes, sync flush on shutdown)
-- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ↻ relaunches with the same provider/folder/name, ✕ forgets (deletes history)
+- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ＋ starts a new session with the same provider/folder/name, ✕ forgets (deletes history)
 - Ended sessions capped at 20 (oldest pruned)
 
 **Phase 4 + security + PWA complete:**

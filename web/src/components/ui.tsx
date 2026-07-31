@@ -85,9 +85,6 @@ export const IconBranch = icon(
     <path d="M7 8.2v7.6M17 11.2c0 3.3-4 3.3-7.5 3.6" />
   </>,
 )
-export const IconRestart = icon(
-  <path d="M4.5 9a8 8 0 1 1-1 6.5M4.5 9V4.5M4.5 9H9" />,
-)
 export const IconTrash = icon(
   <path d="M5 7h14M9.5 7V4.5h5V7M7 7l1 13h8l1-13M10 11v5M14 11v5" />,
 )

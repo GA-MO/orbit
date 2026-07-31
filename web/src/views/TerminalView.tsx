@@ -6,7 +6,7 @@ import {
   IconButton,
   IconImage,
   IconMic,
-  IconRestart,
+  IconPlus,
   OrbitMark,
   PROVIDER_GLYPH,
   basename,
@@ -27,8 +27,8 @@ interface Props {
   onOpenVoice: () => void
   onPickImage: () => void
   /** Start a fresh session with the same agent + folder as this ended one. */
-  onRelaunch: () => void
-  relaunching: boolean
+  onNewSession: () => void
+  starting: boolean
   /** The terminal element — owned by the parent so it survives tab switches. */
   children: ReactNode
 }
@@ -39,8 +39,8 @@ export default function TerminalView({
   voiceAvailable,
   onOpenVoice,
   onPickImage,
-  onRelaunch,
-  relaunching,
+  onNewSession,
+  starting,
   children,
 }: Props) {
   const ended = !!session && !session.alive
@@ -92,12 +92,12 @@ export default function TerminalView({
         {ended ? (
           <Button
             variant="outline"
-            disabled={relaunching}
-            onClick={onRelaunch}
+            disabled={starting}
+            onClick={onNewSession}
             className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
           >
-            <IconRestart size={15} />
-            {relaunching ? 'Relaunching…' : 'Relaunch'}
+            <IconPlus size={15} />
+            {starting ? 'Starting…' : 'New'}
           </Button>
         ) : (
           <>

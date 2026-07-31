@@ -11,7 +11,6 @@ import {
   IconButton,
   IconEdit,
   IconPlus,
-  IconRestart,
   IconTrash,
   PROVIDER_GLYPH,
   basename,
@@ -45,12 +44,12 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
     onToast(`${sessionLabel(s)} stopped — history kept in Ended`)
   }
 
-  const relaunch = async (s: SessionInfo) => {
+  const startFresh = async (s: SessionInfo) => {
     try {
       const fresh = await restartSession(s.id)
       onSelect(fresh.id)
     } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Relaunch failed')
+      onToast(e instanceof Error ? e.message : 'Could not start a new session')
     }
   }
 
@@ -154,14 +153,14 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
           ) : (
             <>
               <IconButton
-                label="Relaunch (same agent + folder)"
+                label="New session (same agent + folder)"
                 className="hover:text-accent"
                 onClick={(e) => {
                   e.stopPropagation()
-                  relaunch(s)
+                  startFresh(s)
                 }}
               >
-                <IconRestart size={16} />
+                <IconPlus size={16} />
               </IconButton>
               <IconButton
                 label="Forget (delete history)"

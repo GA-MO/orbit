@@ -43,7 +43,7 @@ export default function App() {
   const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const [toast, setToast] = useState<string | null>(null)
-  const [relaunching, setRelaunching] = useState(false)
+  const [startingNew, setStartingNew] = useState(false)
   const termHandle = useRef<TerminalHandle | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -123,16 +123,16 @@ export default function App() {
   )
 
   // Ended session in the terminal tab: start a fresh one with the same agent + folder.
-  const relaunchCurrent = async () => {
-    if (!current || relaunching) return
-    setRelaunching(true)
+  const startFreshSession = async () => {
+    if (!current || startingNew) return
+    setStartingNew(true)
     try {
       const fresh = await restartSession(current.id)
       selectSession(fresh.id)
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Relaunch failed')
+      showToast(e instanceof Error ? e.message : 'Could not start a new session')
     } finally {
-      setRelaunching(false)
+      setStartingNew(false)
     }
   }
 
@@ -166,8 +166,8 @@ export default function App() {
             /* Started here, inside the tap — iOS refuses a start one tick later. */
             onOpenVoice={() => setVoiceSession(startSpeech())}
             onPickImage={() => fileInput.current?.click()}
-            onRelaunch={relaunchCurrent}
-            relaunching={relaunching}
+            onNewSession={startFreshSession}
+            starting={startingNew}
           >
             {currentId && locked === false ? (
               <Terminal
