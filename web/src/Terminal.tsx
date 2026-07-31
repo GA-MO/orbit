@@ -14,6 +14,8 @@ export interface TerminalHandle {
   write(data: string): void
   approve(id: string): void
   deny(id: string): void
+  /** Answer a question raised from the Mac side. */
+  answer(id: string, choice: string): void
   focus(): void
   blur(): void
 }
@@ -22,6 +24,15 @@ export interface ApprovalRequest {
   id: string
   label: string
   command: string
+}
+
+/** A question an agent (or a hook) is holding open until the phone answers. */
+export interface AskRequest {
+  id: string
+  question: string
+  detail: string | null
+  options: string[]
+  source: string | null
 }
 
 const RECONNECT_DELAY_MS = 1500
@@ -53,6 +64,9 @@ interface Props {
   onSessionState?: () => void
   onAuthFail: () => void
   onApproval: (request: ApprovalRequest) => void
+  /** An agent or hook on the Mac wants to say something to whoever holds the phone. */
+  onNotice: (message: string) => void
+  onAsk: (request: AskRequest) => void
   handleRef?: MutableRefObject<TerminalHandle | null>
 }
 
@@ -65,6 +79,8 @@ export default function Terminal({
   onSessionState,
   onAuthFail,
   onApproval,
+  onNotice,
+  onAsk,
   handleRef,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -83,8 +99,26 @@ export default function Terminal({
     ctrlRef.current = next
     setCtrl(next)
   }
-  const callbacksRef = useRef({ onStatus, onSession, onExit, onSessionState, onAuthFail, onApproval })
-  callbacksRef.current = { onStatus, onSession, onExit, onSessionState, onAuthFail, onApproval }
+  const callbacksRef = useRef({
+    onStatus,
+    onSession,
+    onExit,
+    onSessionState,
+    onAuthFail,
+    onApproval,
+    onNotice,
+    onAsk,
+  })
+  callbacksRef.current = {
+    onStatus,
+    onSession,
+    onExit,
+    onSessionState,
+    onAuthFail,
+    onApproval,
+    onNotice,
+    onAsk,
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -166,6 +200,18 @@ export default function Terminal({
           case 'approval':
             callbacksRef.current.onApproval({ id: msg.id, label: msg.label, command: msg.command })
             break
+          case 'notice':
+            callbacksRef.current.onNotice(msg.message)
+            break
+          case 'ask':
+            callbacksRef.current.onAsk({
+              id: msg.id,
+              question: msg.question,
+              detail: msg.detail ?? null,
+              options: msg.options ?? [],
+              source: msg.source ?? null,
+            })
+            break
         }
       }
 
@@ -204,6 +250,7 @@ export default function Terminal({
         write: (data) => sendInput(data),
         approve: (id) => send({ type: 'approve', id }),
         deny: (id) => send({ type: 'deny', id }),
+        answer: (id, choice) => send({ type: 'answer', id, choice }),
         focus: () => {
           if (term.textarea) term.textarea.readOnly = false
           term.textarea?.focus()

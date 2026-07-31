@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "orbit": {
+      "command": "node",
+      "args": ["server/dist/mcp.js"]
+    }
+  }
+}

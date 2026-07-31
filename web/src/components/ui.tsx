@@ -92,6 +92,12 @@ export const IconEdit = icon(
   <path d="M14.5 5.5 18.5 9.5 9 19H5v-4L14.5 5.5ZM12.5 7.5l4 4" />,
 )
 export const IconInsert = icon(<path d="M4 12h12m0 0-4-4m4 4-4 4M20 5v14" />)
+export const IconDisplay = icon(
+  <>
+    <rect x="2.5" y="4.5" width="19" height="12.5" rx="2" />
+    <path d="M9 20.5h6M12 17v3.5" />
+  </>,
+)
 export const IconClose = icon(<path d="m6 6 12 12M18 6 6 18" />)
 export const IconChevronDown = icon(<path d="m6 10 6 6 6-6" />)
 export const IconSearch = icon(
@@ -139,6 +145,40 @@ export function IconButton({
       className={`inline-flex shrink-0 items-center justify-center rounded-(--radius-field) text-mut transition-colors hover:bg-raised hover:text-fore active:bg-overlay disabled:opacity-40 ${box} ${className}`}
       {...props}
     />
+  )
+}
+
+/** A row of mutually exclusive choices, sized for a thumb. */
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  className = '',
+}: {
+  value: T
+  options: { id: T; label: string }[]
+  onChange: (id: T) => void
+  className?: string
+}) {
+  return (
+    <div
+      role="tablist"
+      className={`inline-flex shrink-0 gap-0.5 rounded-(--radius-field) border border-line bg-ink p-0.5 ${className}`}
+    >
+      {options.map((o) => (
+        <button
+          key={o.id}
+          role="tab"
+          aria-selected={value === o.id}
+          onClick={() => onChange(o.id)}
+          className={`rounded-[calc(var(--radius-field)-3px)] px-3 py-1.5 text-[13px] font-medium transition-colors ${
+            value === o.id ? 'bg-accent-strong text-white' : 'text-mut hover:text-fore'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   )
 }
 

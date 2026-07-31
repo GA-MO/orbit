@@ -28,6 +28,15 @@ export interface Danger {
 export function screen(chunk: string): Danger | null {
   // Single keystrokes and control sequences pass through untouched.
   if (chunk.length <= 3) return null
+  return screenCommand(chunk)
+}
+
+/**
+ * Screen a command known to be whole — an agent's tool call rather than a
+ * stream of keystrokes, so there is no length below which it is only typing.
+ */
+export function screenCommand(command: string): Danger | null {
+  const chunk = command
   for (const { pattern, label } of DANGEROUS_PATTERNS) {
     const match = chunk.match(pattern)
     if (match) {

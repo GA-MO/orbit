@@ -11,6 +11,7 @@ import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
 import * as uploads from './uploads.js'
 import * as store from './store.js'
+import * as notify from './notify.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
@@ -25,6 +26,7 @@ type ClientMessage =
   | { type: 'ping' }
   | { type: 'approve'; id: string }
   | { type: 'deny'; id: string }
+  | { type: 'answer'; id: string; choice: string }
 
 type ServerMessage =
   | { type: 'ready'; sessionId: string; replay: string; readOnly?: boolean }
@@ -32,6 +34,8 @@ type ServerMessage =
   | { type: 'exit'; code: number }
   | { type: 'pong' }
   | { type: 'approval'; id: string; label: string; command: string }
+  | notify.Notice
+  | notify.Ask
 
 const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -219,21 +223,87 @@ async function handleAuthedApi(
   }
 
   if (route === 'POST /api/screenshot') {
-    let body: { url?: string; width?: number; height?: number; fullPage?: boolean }
+    let body: {
+      source?: string
+      url?: string
+      preset?: string
+      width?: number
+      height?: number
+      fullPage?: boolean
+      display?: number
+    }
     try {
       body = JSON.parse((await readBody(req)) || '{}')
     } catch {
       return json(res, 400, { error: 'invalid JSON' })
     }
+
+    if (body.source === 'screen') {
+      try {
+        return json(res, 201, await screenshot.captureScreen({ display: body.display }))
+      } catch (err) {
+        return json(res, 502, { error: (err as Error).message })
+      }
+    }
+
     if (!body.url || !/^https?:\/\//.test(body.url)) {
       return json(res, 400, { error: 'url must start with http(s)://' })
     }
+    if (body.preset !== undefined && !screenshot.isPreset(body.preset)) {
+      return json(res, 400, { error: `unknown preset: ${body.preset}` })
+    }
     try {
-      const shot = await screenshot.capture(body.url, body)
+      const shot = await screenshot.capture(body.url, { ...body, preset: body.preset })
       return json(res, 201, shot)
     } catch (err) {
       return json(res, 502, { error: `capture failed: ${(err as Error).message}` })
     }
+  }
+
+  if (route === 'GET /api/presets') return json(res, 200, screenshot.PRESETS)
+
+  // ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
+
+  if (route === 'POST /api/notify') {
+    let body: { message?: string; source?: string }
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return json(res, 400, { error: 'invalid JSON' })
+    }
+    const message = (body.message ?? '').trim().slice(0, 300)
+    if (!message) return json(res, 400, { error: 'message is required' })
+    const delivered = notify.notify(message, body.source ?? null)
+    return json(res, 200, { delivered })
+  }
+
+  if (route === 'POST /api/ask') {
+    let body: {
+      question?: string
+      detail?: string
+      options?: unknown
+      source?: string
+      timeoutSeconds?: number
+    }
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return json(res, 400, { error: 'invalid JSON' })
+    }
+    const question = (body.question ?? '').trim().slice(0, 300)
+    if (!question) return json(res, 400, { error: 'question is required' })
+    const options = Array.isArray(body.options)
+      ? body.options.filter((o): o is string => typeof o === 'string' && !!o.trim()).map((o) => o.trim().slice(0, 40))
+      : undefined
+    const timeoutSeconds = Math.min(Math.max(body.timeoutSeconds ?? 120, 5), 600)
+    const result = await notify.ask({
+      question,
+      detail: body.detail?.slice(0, 2000) ?? null,
+      options,
+      source: body.source ?? null,
+      timeoutMs: timeoutSeconds * 1000,
+    })
+    return json(res, 200, { ...result, phonesConnected: notify.clientCount() })
   }
 
   if (route === 'GET /api/screenshots') return json(res, 200, await screenshot.list())
@@ -307,6 +377,21 @@ wss.on('connection', async (ws: WebSocket, req) => {
   const send = (msg: ServerMessage) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
   }
+
+  /* Notices and questions are about the phone, not about one session — every
+     open socket carries them, including the one showing an ended session. */
+  const dropClient = notify.addClient(send)
+  ws.on('close', dropClient)
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString())
+      if (msg?.type === 'answer' && typeof msg.id === 'string') {
+        notify.answer(msg.id, typeof msg.choice === 'string' ? msg.choice : '')
+      }
+    } catch {
+      // malformed frames are ignored here and by the session handler below
+    }
+  })
 
   // Ended session: replay its history read-only, no PTY behind it.
   if (requestedId && !manager.get(requestedId) && manager.isDead(requestedId)) {
@@ -399,12 +484,12 @@ server.listen(PORT, () => {
     .catch((err) => console.error('[orbit] startup maintenance failed:', err))
 })
 
-process.on('SIGINT', () => {
+const shutdown = () => {
   manager.killAll()
-  process.exit(0)
-})
+  // The warm Chrome would otherwise outlive the server that launched it.
+  screenshot.shutdown().finally(() => process.exit(0))
+  setTimeout(() => process.exit(0), 2000).unref()
+}
 
-process.on('SIGTERM', () => {
-  manager.killAll()
-  process.exit(0)
-})
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)

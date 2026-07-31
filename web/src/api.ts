@@ -94,21 +94,45 @@ export const restartSession = async (id: string): Promise<SessionInfo> => {
   return res.json()
 }
 
+export type PresetId = 'phone' | 'tablet' | 'desktop'
+
+export const PRESETS: { id: PresetId; label: string; width: number; height: number }[] = [
+  { id: 'phone', label: 'Phone', width: 390, height: 844 },
+  { id: 'tablet', label: 'Tablet', width: 834, height: 1112 },
+  { id: 'desktop', label: 'Desktop', width: 1440, height: 900 },
+]
+
 export interface Screenshot {
   file: string
   path: string
   createdAt: string
   size: number
+  /** A rendered URL, or the Mac's own screen. */
+  kind: 'url' | 'screen'
+  width: number | null
+  height: number | null
 }
 
-export const captureScreenshot = async (
-  url: string,
-  fullPage = false,
-): Promise<Screenshot> => {
+export const captureScreenshot = async (opts: {
+  url: string
+  preset?: PresetId
+  fullPage?: boolean
+}): Promise<Screenshot> => {
   const res = await authFetch('/api/screenshot', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, fullPage }),
+    body: JSON.stringify(opts),
+  })
+  if (!res.ok) throw new Error((await res.json()).error ?? `capture failed: ${res.status}`)
+  return res.json()
+}
+
+/** Capture the Mac's screen itself — simulators, native apps, anything Chrome cannot render. */
+export const captureScreen = async (): Promise<Screenshot> => {
+  const res = await authFetch('/api/screenshot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'screen' }),
   })
   if (!res.ok) throw new Error((await res.json()).error ?? `capture failed: ${res.status}`)
   return res.json()

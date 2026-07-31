@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Terminal, {
   type ApprovalRequest,
+  type AskRequest,
   type ConnectionStatus,
   type TerminalHandle,
 } from './Terminal'
@@ -11,7 +12,9 @@ import CapturesView from './views/CapturesView'
 import NewSessionSheet from './sheets/NewSessionSheet'
 import VoiceSheet from './sheets/VoiceSheet'
 import { speechSupported, startSpeech, type SpeechSession } from './speech'
+import { requestNoticePermission, systemNotice } from './notice'
 import ApprovalModal from './components/ApprovalModal'
+import AskModal from './components/AskModal'
 import { IconCapture, IconSessions, IconTerminal } from './components/ui'
 import {
   AuthError,
@@ -42,6 +45,8 @@ export default function App() {
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
+  // Questions from the Mac queue up: each one is blocking something over there.
+  const [asks, setAsks] = useState<AskRequest[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [startingNew, setStartingNew] = useState(false)
   const termHandle = useRef<TerminalHandle | null>(null)
@@ -67,6 +72,25 @@ export default function App() {
   const showToast = useCallback((message: string) => {
     setToast(message)
     setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  const showNotice = useCallback(
+    (message: string) => {
+      showToast(message)
+      if (document.hidden) systemNotice(message)
+      else requestNoticePermission()
+    },
+    [showToast],
+  )
+
+  const addAsk = useCallback((request: AskRequest) => {
+    setAsks((cur) => (cur.some((a) => a.id === request.id) ? cur : [...cur, request]))
+    if (document.hidden) systemNotice(request.question)
+  }, [])
+
+  const answerAsk = useCallback((id: string, choice: string) => {
+    termHandle.current?.answer(id, choice)
+    setAsks((cur) => cur.filter((a) => a.id !== id))
   }, [])
 
   // Boot: verify auth, then reattach to the stored session or start a shell.
@@ -180,6 +204,8 @@ export default function App() {
                 onSessionState={() => refreshCurrent()}
                 onAuthFail={() => setLocked(true)}
                 onApproval={setApproval}
+                onNotice={showNotice}
+                onAsk={addAsk}
                 handleRef={termHandle}
               />
             ) : (
@@ -268,6 +294,13 @@ export default function App() {
             setApproval(null)
             showToast('Command denied')
           }}
+        />
+      )}
+      {/* Approval comes first: it is holding a keystroke the user just sent. */}
+      {!approval && asks.length > 0 && (
+        <AskModal
+          request={asks[0]}
+          onAnswer={(choice) => answerAsk(asks[0].id, choice)}
         />
       )}
       {toast && (
