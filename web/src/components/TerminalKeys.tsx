@@ -27,28 +27,53 @@ type KeyDef = {
   shiftData?: string
   ctrlData?: string
   repeat?: boolean
+  /** A drawn symbol rather than a word — it needs the extra points to read. */
+  glyph?: boolean
 }
 
 /*
  * Two fixed rows rather than one scrolling strip: at a 44px touch target only
- * five keys fit across a phone, so a single row hides the rest behind a swipe
- * and splits ↑ from ↓. The top row carries the keys reached mid-thought (cancel,
- * submit) next to the modifiers; the bottom row keeps the arrow pairs together.
+ * five keys fit across a phone, so a single row hides the rest behind a swipe.
+ *
+ * The bottom row is the one that survives collapsing — the keyboard button and
+ * the Keys toggle keep the same slot in both states, so expanding grows the bar
+ * upward and nothing under the thumb moves. Everything else lives in the row
+ * above, except the arrows, which hold the inverted-T of a real keyboard on the
+ * right: ↑ over ← ↓ →, corners left empty, because that shape is read by muscle
+ * memory rather than by looking.
  */
-const ROW_TOP: KeyDef[] = [
+const ROW_UPPER: KeyDef[] = [
   { label: 'Esc', data: '\x1b' },
-  { label: '⏎', data: '\r' },
-]
-
-const ROW_BOTTOM: KeyDef[] = [
-  { label: '↑', data: '\x1b[A', shiftData: '\x1b[1;2A', ctrlData: '\x1b[1;5A', repeat: true },
-  { label: '↓', data: '\x1b[B', shiftData: '\x1b[1;2B', ctrlData: '\x1b[1;5B', repeat: true },
   { label: 'Tab', data: '\t', shiftData: '\x1b[Z' },
   { label: '^C', data: '\x03' },
-  { label: '⌫', data: '\x7f', ctrlData: '\x17', repeat: true }, // ctrl → delete word
-  { label: '←', data: '\x1b[D', shiftData: '\x1b[1;2D', ctrlData: '\x1b[1;5D', repeat: true },
-  { label: '→', data: '\x1b[C', shiftData: '\x1b[1;2C', ctrlData: '\x1b[1;5C', repeat: true },
 ]
+
+const ROW_LOWER: KeyDef[] = [
+  { label: '⏎', data: '\r', glyph: true },
+  { label: '⌫', data: '\x7f', ctrlData: '\x17', repeat: true, glyph: true }, // ctrl → delete word
+]
+
+const arrow = (label: string, final: string): KeyDef => ({
+  label,
+  data: `\x1b[${final}`,
+  shiftData: `\x1b[1;2${final}`,
+  ctrlData: `\x1b[1;5${final}`,
+  repeat: true,
+  glyph: true,
+})
+
+const ARROWS = {
+  up: arrow('↑', 'A'),
+  left: arrow('←', 'D'),
+  down: arrow('↓', 'B'),
+  right: arrow('→', 'C'),
+}
+
+/* 40px, not 44: three arrows plus a five-key row have to clear 375px of phone,
+   and the full height keeps each of them a comfortable target anyway. */
+const ARROW_W = 'w-10'
+const FLEX_KEY = 'min-w-10 flex-1'
+const GLYPH_TEXT = 'text-[15px]'
 
 const EXPANDED_KEY = 'orbit.keysExpanded'
 const TAP_SLOP_PX = 10
@@ -67,6 +92,7 @@ function Key({
   onPress,
   repeat = false,
   className = '',
+  text = 'text-[13px]',
 }: {
   label: string
   /** Present only on modifier keys — drives styling and the pressed state. */
@@ -74,6 +100,9 @@ function Key({
   onPress: () => void
   repeat?: boolean
   className?: string
+  /** Kept a prop rather than a caller override: two font sizes on one element
+      resolve by stylesheet order, which is not something to bet a glyph on. */
+  text?: string
 }) {
   const start = useRef({ x: 0, y: 0 })
   const moved = useRef(false)
@@ -160,7 +189,9 @@ function Key({
       }}
       onPointerLeave={() => cancelTimers()}
       onContextMenu={(e) => e.preventDefault()}
-      className={`h-11 min-w-11 rounded-lg border font-mono text-[13px] transition-colors active:bg-overlay ${MOD_STYLE[mod ?? 'off']} ${className}`}
+      /* Width comes from the caller: the rows share it out, the arrow cluster
+         pins it. Height alone carries the 44px touch target. */
+      className={`h-11 rounded-lg border font-mono ${text} transition-colors active:bg-overlay ${MOD_STYLE[mod ?? 'off']} ${className}`}
     >
       {label}
     </button>
@@ -205,15 +236,18 @@ export default function TerminalKeys({
     if (shift === 'once') setShift('off')
   }
 
-  const keyOf = (key: KeyDef) => (
+  const keyOf = (key: KeyDef, className = FLEX_KEY) => (
     <Key
       key={key.label}
       label={key.label}
       repeat={key.repeat}
-      className="flex-1"
+      className={className}
+      text={key.glyph ? GLYPH_TEXT : undefined}
       onPress={() => sendKey(key)}
     />
   )
+
+  const arrowOf = (key: KeyDef) => keyOf(key, ARROW_W)
 
   const keyboardButton = (
     <IconButton
@@ -230,38 +264,73 @@ export default function TerminalKeys({
     </IconButton>
   )
 
+  /* Same button, same width, same slot whether open or shut — only the chevron
+     turns over. A separate "hide" control elsewhere in the bar would move the
+     target out from under the thumb that just opened it. */
+  const keysToggle = (
+    <button
+      type="button"
+      aria-expanded={expanded}
+      aria-label={expanded ? 'Hide keys' : 'Show keys'}
+      onClick={() => {
+        // A locked shift the user can no longer see is a shift they will forget.
+        if (expanded) setShift('off')
+        setExpanded(!expanded)
+      }}
+      className={`flex h-11 shrink-0 items-center gap-1 rounded-lg border px-2.5 font-mono text-[13px] transition-colors active:bg-overlay ${
+        expanded ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line bg-raised text-mut'
+      }`}
+    >
+      Keys
+      <IconChevronDown size={16} className={expanded ? '' : 'rotate-180'} />
+    </button>
+  )
+
   return (
-    <div className="shrink-0 touch-manipulation">
-      {expanded ? (
-        <div className="flex flex-col gap-1 border-t border-line-subtle bg-surface px-1.5 py-1">
-          <div className="flex items-center gap-1">
-            {keyboardButton}
-            <Key label="⇧" mod={shift} className="flex-1" onPress={() => setShift(cycleMod)} />
-            <Key label="Ctrl" mod={ctrl} className="flex-1" onPress={pressCtrl} />
-            {ROW_TOP.map(keyOf)}
-            <IconButton label="Hide keys" size="lg" onClick={() => setExpanded(false)}>
-              <IconChevronDown size={20} />
-            </IconButton>
+    // z-10: the terminal's screen is positioned, so it paints over a static bar.
+    <div className="relative z-10 shrink-0 touch-manipulation">
+      <div className="flex flex-col gap-1 border-t border-line-subtle bg-surface px-1.5 py-1">
+        {expanded && (
+          <div className="flex items-center gap-2">
+            <div className="flex flex-1 items-center gap-1">
+              <Key
+                label="⇧"
+                mod={shift}
+                className={FLEX_KEY}
+                text={GLYPH_TEXT}
+                onPress={() => setShift(cycleMod)}
+              />
+              <Key label="Ctrl" mod={ctrl} className={FLEX_KEY} onPress={pressCtrl} />
+              {ROW_UPPER.map((key) => keyOf(key))}
+            </div>
+            {/* Top of the inverted-T: ↑ centred, the two corners deliberately bare. */}
+            <div className="flex shrink-0 items-center gap-1">
+              <span className={ARROW_W} aria-hidden />
+              {arrowOf(ARROWS.up)}
+              <span className={ARROW_W} aria-hidden />
+            </div>
           </div>
-          <div className="flex items-center gap-1">{ROW_BOTTOM.map(keyOf)}</div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-1 border-t border-line-subtle bg-surface px-1.5 py-1">
-          {keyboardButton}
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="h-11 rounded-lg border border-line bg-raised px-3.5 font-mono text-[13px] text-mut active:bg-overlay"
-          >
-            Keys
-          </button>
-          {ctrl !== 'off' && (
-            <span className="rounded-md border border-accent/50 bg-accent/15 px-2 py-1 font-mono text-[11px] text-accent">
-              Ctrl{ctrl === 'lock' ? ' ⇩' : ''}
-            </span>
+        )}
+        <div className="flex items-center gap-2">
+          <div className="flex flex-1 items-center gap-1">
+            {keyboardButton}
+            {keysToggle}
+            {expanded && ROW_LOWER.map((key) => keyOf(key))}
+            {!expanded && ctrl !== 'off' && (
+              <span className="rounded-md border border-accent/50 bg-accent/15 px-2 py-1 font-mono text-[11px] text-accent">
+                Ctrl{ctrl === 'lock' ? ' ⇩' : ''}
+              </span>
+            )}
+          </div>
+          {expanded && (
+            <div className="flex shrink-0 items-center gap-1">
+              {arrowOf(ARROWS.left)}
+              {arrowOf(ARROWS.down)}
+              {arrowOf(ARROWS.right)}
+            </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
