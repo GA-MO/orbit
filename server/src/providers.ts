@@ -5,13 +5,18 @@ export interface Provider {
   name: string
   /** CLI command to launch; null means a plain login shell. */
   command: string | null
+  /**
+   * Command that picks the last conversation in this folder back up, for
+   * agents that keep one. Null means starting again is the only option.
+   */
+  resumeCommand: string | null
 }
 
 export const PROVIDERS: Provider[] = [
-  { id: 'shell', name: 'Shell', command: null },
-  { id: 'claude', name: 'Claude Code', command: 'claude' },
-  { id: 'codex', name: 'Codex CLI', command: 'codex' },
-  { id: 'gemini', name: 'Gemini CLI', command: 'gemini' },
+  { id: 'shell', name: 'Shell', command: null, resumeCommand: null },
+  { id: 'claude', name: 'Claude Code', command: 'claude', resumeCommand: 'claude --continue' },
+  { id: 'codex', name: 'Codex CLI', command: 'codex', resumeCommand: 'codex resume --last' },
+  { id: 'gemini', name: 'Gemini CLI', command: 'gemini', resumeCommand: null },
 ]
 
 export function getProvider(id: string): Provider | undefined {

@@ -34,6 +34,7 @@ type ServerMessage =
   | { type: 'exit'; code: number }
   | { type: 'pong' }
   | { type: 'approval'; id: string; label: string; command: string }
+  | { type: 'gone'; sessionId: string }
   | notify.Notice
   | notify.Ask
 
@@ -190,8 +191,20 @@ async function handleAuthedApi(
 
   const restartMatch = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/restart$/)
   if (req.method === 'POST' && restartMatch) {
-    const session = manager.restart(restartMatch[1])
-    if (!session) return json(res, 404, { error: 'not found or not restartable' })
+    let body: { resume?: boolean } = {}
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return json(res, 400, { error: 'invalid JSON' })
+    }
+    const session = manager.restart(restartMatch[1], !!body.resume)
+    if (!session) {
+      return json(res, 404, {
+        error: body.resume
+          ? 'this agent cannot resume a conversation'
+          : 'not found or not restartable',
+      })
+    }
     const info = manager.list().find((s) => s.id === session.id)
     return json(res, 201, info)
   }
@@ -308,7 +321,7 @@ async function handleAuthedApi(
 
   if (route === 'GET /api/screenshots') return json(res, 200, await screenshot.list())
 
-  const shotMatch = url.pathname.match(/^\/api\/screenshots\/([\w.-]+)$/)
+  const shotMatch = url.pathname.match(/^\/api\/screenshots\/([\w.:-]+)$/)
   if (shotMatch) {
     const filePath = screenshot.filePathFor(shotMatch[1])
     if (!filePath) return json(res, 404, { error: 'not found' })
@@ -406,8 +419,17 @@ wss.on('connection', async (ws: WebSocket, req) => {
     return
   }
 
-  // Reattach if the session is still alive; otherwise fall back to a fresh shell.
+  /* A session id the server has never heard of is a stale one on the phone —
+     from a cleared ~/.orbit, or a pruned entry. Silently opening a shell in the
+     home directory instead looked like the session had simply moved. */
   const existing = requestedId ? manager.get(requestedId) : undefined
+  if (requestedId && !existing) {
+    send({ type: 'gone', sessionId: requestedId })
+    ws.close()
+    return
+  }
+
+  // No id at all (a bare /ws connection) still gets a shell to talk to.
   const session = existing ?? manager.create({ cols, rows })
 
   send({ type: 'ready', sessionId: session.id, readOnly: false, replay: session.scrollback() })

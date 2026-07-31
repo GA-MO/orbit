@@ -38,6 +38,7 @@ const TABS: { id: View; label: string; Icon: typeof IconTerminal }[] = [
 
 export default function App() {
   const [locked, setLocked] = useState<boolean | null>(null) // null = checking
+  const [bootNonce, setBootNonce] = useState(0)
   const [view, setView] = useState<View>('terminal')
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [current, setCurrent] = useState<SessionInfo | null>(null)
@@ -131,7 +132,7 @@ export default function App() {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [locked])
+  }, [locked, bootNonce])
 
   // Keep the terminal header in sync with the active session.
   useEffect(() => {
@@ -146,12 +147,12 @@ export default function App() {
     [refreshCurrent],
   )
 
-  // Ended session in the terminal tab: start a fresh one with the same agent + folder.
-  const startFreshSession = async () => {
+  // Ended session in the terminal tab: same agent + folder, fresh or resumed.
+  const startFreshSession = async (resume = false) => {
     if (!current || startingNew) return
     setStartingNew(true)
     try {
-      const fresh = await restartSession(current.id)
+      const fresh = await restartSession(current.id, resume)
       selectSession(fresh.id)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not start a new session')
@@ -159,6 +160,16 @@ export default function App() {
       setStartingNew(false)
     }
   }
+
+  /* The stored session is gone from the Mac (pruned, or ~/.orbit cleared).
+     Forget it and let boot pick up whatever is actually there. */
+  const handleGone = useCallback(() => {
+    localStorage.removeItem(SESSION_KEY)
+    setCurrentId(null)
+    setCurrent(null)
+    setBootNonce((n) => n + 1) // boot again: reattach to something real, or start a shell
+    showToast('That session is no longer on your Mac')
+  }, [showToast])
 
   const pickImage = async (file: File | null) => {
     if (!file) return
@@ -190,7 +201,8 @@ export default function App() {
             /* Started here, inside the tap — iOS refuses a start one tick later. */
             onOpenVoice={() => setVoiceSession(startSpeech())}
             onPickImage={() => fileInput.current?.click()}
-            onNewSession={startFreshSession}
+            onNewSession={() => startFreshSession(false)}
+            onResume={() => startFreshSession(true)}
             starting={startingNew}
           >
             {currentId && locked === false ? (
@@ -200,6 +212,7 @@ export default function App() {
                 active={view === 'terminal'}
                 onStatus={setStatus}
                 onSession={selectSession}
+                onGone={handleGone}
                 onExit={handleExit}
                 onSessionState={() => refreshCurrent()}
                 onAuthFail={() => setLocked(true)}

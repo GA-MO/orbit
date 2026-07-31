@@ -59,6 +59,8 @@ interface Props {
   onStatus: (status: ConnectionStatus) => void
   /** Server attached us to a different session (requested one was gone). */
   onSession: (id: string) => void
+  /** The requested session does not exist on the Mac at all. */
+  onGone: () => void
   onExit: (code: number) => void
   /** Session is ended or read-only — refresh the header from the server. */
   onSessionState?: () => void
@@ -75,6 +77,7 @@ export default function Terminal({
   active = true,
   onStatus,
   onSession,
+  onGone,
   onExit,
   onSessionState,
   onAuthFail,
@@ -102,6 +105,7 @@ export default function Terminal({
   const callbacksRef = useRef({
     onStatus,
     onSession,
+    onGone,
     onExit,
     onSessionState,
     onAuthFail,
@@ -112,6 +116,7 @@ export default function Terminal({
   callbacksRef.current = {
     onStatus,
     onSession,
+    onGone,
     onExit,
     onSessionState,
     onAuthFail,
@@ -199,6 +204,11 @@ export default function Terminal({
             break
           case 'approval':
             callbacksRef.current.onApproval({ id: msg.id, label: msg.label, command: msg.command })
+            break
+          case 'gone':
+            // Nothing to reconnect to; the parent picks another session.
+            stopReconnect = true
+            callbacksRef.current.onGone()
             break
           case 'notice':
             callbacksRef.current.onNotice(msg.message)

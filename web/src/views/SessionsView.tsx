@@ -11,6 +11,7 @@ import {
   IconButton,
   IconEdit,
   IconPlus,
+  IconRestart,
   IconTrash,
   PROVIDER_GLYPH,
   basename,
@@ -44,9 +45,9 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
     onToast(`${sessionLabel(s)} stopped — history kept in Ended`)
   }
 
-  const startFresh = async (s: SessionInfo) => {
+  const startFresh = async (s: SessionInfo, resume = false) => {
     try {
-      const fresh = await restartSession(s.id)
+      const fresh = await restartSession(s.id, resume)
       onSelect(fresh.id)
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'Could not start a new session')
@@ -152,6 +153,18 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
             </>
           ) : (
             <>
+              {s.resumable && (
+                <IconButton
+                  label="Resume this agent's conversation"
+                  className="hover:text-accent"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    startFresh(s, true)
+                  }}
+                >
+                  <IconRestart size={16} />
+                </IconButton>
+              )}
               <IconButton
                 label="New session (same agent + folder)"
                 className="hover:text-accent"

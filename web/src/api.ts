@@ -16,6 +16,8 @@ export interface SessionInfo {
   endedAt: string | null
   exitCode: number | null
   alive: boolean
+  /** This agent can pick its last conversation in the folder back up. */
+  resumable: boolean
 }
 
 export interface DirListing {
@@ -88,8 +90,13 @@ export const renameSession = (id: string, name: string) =>
     body: JSON.stringify({ name }),
   })
 
-export const restartSession = async (id: string): Promise<SessionInfo> => {
-  const res = await authFetch(`/api/sessions/${id}/restart`, { method: 'POST' })
+/** Start again from an ended session — fresh, or resuming the agent's conversation. */
+export const restartSession = async (id: string, resume = false): Promise<SessionInfo> => {
+  const res = await authFetch(`/api/sessions/${id}/restart`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resume }),
+  })
   if (!res.ok) throw new Error((await res.json()).error ?? `restart failed: ${res.status}`)
   return res.json()
 }
@@ -109,6 +116,8 @@ export interface Screenshot {
   size: number
   /** A rendered URL, or the Mac's own screen. */
   kind: 'url' | 'screen'
+  /** What it was of — host:port style, or null for captures taken before labels. */
+  label: string | null
   width: number | null
   height: number | null
 }

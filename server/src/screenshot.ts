@@ -34,9 +34,24 @@ export interface Screenshot {
   createdAt: string
   size: number
   kind: CaptureKind
+  /** What was captured — a host:port, or the screen. Null for older captures. */
+  label: string | null
   /** Real pixel size, read from the PNG header — null if it could not be read. */
   width: number | null
   height: number | null
+}
+
+/* Thirty phone-sized thumbnails all look alike; the filename is the only place
+   to keep what each one was of without inventing a database for it. */
+const labelFrom = (url: string): string => {
+  try {
+    const { host, pathname } = new URL(url)
+    /* A colon survives (host:port is the whole point of the label and reads
+       badly without it); a slash cannot — it would leave the directory. */
+    return `${host}${pathname === '/' ? '' : pathname}`.replace(/[^\w.:]/g, '_').slice(0, 40)
+  } catch {
+    return ''
+  }
 }
 
 export interface CaptureOptions {
@@ -104,7 +119,7 @@ export async function capture(url: string, opts: CaptureOptions = {}): Promise<S
       if (netError) throw new Error(`${url} did not respond (${netError})`)
       await page.waitForLoadState('load', { timeout: 5000 }).catch(() => {})
     }
-    const file = `${Date.now()}-url.png`
+    const file = `${Date.now()}-url-${labelFrom(url)}.png`
     const filePath = path.join(SCREENSHOT_DIR, file)
     await page.screenshot({ path: filePath, fullPage: opts.fullPage ?? false })
     await prune()
@@ -166,13 +181,15 @@ async function describe(file: string): Promise<Screenshot> {
   const filePath = path.join(SCREENSHOT_DIR, file)
   const stat = await fsp.stat(filePath)
   const dimensions = await pngSize(filePath)
+  // <timestamp>-<kind>-<label>.png; captures taken before this are URL renders.
+  const [, kind, ...rest] = file.replace(/\.png$/, '').split('-')
   return {
     file,
     path: filePath,
     createdAt: stat.mtime.toISOString(),
     size: stat.size,
-    // Captures taken before screen capture existed are all URL renders.
-    kind: file.includes('-screen.') ? 'screen' : 'url',
+    kind: kind === 'screen' ? 'screen' : 'url',
+    label: rest.join('-') || null,
     width: dimensions?.width ?? null,
     height: dimensions?.height ?? null,
   }
@@ -199,7 +216,7 @@ async function pngSize(filePath: string): Promise<{ width: number; height: numbe
 
 export function filePathFor(file: string): string | null {
   const name = path.basename(file)
-  if (!/^[\w.-]+\.png$/.test(name)) return null
+  if (!/^[\w.:-]+\.png$/.test(name)) return null
   return path.join(SCREENSHOT_DIR, name)
 }
 

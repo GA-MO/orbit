@@ -36,6 +36,8 @@ const ptyEnv = (): Record<string, string> => {
 
 export interface SessionInfo extends PersistedSession {
   alive: boolean
+  /** Whether this session's agent can pick its last conversation back up. */
+  resumable: boolean
 }
 
 export interface Session {
@@ -80,12 +82,15 @@ class PtySession implements Session {
     public provider: Provider,
     cols: number,
     rows: number,
+    /** Overrides the provider's launch command — used to resume a conversation. */
+    command?: string | null,
   ) {
     // Agent CLIs launch through an interactive login shell so the user's PATH
     // applies; `exec` replaces the shell so exiting the agent ends the session.
     const shell = process.env.SHELL ?? '/bin/zsh'
-    const [file, args] = provider.command
-      ? ['/bin/zsh', ['-l', '-i', '-c', `exec ${provider.command}`]]
+    const launch = command ?? provider.command
+    const [file, args] = launch
+      ? ['/bin/zsh', ['-l', '-i', '-c', `exec ${launch}`]]
       : [shell, ['-l']]
 
     this.proc = pty.spawn(file, args, {
@@ -186,13 +191,21 @@ export class PtyManager {
   }
 
   create(
-    opts: { cwd?: string; provider?: Provider; name?: string; cols?: number; rows?: number } = {},
+    opts: {
+      cwd?: string
+      provider?: Provider
+      name?: string
+      cols?: number
+      rows?: number
+      command?: string | null
+    } = {},
   ): Session {
     const session = new PtySession(
       opts.cwd ?? os.homedir(),
-      opts.provider ?? { id: 'shell', name: 'Shell', command: null },
+      opts.provider ?? { id: 'shell', name: 'Shell', command: null, resumeCommand: null },
       opts.cols ?? 80,
       opts.rows ?? 24,
+      opts.command,
     )
     if (opts.name) session.name = opts.name
     session.onLabel = () => this.persist()
@@ -232,13 +245,23 @@ export class PtyManager {
     return store.readScrollback(id)
   }
 
-  /** Relaunch an ended session: new PTY, same provider, folder, and name. */
-  restart(id: string): Session | null {
+  /**
+   * Start again from an ended session: new PTY, same provider, folder, and name.
+   * With `resume`, the agent is asked to pick its last conversation in that
+   * folder back up instead of starting a fresh one.
+   */
+  restart(id: string, resume = false): Session | null {
     const meta = this.dead.get(id)
     if (!meta) return null
     const provider = getProvider(meta.providerId)
     if (!provider) return null
-    return this.create({ provider, cwd: meta.cwd, name: meta.name ?? undefined })
+    if (resume && !provider.resumeCommand) return null
+    return this.create({
+      provider,
+      cwd: meta.cwd,
+      name: meta.name ?? undefined,
+      command: resume ? provider.resumeCommand : undefined,
+    })
   }
 
   /** Remove an ended session and its history. Active sessions must be killed instead. */
@@ -255,10 +278,15 @@ export class PtyManager {
   }
 
   list(): SessionInfo[] {
-    const active = [...this.active.values()].map((s) => ({ ...metaOf(s), alive: true }))
+    const resumable = (providerId: string) => !!getProvider(providerId)?.resumeCommand
+    const active = [...this.active.values()].map((s) => ({
+      ...metaOf(s),
+      alive: true,
+      resumable: resumable(s.provider.id),
+    }))
     const dead = [...this.dead.values()]
       .sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''))
-      .map((m) => ({ ...m, alive: false }))
+      .map((m) => ({ ...m, alive: false, resumable: resumable(m.providerId) }))
     return [...active, ...dead]
   }
 

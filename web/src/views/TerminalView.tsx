@@ -7,6 +7,7 @@ import {
   IconImage,
   IconMic,
   IconPlus,
+  IconRestart,
   OrbitMark,
   PROVIDER_GLYPH,
   basename,
@@ -28,6 +29,8 @@ interface Props {
   onPickImage: () => void
   /** Start a fresh session with the same agent + folder as this ended one. */
   onNewSession: () => void
+  /** Same, but asking the agent to carry on its last conversation there. */
+  onResume: () => void
   starting: boolean
   /** The terminal element — owned by the parent so it survives tab switches. */
   children: ReactNode
@@ -40,6 +43,7 @@ export default function TerminalView({
   onOpenVoice,
   onPickImage,
   onNewSession,
+  onResume,
   starting,
   children,
 }: Props) {
@@ -90,15 +94,43 @@ export default function TerminalView({
         </div>
         {/* An ended session has no PTY — voice and image would write into nothing. */}
         {ended ? (
-          <Button
-            variant="outline"
-            disabled={starting}
-            onClick={onNewSession}
-            className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
-          >
-            <IconPlus size={15} />
-            {starting ? 'Starting…' : 'New'}
-          </Button>
+          /* Resume carries the agent's own conversation over; New does not.
+             Both spelled out would leave the session's own name no room, so
+             when there are two, the fresh start keeps just its glyph. */
+          <div className="flex shrink-0 items-center gap-1">
+            {session.resumable ? (
+              <>
+                <Button
+                  variant="outline"
+                  disabled={starting}
+                  onClick={onResume}
+                  className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
+                >
+                  <IconRestart size={15} />
+                  {starting ? 'Starting…' : 'Resume'}
+                </Button>
+                <IconButton
+                  label="New session (same agent + folder, no history)"
+                  size="lg"
+                  disabled={starting}
+                  onClick={onNewSession}
+                  className="border border-line"
+                >
+                  <IconPlus size={17} />
+                </IconButton>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={starting}
+                onClick={onNewSession}
+                className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
+              >
+                <IconPlus size={15} />
+                {starting ? 'Starting…' : 'New'}
+              </Button>
+            )}
+          </div>
         ) : (
           <>
             {voiceAvailable && (

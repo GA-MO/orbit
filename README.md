@@ -21,7 +21,8 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 **Phase 3 complete** — persistent session management:
 
 - Session metadata + terminal history persisted to `~/.orbit/` (`sessions.json` + `scrollback/<id>.txt`, debounced writes, sync flush on shutdown)
-- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ＋ starts a new session with the same provider/folder/name, ✕ forgets (deletes history)
+- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ↻ resumes the agent's own conversation in that folder (`claude --continue`, `codex resume --last` — offered only where the provider has one), ＋ starts a fresh session with the same provider/folder/name, ✕ forgets (deletes history)
+- A session id the phone remembers but the Mac no longer has is reported as gone, rather than silently opening a shell in the home directory under the old id
 - Ended sessions capped at 20 (oldest pruned)
 
 **Phase 4 + security + PWA complete:**
@@ -34,7 +35,7 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 
 **Phase 5 + command approval complete:**
 
-- **Screenshot validation**: 📸 panel — enter your dev app's URL, capture renders it headless in system Chrome (`playwright-core`, `channel: 'chrome'`, no browser download) at a Phone / Tablet / Desktop viewport (or full page), plus a **Mac screen** source for what Chrome cannot render (simulators, native apps, Xcode); gallery lays every shot out at its real aspect ratio with tap-to-zoom, ⇥ inserts the PNG path into the terminal for the agent to inspect; stored in `~/.orbit/screenshots/` (last 50 kept). Chrome stays warm between captures, and a dev server that is down is reported as an error instead of quietly saving a picture of Chrome's error page
+- **Screenshot validation**: 📸 panel — enter your dev app's URL, capture renders it headless in system Chrome (`playwright-core`, `channel: 'chrome'`, no browser download) at a Phone / Tablet / Desktop viewport (or full page), plus a **Mac screen** source for what Chrome cannot render (simulators, native apps, Xcode); gallery lays every shot out at its real aspect ratio with tap-to-zoom, ⇥ inserts the PNG path into the terminal for the agent to inspect; stored in `~/.orbit/screenshots/` (last 50 kept). Chrome stays warm between captures, and a dev server that is down is reported as an error instead of quietly saving a picture of Chrome's error page. Each capture is labelled with what it was of (`localhost:5173`) and the last four URLs that rendered come back as one-tap chips
 - **Command approval**: multi-character input chunks (paste / voice / automation) are screened server-side for dangerous patterns (`rm -rf`, `sudo`, disk writes, force-push, fork bombs, …). Matches are held and a red approval modal shows the exact command — Run anyway or Deny. Hand-typed single keystrokes pass through (they cannot be reconstructed reliably and are the user's own deliberate input).
 - Named sessions: optional name at creation, rename via ✎, created-time shown per session; the active session's name is the header title. A session nobody named is labelled with the first line typed into it (command for a shell, opening prompt for an agent) — captured server-side from the input stream, escape sequences and control codes stripped, backspace applied, so three unnamed shells are told apart by what they are doing
 - Agent CLIs launch via `zsh -lic 'exec <cmd>'` so the user's real PATH applies; exiting the agent ends the session
@@ -106,4 +107,4 @@ On first launch the server prints `[orbit] access token: …` — enter that on 
 5. ~~Playwright screenshot validation~~ ✅
 6. ~~Mobile UX polish (PWA install, auth, command approval)~~ ✅
 
-All phases from `AGENTS.md` are implemented. Beyond the original spec: Tailscale HTTPS docs ✅, viewport presets + Mac screen capture ✅, MCP server and phone-side approval for the agent's own commands ✅. Still open: Files/Diff tabs, session timeline, multi-window layout on tablets, resuming an ended agent conversation (`claude --continue`) rather than only starting a fresh one.
+All phases from `AGENTS.md` are implemented. Beyond the original spec: Tailscale HTTPS docs ✅, viewport presets + Mac screen capture ✅, MCP server and phone-side approval for the agent's own commands ✅. Still open: Files/Diff tabs, session timeline, multi-window layout on tablets, tying captures to the session that prompted them.

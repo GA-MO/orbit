@@ -22,7 +22,26 @@ import {
 } from '../components/ui'
 
 const URL_KEY = 'orbit.screenshotUrl'
+const RECENT_KEY = 'orbit.screenshotUrls'
 const PRESET_KEY = 'orbit.screenshotPreset'
+const RECENT_KEPT = 4
+
+/* Typing a localhost URL with a port on a phone keyboard is the slowest part of
+   checking a change, and it is nearly always one of the same few. */
+const loadRecent = (): string[] => {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]')
+    return Array.isArray(list) ? list.filter((u) => typeof u === 'string').slice(0, RECENT_KEPT) : []
+  } catch {
+    return []
+  }
+}
+
+const rememberRecent = (url: string): string[] => {
+  const next = [url, ...loadRecent().filter((u) => u !== url)].slice(0, RECENT_KEPT)
+  localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+  return next
+}
 
 type Source = 'url' | 'screen'
 
@@ -44,6 +63,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
   const [preset, setPreset] = useState<PresetId>(
     () => (localStorage.getItem(PRESET_KEY) as PresetId | null) ?? 'phone',
   )
+  const [recent, setRecent] = useState<string[]>(loadRecent)
   const [fullPage, setFullPage] = useState(false)
   const [shots, setShots] = useState<Screenshot[]>([])
   const [viewing, setViewing] = useState<Screenshot | null>(null)
@@ -65,6 +85,8 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
         localStorage.setItem(URL_KEY, url.trim())
         localStorage.setItem(PRESET_KEY, preset)
         await captureScreenshot({ url: url.trim(), preset, fullPage })
+        // Only URLs that actually rendered are worth offering again.
+        setRecent(rememberRecent(url.trim()))
       }
       setShots(await fetchScreenshots())
     } catch (e) {
@@ -149,6 +171,24 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 Full page
               </label>
             </div>
+
+            {recent.length > 1 && (
+              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+                {recent.map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setUrl(u)}
+                    className={`shrink-0 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+                      u === url
+                        ? 'border-accent/50 text-accent'
+                        : 'border-line-subtle text-faint hover:text-mut'
+                    }`}
+                  >
+                    {u.replace(/^https?:\/\//, '')}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -184,12 +224,19 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
               }`}
               onClick={() => setViewing(s)}
             />
+            {/* What it was of, on its own line: a tile this narrow truncates
+                host:port down to the host, which is the half that never varies. */}
+            <div
+              className="flex items-center gap-1 px-2.5 pt-1 text-[11px] text-faint"
+              title={`${s.label ?? 'Mac screen'} · ${timeAgo(s.createdAt)} ago${
+                s.width ? ` · ${s.width}×${s.height}` : ''
+              }`}
+            >
+              {s.kind === 'screen' && <IconDisplay size={12} className="shrink-0" />}
+              <span className="truncate font-mono">{s.label ?? 'Mac screen'}</span>
+            </div>
             <figcaption className="flex items-center px-1.5 py-0.5">
-              <span
-                className="flex min-w-0 flex-1 items-center gap-1 truncate pl-1.5 text-[11px] text-faint"
-                title={s.width ? `${s.width}×${s.height}` : undefined}
-              >
-                {s.kind === 'screen' && <IconDisplay size={12} className="shrink-0" />}
+              <span className="flex-1 pl-1.5 text-[11px] text-faint">
                 {timeAgo(s.createdAt)}
               </span>
               <IconButton
