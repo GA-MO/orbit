@@ -58,18 +58,24 @@ HTTP ธรรมดาใช้งานได้ แต่ **service worker �
 จากนั้นบน Mac:
 
 ```sh
-tailscale serve --bg 3001        # proxy https://<เครื่อง>.<tailnet>.ts.net → localhost:3001
-tailscale serve status           # ตรวจสถานะ
+npm run remote:on         # proxy https://<เครื่อง>.<tailnet>.ts.net → localhost:3001
+npm run remote:status     # ตรวจสถานะ
 ```
 
 เปิดจากมือถือ: `https://<ชื่อเครื่อง>.<tailnet>.ts.net` (ไม่ต้องใส่พอร์ต)
 — WebSocket ของ terminal วิ่งผ่านเป็น `wss://` อัตโนมัติ, Add to Home Screen ได้ PWA เต็มรูปแบบ
 
+request แรกอาจใช้เวลาสิบกว่าวินาที (Tailscale กำลังไปขอใบรับรอง) หลังจากนั้นจะเร็วปกติ
+
 ปิดเมื่อไม่ใช้:
 
 ```sh
-tailscale serve --https=443 off
+npm run remote:off
 ```
+
+> script ทั้งสามเรียก `tailscale` จาก PATH ถ้าหาไม่เจอจะ fallback ไปที่
+> `/Applications/Tailscale.app/Contents/MacOS/Tailscale` — การลง Tailscale แบบแอป
+> (Mac App Store / ดาวน์โหลดตรง) จะไม่ใส่ CLI ลง PATH ให้ ต้องเรียกจาก bundle แบบนี้
 
 > ⚠️ **อย่าใช้ `tailscale funnel`** กับ Orbit — funnel เปิดบริการสู่อินเทอร์เน็ต
 > สาธารณะจริง ๆ ต่างจาก `serve` ที่จำกัดอยู่ใน tailnet ของคุณ Orbit ควบคุม

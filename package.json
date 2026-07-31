@@ -10,7 +10,10 @@
   "scripts": {
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
     "dev": "concurrently -n server,web -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w web\"",
-    "build": "npm run build -w server && npm run build -w web"
+    "build": "npm run build -w server && npm run build -w web",
+    "remote:on": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --bg 3001",
+    "remote:off": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --https=443 off",
+    "remote:status": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve status"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
