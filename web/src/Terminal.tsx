@@ -338,13 +338,19 @@ export default function Terminal({
     if (!term) return
     term.clearSelection()
     window.getSelection()?.removeAllRanges()
-    if (term.buffer.active.type === 'alternate') {
+    // A TUI that repaints in place owns the screen: xterm's buffer holds only
+    // the current frame, so scrolling it locally moves the wrong thing. Alt
+    // screen or mouse tracking marks such an app — hand it PageUp/PageDown and
+    // let it scroll its own pane (Claude Code moves just the message area and
+    // leaves the composer where it is).
+    if (term.buffer.active.type === 'alternate' || term.modes.mouseTrackingMode !== 'none') {
       sendKey(direction < 0 ? '\x1b[5~' : '\x1b[6~')
       return
     }
-    const viewport = term.element?.querySelector('.xterm-viewport') as HTMLElement | null
-    if (!viewport) return
-    viewport.scrollTop += direction * viewport.clientHeight * 0.85
+    // iOS Safari ignores scrollTop writes on the momentum-scrolling viewport
+    // (-webkit-overflow-scrolling: touch), so the pads did nothing there.
+    // xterm's own API moves the buffer and repaints on every platform.
+    term.scrollLines(direction * Math.max(1, Math.round(term.rows * 0.85)))
   }
 
   return (
