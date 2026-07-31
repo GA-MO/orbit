@@ -23,12 +23,19 @@ export interface PersistedSession {
   exitCode: number | null
 }
 
+/* Labels captured before the CSI fix kept the body of SGR mouse reports: the
+   ESC [ prefix was stripped, the <35;28;28M it introduced was not. */
+const MOUSE_REPORT_RESIDUE = /^(?:<\d+;\d+;\d+[Mm])+/
+
 export function load(): PersistedSession[] {
   try {
     const list = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))
     if (!Array.isArray(list)) return []
     // Sessions persisted before firstCommand existed simply have none.
-    return list.map((s: PersistedSession) => ({ ...s, firstCommand: s.firstCommand ?? null }))
+    return list.map((s: PersistedSession) => ({
+      ...s,
+      firstCommand: s.firstCommand?.replace(MOUSE_REPORT_RESIDUE, '').trim() || null,
+    }))
   } catch {
     return []
   }

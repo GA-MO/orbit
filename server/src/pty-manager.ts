@@ -12,9 +12,14 @@ const DEAD_SESSIONS_KEPT = 20
 const FIRST_COMMAND_MAX = 80
 
 /* Input arrives as raw keystrokes: cursor keys and the like are escape
-   sequences, and the phone's key bar sends control codes. Neither belongs in a
-   label, so only printable characters survive. */
-const ESCAPE_SEQUENCE = /\x1b(\[[0-9;?]*[A-Za-z~]|O[A-Za-z]|.)?/g
+   sequences, the phone's key bar sends control codes, and an app with mouse
+   tracking on turns every touch into a report. None of it belongs in a label,
+   so only printable characters survive.
+
+   CSI is ESC [ params intermediates final, and the params may open with a
+   private marker — which is exactly what a mouse report does (ESC [ <35;28;28M).
+   Matching only digits there left the marker and its body behind as the label. */
+const ESCAPE_SEQUENCE = /\x1b(\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|O[A-Za-z]|.)?/g
 const CONTROL_CHAR = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g
 
 /** Orbit's server process often inherits NO_COLOR from the IDE — strip it for PTYs. */
