@@ -56,10 +56,10 @@ export default function Terminal({
       fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
       scrollback: 5000,
       theme: {
-        background: '#0d1117',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
-        selectionBackground: '#264f78',
+        background: '#0a0c10',
+        foreground: '#e9ecf2',
+        cursor: '#93a5fd',
+        selectionBackground: '#2c3654',
       },
     })
     const fit = new FitAddon()
@@ -137,8 +137,12 @@ export default function Terminal({
 
     const refit = () => {
       if (disposed || !opened) return
+      // Hidden (display:none) containers measure 0×0 — fitting then would
+      // collapse the grid and garble the buffer via reflow.
+      if (container.clientWidth === 0 || container.clientHeight === 0) return
       try {
         fit.fit()
+        term.scrollToBottom() // coming back from a hidden tab lands on the latest output
       } catch {
         // fit() can race with dispose during unmount; safe to ignore
       }

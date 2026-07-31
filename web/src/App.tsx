@@ -4,28 +4,41 @@ import Terminal, {
   type ConnectionStatus,
   type TerminalHandle,
 } from './Terminal'
-import Drawer from './Drawer'
 import Login from './Login'
-import VoiceInput, { speechSupported } from './VoiceInput'
-import ScreenshotPanel from './ScreenshotPanel'
-import { AuthError, checkAuth, createSession, fetchSessions, uploadImage, type SessionInfo } from './api'
+import TerminalView from './views/TerminalView'
+import SessionsView from './views/SessionsView'
+import CapturesView from './views/CapturesView'
+import NewSessionSheet from './sheets/NewSessionSheet'
+import VoiceSheet, { speechSupported } from './sheets/VoiceSheet'
+import ApprovalModal from './components/ApprovalModal'
+import { IconCapture, IconSessions, IconTerminal } from './components/ui'
+import {
+  AuthError,
+  checkAuth,
+  createSession,
+  fetchSessions,
+  uploadImage,
+  type SessionInfo,
+} from './api'
 
 const SESSION_KEY = 'orbit.sessionId'
 
-const STATUS_LABEL: Record<ConnectionStatus, string> = {
-  connecting: 'Connecting…',
-  connected: 'Connected',
-  disconnected: 'Disconnected',
-}
+type View = 'terminal' | 'sessions' | 'captures'
+
+const TABS: { id: View; label: string; Icon: typeof IconTerminal }[] = [
+  { id: 'terminal', label: 'Terminal', Icon: IconTerminal },
+  { id: 'sessions', label: 'Sessions', Icon: IconSessions },
+  { id: 'captures', label: 'Captures', Icon: IconCapture },
+]
 
 export default function App() {
   const [locked, setLocked] = useState<boolean | null>(null) // null = checking
+  const [view, setView] = useState<View>('terminal')
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [current, setCurrent] = useState<SessionInfo | null>(null)
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
-  const [shotsOpen, setShotsOpen] = useState(false)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const termHandle = useRef<TerminalHandle | null>(null)
@@ -34,6 +47,7 @@ export default function App() {
   const selectSession = useCallback((id: string) => {
     localStorage.setItem(SESSION_KEY, id)
     setCurrentId(id)
+    setView('terminal')
   }, [])
 
   const showToast = useCallback((message: string) => {
@@ -64,7 +78,8 @@ export default function App() {
         } else {
           const fresh = await createSession('shell')
           if (cancelled) return
-          selectSession(fresh.id)
+          localStorage.setItem(SESSION_KEY, fresh.id)
+          setCurrentId(fresh.id)
         }
       } catch (e) {
         if (cancelled) return
@@ -78,22 +93,19 @@ export default function App() {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [locked, selectSession])
+  }, [locked])
 
-  // Keep the header title in sync with the active session (name/rename happen in the drawer).
+  // Keep the terminal header in sync with the active session.
   useEffect(() => {
-    if (!currentId || drawerOpen || locked !== false) return
+    if (!currentId || locked !== false) return
     fetchSessions()
       .then((all) => setCurrent(all.find((s) => s.id === currentId) ?? null))
       .catch(() => {})
-  }, [currentId, drawerOpen, locked])
+  }, [currentId, locked, view])
 
   const handleExit = useCallback(() => {
-    // Leave the final output on screen; the drawer starts the next session.
     localStorage.removeItem(SESSION_KEY)
   }, [])
-
-  const handleAuthFail = useCallback(() => setLocked(true), [])
 
   const pickImage = async (file: File | null) => {
     if (!file) return
@@ -106,61 +118,79 @@ export default function App() {
     }
   }
 
-  if (locked === true) {
-    return <Login onSuccess={() => setLocked(false)} />
+  const insertPath = (path: string) => {
+    termHandle.current?.write(`${path} `)
+    setView('terminal')
   }
 
+  if (locked === true) return <Login onSuccess={() => setLocked(false)} />
+
   return (
-    <div className="app">
-      <header className="header">
-        <button className="menu-button" onClick={() => setDrawerOpen(true)} title="Sessions">
-          ☰
-        </button>
-        <span className="logo">
-          ⌁ {current ? (current.name ?? `${current.providerName} · ${current.cwd.split('/').pop()}`) : 'Orbit'}
-        </span>
-        <span className="header-actions">
-          {speechSupported() && (
-            <button className="icon-button" title="Voice input" onClick={() => setVoiceOpen(true)}>
-              🎤
-            </button>
-          )}
-          <button
-            className="icon-button"
-            title="Upload image — its path is inserted into the terminal"
-            onClick={() => fileInput.current?.click()}
+    <div className="flex h-dvh flex-col pt-[env(safe-area-inset-top)]">
+      <main className="relative min-h-0 flex-1">
+        {/* Terminal stays mounted across tab switches — the PTY connection survives. */}
+        <div className={`h-full ${view === 'terminal' ? '' : 'hidden'}`}>
+          <TerminalView
+            session={current}
+            status={status}
+            voiceAvailable={speechSupported()}
+            onOpenVoice={() => setVoiceOpen(true)}
+            onPickImage={() => fileInput.current?.click()}
           >
-            🖼️
-          </button>
-          <button
-            className="icon-button"
-            title="Screenshot validation — capture your running app"
-            onClick={() => setShotsOpen(true)}
-          >
-            📸
-          </button>
-          <span className={`status status--${status}`} title={STATUS_LABEL[status]}>
-            <span className="status-dot" />
-            <span className="status-label">{STATUS_LABEL[status]}</span>
-          </span>
-        </span>
-      </header>
-      <main className="main">
-        {currentId && locked === false ? (
-          <Terminal
-            key={currentId}
-            sessionId={currentId}
-            onStatus={setStatus}
-            onSession={selectSession}
-            onExit={handleExit}
-            onAuthFail={handleAuthFail}
-            onApproval={setApproval}
-            handleRef={termHandle}
+            {currentId && locked === false ? (
+              <Terminal
+                key={currentId}
+                sessionId={currentId}
+                onStatus={setStatus}
+                onSession={selectSession}
+                onExit={handleExit}
+                onAuthFail={() => setLocked(true)}
+                onApproval={setApproval}
+                handleRef={termHandle}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-mut">
+                Connecting to your Mac…
+              </div>
+            )}
+          </TerminalView>
+        </div>
+
+        <div className={`h-full ${view === 'sessions' ? '' : 'hidden'}`}>
+          <SessionsView
+            active={view === 'sessions'}
+            currentId={currentId}
+            onSelect={selectSession}
+            onNew={() => setNewSessionOpen(true)}
+            onToast={showToast}
           />
-        ) : (
-          <div className="boot-message">Connecting to Orbit server…</div>
-        )}
+        </div>
+
+        <div className={`h-full ${view === 'captures' ? '' : 'hidden'}`}>
+          <CapturesView
+            active={view === 'captures'}
+            onInsertPath={insertPath}
+            onToast={showToast}
+          />
+        </div>
       </main>
+
+      <nav className="flex shrink-0 border-t border-line-subtle bg-surface pb-[env(safe-area-inset-bottom)]">
+        {TABS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            onClick={() => setView(id)}
+            aria-current={view === id ? 'page' : undefined}
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${
+              view === id ? 'text-accent' : 'text-faint hover:text-mut'
+            }`}
+          >
+            <Icon size={21} />
+            {label}
+          </button>
+        ))}
+      </nav>
+
       <input
         ref={fileInput}
         type="file"
@@ -171,59 +201,42 @@ export default function App() {
           e.target.value = ''
         }}
       />
+
+      {newSessionOpen && (
+        <NewSessionSheet
+          onCreated={(id) => {
+            setNewSessionOpen(false)
+            selectSession(id)
+          }}
+          onClose={() => setNewSessionOpen(false)}
+        />
+      )}
       {voiceOpen && (
-        <VoiceInput
+        <VoiceSheet
           onInsert={(text) => termHandle.current?.write(text)}
           onSend={(text) => termHandle.current?.write(`${text}\r`)}
           onClose={() => setVoiceOpen(false)}
         />
       )}
-      {shotsOpen && (
-        <ScreenshotPanel
-          onInsertPath={(path) => {
-            termHandle.current?.write(`${path} `)
-            showToast('Screenshot path inserted into the terminal')
+      {approval && (
+        <ApprovalModal
+          request={approval}
+          onApprove={() => {
+            termHandle.current?.approve(approval.id)
+            setApproval(null)
           }}
-          onClose={() => setShotsOpen(false)}
+          onDeny={() => {
+            termHandle.current?.deny(approval.id)
+            setApproval(null)
+            showToast('Command denied')
+          }}
         />
       )}
-      {approval && (
-        <div className="approval-overlay">
-          <div className="approval-card">
-            <div className="approval-title">⚠️ Dangerous command blocked</div>
-            <div className="approval-label">{approval.label}</div>
-            <code className="approval-command">{approval.command}</code>
-            <div className="voice-actions">
-              <button
-                className="voice-button"
-                onClick={() => {
-                  termHandle.current?.deny(approval.id)
-                  setApproval(null)
-                  showToast('Command denied')
-                }}
-              >
-                Deny
-              </button>
-              <button
-                className="voice-button voice-button--danger"
-                onClick={() => {
-                  termHandle.current?.approve(approval.id)
-                  setApproval(null)
-                }}
-              >
-                Run anyway
-              </button>
-            </div>
-          </div>
+      {toast && (
+        <div className="fixed bottom-20 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-full border border-line bg-overlay px-4 py-2.5 text-center text-[13px]">
+          {toast}
         </div>
       )}
-      {toast && <div className="toast">{toast}</div>}
-      <Drawer
-        open={drawerOpen}
-        currentId={currentId}
-        onClose={() => setDrawerOpen(false)}
-        onSelect={selectSession}
-      />
     </div>
   )
 }

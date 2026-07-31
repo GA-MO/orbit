@@ -44,8 +44,18 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 
 ```
 server/   Node.js + TypeScript — HTTP + WebSocket server, PTY session manager
-web/      React + Vite + TypeScript — xterm.js terminal UI
+web/      React + Vite + TypeScript + Tailwind v4 — xterm.js terminal UI
 ```
+
+## Design system
+
+Deep-space graphite palette with an indigo→cyan orbital accent (amber is reserved for the
+"live session" state), Space Grotesk for display type (bundled locally — the PWA never
+touches a CDN), and the signature **orbit ring** mark: a satellite tracing a slow orbit,
+used as the app mark and connection indicator. Tokens live in `web/src/styles.css`
+(`@theme`); primitives (buttons, fields, sheets, icons) in `web/src/components/ui.tsx`.
+Navigation is a three-tab shell — Terminal / Sessions / Captures — with sheets for
+focused flows (new session, voice) and modals only for interrupts (command approval).
 
 ## Run
 
