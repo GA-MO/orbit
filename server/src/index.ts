@@ -294,7 +294,7 @@ async function handleAuthedApi(
   // ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
 
   if (route === 'POST /api/notify') {
-    let body: { message?: string; source?: string }
+    let body: { message?: string; source?: string; quiet?: boolean }
     try {
       body = JSON.parse((await readBody(req)) || '{}')
     } catch {
@@ -302,6 +302,12 @@ async function handleAuthedApi(
     }
     const message = (body.message ?? '').trim().slice(0, 300)
     if (!message) return json(res, 400, { error: 'message is required' })
+    /* `quiet` is for things the user can already see: an open Orbit is someone
+       watching the terminal, and a toast repeating what is on screen is noise.
+       Say it only if it would otherwise be missed. */
+    if (body.quiet && notify.clientCount() > 0) {
+      return json(res, 200, { delivered: 0, pushed: 0, dropped: true })
+    }
     const delivered = notify.notify(message, body.source ?? null)
     // Nothing was listening: wake the phone instead, and it will also see the
     // notice itself when it next connects.

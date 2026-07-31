@@ -31,6 +31,9 @@ const ptyEnv = (): Record<string, string> => {
   env.COLORTERM = 'truecolor'
   env.FORCE_COLOR = '1'
   env.CLICOLOR_FORCE = '1'
+  /* Anything started in here inherits this, so a hook can tell "the user is
+     driving me from their phone" from "the user is sitting right there". */
+  env.ORBIT_SESSION = '1'
   return env
 }
 

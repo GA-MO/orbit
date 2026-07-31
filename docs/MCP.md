@@ -33,6 +33,43 @@ capture http://localhost:5173 แบบ desktop แล้วบอกหน่�
 
 agent จะเรียก `orbit_capture` เอง เห็นรูปเอง และคุณเห็นรูปเดียวกันในแท็บ Captures
 
+## hook แจ้งเตือนตอน Claude รอคุณ
+
+กล่องคำถามของ Claude Code (`AskUserQuestion`), การขออนุญาต, และการรอ input วาดอยู่ใน
+terminal เท่านั้น — จากมือถือที่คว่ำอยู่บนโต๊ะ คำถามที่มี 4 ตัวเลือกหน้าตาเหมือน session
+ที่กำลังคิดอยู่ และรอได้ทั้งคืน hook ตัวนี้ส่งจังหวะพวกนั้นมาที่ Orbit
+
+ใส่ใน `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "AskUserQuestion",
+        "hooks": [{ "type": "command", "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-notify-hook.mjs" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-notify-hook.mjs" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-notify-hook.mjs" }] }
+    ]
+  }
+}
+```
+
+| เหตุการณ์ | ส่งอะไร |
+| --- | --- |
+| `AskUserQuestion` | คำถามจริง + ตัวเลือก เช่น "Claude is asking: จะเก็บ schema เดิมไหม — เก็บเดิม / เขียนใหม่" |
+| `Notification` (permission, idle, agent_needs_input, elicitation) | "Claude is waiting for you" — ประเภทอื่นเช่น auth_success ไม่ส่ง |
+| `Stop` | "Finished: …" **เฉพาะ session ที่เปิดจาก Orbit** (ดูจาก `ORBIT_SESSION` ที่ PTY ตั้งให้) นั่งหน้าเครื่องอยู่ก็เห็นเองอยู่แล้ว |
+
+ทุกข้อความส่งแบบ `quiet` — **ถ้าเปิด Orbit อยู่จะไม่เด้งอะไรเลย** เพราะคุณเห็น terminal
+อยู่แล้ว จะแจ้งก็ต่อเมื่อคุณไม่ได้ดู (toast ตอนกลับมาเปิด หรือ push ตอนล็อกจอ)
+
+hook นี้ **ไม่บล็อกอะไรทั้งสิ้น** — ยิงแล้วจบทันที ต่อ Orbit ไม่ได้ก็เงียบไป ต่างจาก
+hook อนุมัติข้างล่างที่หยุด agent รอคำตอบ
+
 ## hook อนุมัติคำสั่งอันตราย
 
 Orbit กรองคำสั่งอันตรายที่ **คุณ** พิมพ์/วางลง terminal อยู่แล้ว แต่คำสั่งที่ **agent
