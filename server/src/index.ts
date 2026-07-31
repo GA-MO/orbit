@@ -9,14 +9,12 @@ import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
 import { getToken } from './auth.js'
 import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
+import * as uploads from './uploads.js'
+import * as store from './store.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
-const UPLOAD_DIR = path.join(HOME, '.orbit', 'uploads')
-const UPLOAD_LIMIT = 20 * 1024 * 1024
 const WEB_DIST = new URL('../../web/dist', import.meta.url).pathname
-
-fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
 const TOKEN = getToken()
 const manager = new PtyManager()
@@ -29,7 +27,7 @@ type ClientMessage =
   | { type: 'deny'; id: string }
 
 type ServerMessage =
-  | { type: 'ready'; sessionId: string; replay: string }
+  | { type: 'ready'; sessionId: string; replay: string; readOnly?: boolean }
   | { type: 'output'; data: string }
   | { type: 'exit'; code: number }
   | { type: 'pong' }
@@ -196,14 +194,13 @@ async function handleAuthedApi(
 
   if (route === 'POST /api/upload') {
     const rawName = url.searchParams.get('name') ?? 'image.png'
-    const name = path.basename(rawName).replace(/[^\w.-]/g, '_').slice(0, 80) || 'image.png'
     const chunks: Buffer[] = []
     let size = 0
     try {
       await new Promise<void>((resolve, reject) => {
         req.on('data', (chunk: Buffer) => {
           size += chunk.length
-          if (size > UPLOAD_LIMIT) {
+          if (size > uploads.LIMIT) {
             reject(new Error('too large'))
             req.destroy()
             return
@@ -214,11 +211,10 @@ async function handleAuthedApi(
         req.on('error', reject)
       })
     } catch {
-      return json(res, 413, { error: `upload exceeds ${UPLOAD_LIMIT / 1024 / 1024}MB limit` })
+      return json(res, 413, { error: `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit` })
     }
     if (size === 0) return json(res, 400, { error: 'empty upload' })
-    const file = path.join(UPLOAD_DIR, `${Date.now()}-${name}`)
-    await fsp.writeFile(file, Buffer.concat(chunks))
+    const file = await uploads.save(rawName, Buffer.concat(chunks))
     return json(res, 201, { path: file })
   }
 
@@ -318,6 +314,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
     send({
       type: 'ready',
       sessionId: requestedId,
+      readOnly: true,
       replay:
         history +
         '\r\n\x1b[90m[session ended — read-only. Open the menu (☰) and tap ↻ to relaunch]\x1b[0m\r\n',
@@ -329,7 +326,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
   const existing = requestedId ? manager.get(requestedId) : undefined
   const session = existing ?? manager.create({ cols, rows })
 
-  send({ type: 'ready', sessionId: session.id, replay: session.scrollback() })
+  send({ type: 'ready', sessionId: session.id, readOnly: false, replay: session.scrollback() })
 
   const offData = session.onData((data) => send({ type: 'output', data }))
   const offExit = session.onExit((code) => {
@@ -390,9 +387,25 @@ wss.on('connection', async (ws: WebSocket, req) => {
 server.listen(PORT, () => {
   console.log(`[orbit] server listening on http://localhost:${PORT} (ws: /ws)`)
   console.log(`[orbit] access token: ${TOKEN}`)
+
+  const known = new Set(manager.list().map((s) => s.id))
+  Promise.all([
+    store.sweepOrphanScrollback(known),
+    uploads.prune(),
+    screenshot.pruneStale(),
+  ])
+    .then(([orphans]) => {
+      if (orphans > 0) console.log(`[orbit] removed ${orphans} orphan scrollback file(s)`)
+    })
+    .catch((err) => console.error('[orbit] startup maintenance failed:', err))
 })
 
 process.on('SIGINT', () => {
+  manager.killAll()
+  process.exit(0)
+})
+
+process.on('SIGTERM', () => {
   manager.killAll()
   process.exit(0)
 })

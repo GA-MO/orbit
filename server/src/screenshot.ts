@@ -71,3 +71,6 @@ async function prune() {
   const items = await list()
   await Promise.all(items.slice(KEEP).map((s) => fsp.rm(s.path, { force: true })))
 }
+
+/** Prune on server start so stale files above {@link KEEP} are removed even without new captures. */
+export const pruneStale = prune

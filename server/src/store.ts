@@ -62,3 +62,17 @@ export function readScrollback(id: string): Promise<string> {
 export function deleteScrollback(id: string): void {
   fsp.rm(scrollbackPath(id), { force: true }).catch(() => {})
 }
+
+/** Remove scrollback files with no matching session id. */
+export async function sweepOrphanScrollback(knownIds: Set<string>): Promise<number> {
+  const names = await fsp.readdir(SCROLLBACK_DIR).catch(() => [] as string[])
+  let removed = 0
+  for (const name of names) {
+    if (!name.endsWith('.txt')) continue
+    const id = name.slice(0, -4)
+    if (knownIds.has(id)) continue
+    await fsp.rm(scrollbackPath(id), { force: true }).catch(() => {})
+    removed++
+  }
+  return removed
+}

@@ -50,6 +50,17 @@ export default function App() {
     setView('terminal')
   }, [])
 
+  const refreshCurrent = useCallback(async (id?: string | null) => {
+    const sid = id ?? currentId
+    if (!sid) return
+    try {
+      const all = await fetchSessions()
+      setCurrent(all.find((s) => s.id === sid) ?? null)
+    } catch {
+      // ignore
+    }
+  }, [currentId])
+
   const showToast = useCallback((message: string) => {
     setToast(message)
     setTimeout(() => setToast(null), 3000)
@@ -98,14 +109,15 @@ export default function App() {
   // Keep the terminal header in sync with the active session.
   useEffect(() => {
     if (!currentId || locked !== false) return
-    fetchSessions()
-      .then((all) => setCurrent(all.find((s) => s.id === currentId) ?? null))
-      .catch(() => {})
-  }, [currentId, locked, view])
+    refreshCurrent(currentId)
+  }, [currentId, locked, view, refreshCurrent])
 
-  const handleExit = useCallback(() => {
-    localStorage.removeItem(SESSION_KEY)
-  }, [])
+  const handleExit = useCallback(
+    (_code: number) => {
+      refreshCurrent()
+    },
+    [refreshCurrent],
+  )
 
   const pickImage = async (file: File | null) => {
     if (!file) return
@@ -141,9 +153,11 @@ export default function App() {
               <Terminal
                 key={currentId}
                 sessionId={currentId}
+                active={view === 'terminal'}
                 onStatus={setStatus}
                 onSession={selectSession}
                 onExit={handleExit}
+                onSessionState={() => refreshCurrent()}
                 onAuthFail={() => setLocked(true)}
                 onApproval={setApproval}
                 handleRef={termHandle}

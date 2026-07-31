@@ -10,6 +10,18 @@ const SCROLLBACK_LIMIT = 200_000 // chars kept for replay on reconnect
 const SCROLLBACK_FLUSH_MS = 2000
 const DEAD_SESSIONS_KEPT = 20
 
+/** Orbit's server process often inherits NO_COLOR from the IDE — strip it for PTYs. */
+const ptyEnv = (): Record<string, string> => {
+  const env = { ...process.env } as Record<string, string>
+  delete env.NO_COLOR
+  delete env.NODE_DISABLE_COLORS
+  env.TERM = 'xterm-256color'
+  env.COLORTERM = 'truecolor'
+  env.FORCE_COLOR = '1'
+  env.CLICOLOR_FORCE = '1'
+  return env
+}
+
 export interface SessionInfo extends PersistedSession {
   alive: boolean
 }
@@ -62,7 +74,7 @@ class PtySession implements Session {
       cols,
       rows,
       cwd,
-      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' } as Record<string, string>,
+      env: ptyEnv(),
     })
 
     this.proc.onData((data) => {

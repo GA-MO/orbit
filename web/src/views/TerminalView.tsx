@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connecting: 'Connecting…',
   connected: 'Connected',
   disconnected: 'Reconnecting…',
+  ended: 'Ended',
 }
 
 interface Props {
@@ -38,6 +39,7 @@ export default function TerminalView({
     connected: 'text-ok',
     connecting: 'text-live',
     disconnected: 'text-danger',
+    ended: 'text-faint',
   }[status]
 
   return (

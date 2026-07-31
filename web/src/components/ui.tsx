@@ -128,14 +128,15 @@ export function Button({ variant = 'primary', className = '', ...props }: Button
 
 export function IconButton({
   label,
+  size = 'md',
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: 'sm' | 'md' }) {
   return (
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex size-9 items-center justify-center rounded-(--radius-field) text-mut transition-colors hover:bg-raised hover:text-fore active:bg-overlay disabled:opacity-40 ${className}`}
+      className={`inline-flex items-center justify-center rounded-(--radius-field) text-mut transition-colors hover:bg-raised hover:text-fore active:bg-overlay disabled:opacity-40 ${size === 'sm' ? 'size-7' : 'size-9'} ${className}`}
       {...props}
     />
   )

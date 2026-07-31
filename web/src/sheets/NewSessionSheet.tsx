@@ -161,7 +161,7 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
 
         {/* Folder browser */}
         {listing && (
-          <div className="flex min-h-40 shrink-0 flex-col overflow-hidden rounded-(--radius-card) border border-line">
+          <div className="flex shrink-0 flex-col overflow-hidden rounded-(--radius-card) border border-line">
             <div className="flex items-center gap-1 border-b border-line bg-ink px-2 py-1.5">
               <IconButton
                 label="Parent folder"
@@ -192,7 +192,7 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
                 onChange={(e) => setFilter(e.target.value)}
               />
             )}
-            <div className="max-h-56 min-h-24 overflow-y-auto py-1">
+            <div className="py-1">
               {visibleDirs.map((d) => (
                 <button
                   key={d.name}

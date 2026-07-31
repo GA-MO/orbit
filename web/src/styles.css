@@ -124,16 +124,3 @@ body,
 }
 
 /* ---- xterm integration ---- */
-
-.terminal-container {
-  height: 100%;
-  width: 100%;
-}
-
-.terminal-container .xterm {
-  height: 100%;
-}
-
-.terminal-container .xterm-viewport {
-  background: transparent !important;
-}
