@@ -57,7 +57,9 @@ export default function TerminalView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center gap-3 border-b border-line-subtle px-4 py-2.5">
+      {/* Opaque and above the terminal: xterm's screen is a positioned element,
+          so anything it draws past its box would otherwise land on top of this. */}
+      <header className="relative z-10 flex shrink-0 items-center gap-3 border-b border-line-subtle bg-ink px-4 py-2.5">
         <OrbitMark size={26} idle={status !== 'connected'} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

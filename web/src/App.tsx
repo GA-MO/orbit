@@ -283,7 +283,7 @@ export default function App() {
         </div>
       </main>
 
-      <nav className="flex shrink-0 border-t border-line-subtle bg-surface pb-[env(safe-area-inset-bottom)]">
+      <nav className="relative z-10 flex shrink-0 border-t border-line-subtle bg-surface pb-[env(safe-area-inset-bottom)]">
         {TABS.map(({ id, label, Icon }) => (
           <button
             key={id}

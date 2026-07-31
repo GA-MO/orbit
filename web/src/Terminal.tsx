@@ -332,7 +332,23 @@ export default function Terminal({
     }
 
     const inputSub = term.onData((data) => sendInput(applyCtrl(data)))
-    const resizeSub = term.onResize(({ cols, rows }) => send({ type: 'resize', cols, rows }))
+    let sizeTimer: ReturnType<typeof setTimeout> | null = null
+    let pendingSize: { cols: number; rows: number } | null = null
+    // The socket handshake carries the size it opened with, so start in step.
+    let sentSize = `${term.cols}x${term.rows}`
+    const resizeSub = term.onResize((size) => {
+      pendingSize = size
+      if (sizeTimer) clearTimeout(sizeTimer)
+      sizeTimer = setTimeout(() => {
+        sizeTimer = null
+        if (!pendingSize) return
+        const next = `${pendingSize.cols}x${pendingSize.rows}`
+        // Toggling the bar twice ends where it began: nothing to tell the agent.
+        if (next === sentSize) return
+        sentSize = next
+        send({ type: 'resize', ...pendingSize })
+      }, RESIZE_SETTLE_MS)
+    })
 
     const refit = (scrollToBottom = false) => {
       if (disposed || !opened) return
@@ -353,21 +369,23 @@ export default function Terminal({
 
     /* The key bar folding open, the soft keyboard sliding in, a rotation — none
        of those are one layout change, they are a burst of them, and the observer
-       fires for every frame. Fitting on each one hands the agent a SIGWINCH it
-       answers with a full redraw, so frames drawn for one height land on a screen
-       that is already another height and the composer ends up half-erased. Let
-       the size stop moving, then fit once. */
-    let refitTimer: ReturnType<typeof setTimeout> | null = null
-    const scheduleRefit = () => {
-      if (refitTimer) clearTimeout(refitTimer)
-      refitTimer = setTimeout(() => {
-        refitTimer = null
-        refit()
-      }, RESIZE_SETTLE_MS)
-    }
-    const observer = new ResizeObserver(scheduleRefit)
+       fires for every frame.
+
+       xterm follows every one of them. A local reflow is ~3ms and it is the only
+       thing that keeps the screen the same size as the box it sits in; deferring
+       it leaves the last row — the composer being typed into — hanging past the
+       bottom edge for as long as the wait lasts, which on a keyboard opening is
+       250px of it.
+
+       What waits is the telling of the PTY. Every size the agent hears is a
+       SIGWINCH it answers with a full redraw, and a dozen of those chasing a
+       size that is still moving is how frames drawn for one height end up on a
+       screen that is already another one, composer half-erased. So: fit now,
+       say it once the size stops moving. */
+    const onBoxResize = () => refit()
+    const observer = new ResizeObserver(onBoxResize)
     observer.observe(container)
-    window.visualViewport?.addEventListener('resize', scheduleRefit)
+    window.visualViewport?.addEventListener('resize', onBoxResize)
 
     // Tap (no drag) opens the keyboard; read-only keeps iOS from popping it on scroll.
     const onTextareaFocus = () => setKeyboardOpen(true)
@@ -435,11 +453,11 @@ export default function Terminal({
       cancelAnimationFrame(openFrame)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       clearProbe()
-      if (refitTimer) clearTimeout(refitTimer)
+      if (sizeTimer) clearTimeout(sizeTimer)
       document.removeEventListener('visibilitychange', resync)
       window.removeEventListener('pageshow', resync)
       observer.disconnect()
-      window.visualViewport?.removeEventListener('resize', scheduleRefit)
+      window.visualViewport?.removeEventListener('resize', onBoxResize)
       term.textarea?.removeEventListener('focus', onTextareaFocus)
       term.textarea?.removeEventListener('blur', onTextareaBlur)
       touchTarget?.removeEventListener('touchstart', onTouchStart)
@@ -483,9 +501,14 @@ export default function Terminal({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="relative min-h-0 flex-1">
+        {/* xterm's screen is a positioned element, so whatever it draws past
+            this box lands on top of the bar below and the tabs above rather
+            than behind them. Clip, not hidden: `clip` keeps that from happening
+            without turning this into something iOS can scroll out from under
+            the focused textarea. */}
         <div
           ref={containerRef}
-          className="h-full w-full [&_.xterm]:h-full [&_.xterm-viewport]:!overflow-y-auto [&_.xterm-viewport]:!bg-transparent [&_.xterm-viewport]:[-webkit-overflow-scrolling:touch]"
+          className="h-full w-full overflow-clip [&_.xterm]:h-full [&_.xterm-viewport]:!overflow-y-auto [&_.xterm-viewport]:!bg-transparent [&_.xterm-viewport]:[-webkit-overflow-scrolling:touch]"
         />
         {showKeys && (
           <TerminalScrollPads
