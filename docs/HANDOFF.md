@@ -203,6 +203,10 @@ notice ที่ส่งไม่ถึงแล้วส่งซ้ำตอ�
 ทั้งสองข้อ mock บน loopback มองไม่เห็น — ข้อคิดคือ push ต้องทดสอบกับ push service
 จริงเท่านั้น
 
+**ยืนยันบนเครื่องจริงแล้ว (20:15)**: notification เด้งบนหน้าล็อกของ iPhone ทั้งสองครั้ง
+ที่ Apple ตอบ 201 ปิดจบเรื่องนี้ — เหลือแค่รีสตาร์ต server ให้ process ที่รันอยู่ใช้
+โค้ด push ตัวใหม่ (ตัวเดิมถือ `mailto:orbit@localhost` ค้างในหน่วยความจำ)
+
 ยังเหลือ (ฝั่งมือถือล้วน ๆ): HTTPS ผ่าน Tailscale + แฟล็ก `Secure` ของ cookie,
 voice ภาษาไทย, Web Push บนเครื่องจริง, `codex resume --last`
 
