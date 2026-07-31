@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { getToken } from './api'
 import TerminalKeys, { type ModState } from './components/TerminalKeys'
 import TerminalScrollPads from './components/TerminalScrollPads'
 import { isTouchDevice } from './touch'
@@ -157,11 +156,11 @@ export default function Terminal({
       callbacksRef.current.onStatus('connecting')
 
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      // No token here: the handshake carries the session cookie instead.
       const params = new URLSearchParams({
         session: sessionId,
         cols: String(term.cols),
         rows: String(term.rows),
-        token: getToken(),
       })
 
       ws = new WebSocket(`${proto}://${location.host}/ws?${params}`)

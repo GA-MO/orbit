@@ -6,7 +6,7 @@ import path from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { PtyManager } from './pty-manager.js'
 import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
-import { getToken } from './auth.js'
+import { getToken, hasSessionCookie, isSecureRequest, sessionCookie } from './auth.js'
 import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
 import * as uploads from './uploads.js'
@@ -57,9 +57,19 @@ const safePath = (p: string): string | null => {
   return resolved === HOME || resolved.startsWith(HOME + path.sep) ? resolved : null
 }
 
-const authorized = (req: http.IncomingMessage, url: URL): boolean => {
-  if (req.headers.authorization === `Bearer ${TOKEN}`) return true
-  return url.searchParams.get('token') === TOKEN
+/* Two credentials, deliberately unequal in what they can do.
+ *
+ * The token, as a Bearer header, is the real one: anything at all. The session
+ * cookie stands in only where a header cannot be set — the WebSocket handshake
+ * and an <img src> — so it authorises reads and the socket, never a write.
+ * SameSite=Strict is what makes that safe: no other origin can cause the
+ * browser to send it in the first place. */
+const bearer = (req: http.IncomingMessage): boolean =>
+  req.headers.authorization === `Bearer ${TOKEN}`
+
+const authorized = (req: http.IncomingMessage): boolean => {
+  if (bearer(req)) return true
+  return req.method === 'GET' && hasSessionCookie(req, TOKEN)
 }
 
 // ---- Static serving of the built web app (production: single port) ----
@@ -108,7 +118,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
   if (route === 'GET /healthz') return json(res, 200, { ok: true })
 
   if (url.pathname.startsWith('/api/')) {
-    if (!authorized(req, url)) return json(res, 401, { error: 'unauthorized' })
+    if (!authorized(req)) return json(res, 401, { error: 'unauthorized' })
     return handleAuthedApi(req, res, url, route)
   }
 
@@ -123,7 +133,12 @@ async function handleAuthedApi(
   url: URL,
   route: string,
 ) {
-  if (route === 'GET /api/auth/check') return json(res, 200, { ok: true })
+  /* The token check is also where a browser picks up its session cookie, so
+     every successful pairing — and every reload — renews it in one round trip. */
+  if (route === 'GET /api/auth/check') {
+    if (bearer(req)) res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
+    return json(res, 200, { ok: true })
+  }
 
   if (route === 'GET /api/providers') {
     const available = await detectAvailability()
@@ -378,7 +393,9 @@ const wss = new WebSocketServer({ server, path: '/ws' })
 
 wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url ?? '/ws', 'http://localhost')
-  if (!authorized(req, url)) {
+  // A browser cannot set a header here, so the cookie carries it; other clients
+  // (the MCP server, scripts) send the token the normal way.
+  if (!bearer(req) && !hasSessionCookie(req, TOKEN)) {
     ws.close(4001, 'unauthorized')
     return
   }

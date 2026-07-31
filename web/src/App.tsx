@@ -39,6 +39,7 @@ const TABS: { id: View; label: string; Icon: typeof IconTerminal }[] = [
 export default function App() {
   const [locked, setLocked] = useState<boolean | null>(null) // null = checking
   const [bootNonce, setBootNonce] = useState(0)
+  const [socketNonce, setSocketNonce] = useState(0)
   const [view, setView] = useState<View>('terminal')
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [current, setCurrent] = useState<SessionInfo | null>(null)
@@ -161,6 +162,21 @@ export default function App() {
     }
   }
 
+  /* The socket is refused when the session cookie is missing or stale — an
+     expired cookie, or a browser that dropped it. The token in storage may well
+     still be good, so ask for a fresh cookie before making anyone retype it. */
+  const handleAuthFail = useCallback(async () => {
+    try {
+      if (await checkAuth()) {
+        setSocketNonce((n) => n + 1) // remount the terminal; reconnect with the new cookie
+        return
+      }
+    } catch {
+      // unreachable server: treat as locked, the login screen says so
+    }
+    setLocked(true)
+  }, [])
+
   /* The stored session is gone from the Mac (pruned, or ~/.orbit cleared).
      Forget it and let boot pick up whatever is actually there. */
   const handleGone = useCallback(() => {
@@ -207,7 +223,7 @@ export default function App() {
           >
             {currentId && locked === false ? (
               <Terminal
-                key={currentId}
+                key={`${currentId}:${socketNonce}`}
                 sessionId={currentId}
                 active={view === 'terminal'}
                 onStatus={setStatus}
@@ -215,7 +231,7 @@ export default function App() {
                 onGone={handleGone}
                 onExit={handleExit}
                 onSessionState={() => refreshCurrent()}
-                onAuthFail={() => setLocked(true)}
+                onAuthFail={handleAuthFail}
                 onApproval={setApproval}
                 onNotice={showNotice}
                 onAsk={addAsk}

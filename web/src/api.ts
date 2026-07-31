@@ -152,9 +152,9 @@ export const fetchScreenshots = () => get<Screenshot[]>('/api/screenshots')
 export const deleteScreenshot = (file: string) =>
   authFetch(`/api/screenshots/${file}`, { method: 'DELETE' })
 
-/** Image URL usable in <img src> — auth via query token since headers aren't possible there. */
-export const screenshotUrl = (file: string) =>
-  `/api/screenshots/${file}?token=${encodeURIComponent(getToken())}`
+/** Image URL usable in <img src> — the session cookie authenticates it, so the
+    token never lands in a URL. */
+export const screenshotUrl = (file: string) => `/api/screenshots/${file}`
 
 export const uploadImage = async (file: File): Promise<{ path: string }> => {
   const res = await authFetch(`/api/upload?name=${encodeURIComponent(file.name)}`, {
