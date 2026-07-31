@@ -107,10 +107,13 @@ HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
 1. **รีสตาร์ต server** — `npm run build && npm start -w server` (หรือ `npm run dev`)
    agent ทำเองไม่ได้เพราะจะฆ่า session ตัวเอง หลังรีสตาร์ตแล้ว **reload หน้าเว็บบนมือถือ
    หนึ่งครั้ง**
-2. **ลงทะเบียน MCP** — `claude mcp add -s user orbit -- node /Users/sbpdigital/Development/orbit/server/dist/mcp.js`
-   (agent รันคำสั่งนี้แทนได้ถ้าอนุญาต แต่มันแก้ config ระดับ user ของคุณ เลยไม่ทำให้เอง)
-3. **ติดตั้ง hook อนุมัติ** — วาง snippet จาก `docs/MCP.md` ลง `.claude/settings.json`
-   เป็น opt-in โดยตั้งใจ เพราะมันเปลี่ยนพฤติกรรมทุก session ของคุณ
+2. ~~**ลงทะเบียน MCP**~~ — ลงแล้วที่ user scope (`claude mcp list` ขึ้น ✔ Connected)
+   ชี้ไปที่ path เต็มของ `server/dist/mcp.js` ใช้ได้ทุกโฟลเดอร์ `.mcp.json` ใน repo
+   ถูกลบออกแล้วเพราะซ้ำกัน
+3. ~~**ติดตั้ง hook อนุมัติ**~~ — ลงแล้วใน `~/.claude/settings.json` เป็น PreToolUse
+   ของ Bash พร้อม `"timeout": 190` (จำเป็น — ค่าเริ่มต้น 60 วิ จะตัด hook ทิ้งกลางทาง
+   แล้วปล่อยคำสั่งผ่าน) ก่อนรีสตาร์ต server ตัวเก่ายังไม่มี `/api/ask` hook เลย
+   ปล่อยผ่านทันทีใน ~40ms — ไม่มีอะไรพังระหว่างรอ
 4. **สิทธิ์ Screen Recording** — System Settings → Privacy & Security → Screen &
    System Audio Recording → เปิดให้แอปที่รัน server (Terminal/iTerm/VS Code) แล้ว
    **ปิดเปิดแอปนั้นใหม่** เป็น GUI ล้วน agent แตะไม่ได้
@@ -120,6 +123,19 @@ HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
    notification และการทดสอบแฟล็ก `Secure` ของ cookie
 7. **ทดสอบบนมือถือจริง** — ทั้งหมดในหัวข้อ "ทดสอบด้วยมือ" ข้างบน agent ยิง
    headless Chrome แทนได้แค่บางส่วน แต่ Safari บน iOS มีพฤติกรรมของตัวเอง
+
+## จุดที่รู้ตัวว่าอาจกวนใจ — ประเมินหลังใช้จริง
+
+hook ที่ลงไว้เป็น user scope แปลว่ามันทำงานกับ **ทุก session ของ Claude Code**
+ไม่ใช่แค่ที่สั่งจากมือถือ ถ้านั่งทำงานหน้าเครื่องโดยไม่ได้เปิด Orbit บนมือถือ แล้ว
+agent สั่งคำสั่งที่เข้าข่ายอันตราย มันจะ**ค้างรอ 180 วินาทีแล้วค่อยปฏิเสธ**
+
+ที่จงใจไม่ทำให้สั้นลงเพราะเคส "มือถือล็อกจออยู่" ก็หน้าตาเหมือนกันเป๊ะ (ไม่มี client
+ต่ออยู่) และเคสนั้นคือหัวใจของฟีเจอร์ — หยิบมือถือขึ้นมาแล้วเห็นคำถามค้างรออยู่
+
+ถ้าใช้จริงแล้วรำคาญ มีสามทางเลือก: ลด `TIMEOUT_SECONDS` ใน
+`scripts/orbit-approve.mjs`, ย้าย hook ไปเป็น project scope เฉพาะโปรเจกต์ที่ทำจาก
+มือถือ, หรือให้ server ตอบเร็วขึ้นเมื่อ**ไม่เคย**มีมือถือต่อเข้ามาเลยตั้งแต่บูต
 
 ## ของที่ยังค้าง (ไม่ได้ทำในรอบนี้)
 

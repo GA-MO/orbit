@@ -22,10 +22,8 @@ claude mcp add -s user orbit -- node /Users/<คุณ>/Development/orbit/server
 ```
 
 `-s user` ทำให้ใช้ได้ทุกโปรเจกต์ (เช่นตอนเปิด session ใน `orbit-demo`) ไม่ใช่แค่ใน repo นี้
-เช็คด้วย `claude mcp list` หรือพิมพ์ `/mcp` ใน Claude Code
-
-ในตัว repo นี้มี `.mcp.json` ให้อยู่แล้ว — session ที่เปิดที่โฟลเดอร์ orbit จะเห็น tools
-เลยหลัง build (Claude Code จะถามยืนยันครั้งแรก)
+และต้องเป็น **path เต็ม** เพราะ agent อาจรันอยู่คนละโฟลเดอร์ เช็คด้วย `claude mcp list`
+หรือพิมพ์ `/mcp` ใน Claude Code
 
 ### ลองใช้
 
@@ -53,7 +51,8 @@ Orbit กรองคำสั่งอันตรายที่ **คุณ**
         "hooks": [
           {
             "type": "command",
-            "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-approve.mjs"
+            "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-approve.mjs",
+            "timeout": 190
           }
         ]
       }
@@ -61,6 +60,10 @@ Orbit กรองคำสั่งอันตรายที่ **คุณ**
   }
 }
 ```
+
+`timeout` สำคัญ: hook รอคำตอบจากมือถือได้ถึง 180 วินาที แต่ค่าเริ่มต้นของ Claude Code
+คือตัด hook ทิ้งที่ 60 วินาที ถ้าไม่ตั้งไว้ให้ยาวกว่า คำสั่งอันตรายจะ**หลุดผ่านเงียบ ๆ**
+ตอนคุณยังไม่ทันกด
 
 พฤติกรรม:
 
