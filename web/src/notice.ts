@@ -70,7 +70,13 @@ export async function systemNotice(message: string): Promise<void> {
   if (noticePermission() !== 'granted') return
   try {
     const registration = await navigator.serviceWorker?.ready
-    await registration?.showNotification('Orbit', {
+    if (!registration) return
+    /* The push channel may have put this very message on the screen already —
+       the shared tag is supposed to make the second one replace the first, and
+       on iOS it does not always. Ask what is up there and say nothing twice. */
+    const showing = await registration.getNotifications({ tag: 'orbit-notice' })
+    if (showing.some((n) => n.body === message)) return
+    await registration.showNotification('Orbit', {
       body: message,
       icon: '/icon-192.png',
       tag: 'orbit-notice',

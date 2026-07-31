@@ -82,9 +82,11 @@ export default function App() {
   const noticeQueue = useRef<string[]>([])
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showNotice = useCallback((message: string) => {
+  const showNotice = useCallback((message: string, alreadyPushed = false) => {
     noticeQueue.current.push(message)
-    if (document.hidden) systemNotice(message)
+    // One that woke the phone as a push is already on its screen; queueing the
+    // toast still lets it be read in the app, but a banner would be the second.
+    if (document.hidden && !alreadyPushed) systemNotice(message)
     if (noticeTimer.current) return
 
     const next = () => {

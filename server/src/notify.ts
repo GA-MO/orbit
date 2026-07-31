@@ -20,6 +20,8 @@ export interface Notice {
   source: string | null
   /** Sent while nothing was connected — the phone shows it after the fact. */
   missed?: boolean
+  /** A push already put this on the phone's screen; a banner would be the second. */
+  pushed?: boolean
   /** When it was raised; only carried on missed notices, which are read late. */
   at?: string
 }
@@ -70,15 +72,28 @@ const broadcast = (msg: Notice | Ask) => {
   }
 }
 
-export function notify(message: string, source: string | null = null): number {
+export function notify(
+  message: string,
+  source: string | null = null,
+): { delivered: number; id: string } {
   const notice: Notice = { type: 'notice', id: nextId(), message, source }
   if (clients.size > 0) {
     broadcast(notice)
-    return clients.size
+    return { delivered: clients.size, id: notice.id }
   }
   missed.push({ ...notice, missed: true, at: new Date().toISOString() })
   if (missed.length > MISSED_KEPT) missed.shift()
-  return 0
+  return { delivered: 0, id: notice.id }
+}
+
+/* A notice nobody was there for goes out over push *and* waits here to be read
+   when the app comes back — two deliveries of one event, and on a phone still
+   locked when it reconnects, the second one raises its own banner beside the
+   first. Say which ones the phone has already seen; it can still catch up on
+   them in the app without being told twice. */
+export function markPushed(id: string): void {
+  const notice = missed.find((n) => n.id === id)
+  if (notice) notice.pushed = true
 }
 
 export interface AskResult {

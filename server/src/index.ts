@@ -308,10 +308,11 @@ async function handleAuthedApi(
     if (body.quiet && notify.clientCount() > 0) {
       return json(res, 200, { delivered: 0, pushed: 0, dropped: true })
     }
-    const delivered = notify.notify(message, body.source ?? null)
+    const { delivered, id } = notify.notify(message, body.source ?? null)
     // Nothing was listening: wake the phone instead, and it will also see the
     // notice itself when it next connects.
     const pushed = delivered === 0 ? await push.send('Orbit', message) : 0
+    if (pushed > 0) notify.markPushed(id)
     return json(res, 200, { delivered, pushed })
   }
 

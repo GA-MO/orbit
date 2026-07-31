@@ -69,8 +69,12 @@ interface Props {
   onSessionState?: () => void
   onAuthFail: () => void
   onApproval: (request: ApprovalRequest) => void
-  /** An agent or hook on the Mac wants to say something to whoever holds the phone. */
-  onNotice: (message: string) => void
+  /**
+   * An agent or hook on the Mac wants to say something to whoever holds the
+   * phone. `alreadyPushed` marks the ones that arrived as a notification while
+   * the app was away — showing them again would be the second banner.
+   */
+  onNotice: (message: string, alreadyPushed?: boolean) => void
   onAsk: (request: AskRequest) => void
   handleRef?: MutableRefObject<TerminalHandle | null>
 }
@@ -223,7 +227,7 @@ export default function Terminal({
             callbacksRef.current.onGone()
             break
           case 'notice':
-            callbacksRef.current.onNotice(msg.message)
+            callbacksRef.current.onNotice(msg.message, !!msg.pushed)
             break
           case 'ask':
             callbacksRef.current.onAsk({
