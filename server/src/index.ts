@@ -498,6 +498,13 @@ wss.on('connection', async (ws: WebSocket, req) => {
     ws.close()
   })
 
+  /* Replay only reproduces frames the agent drew for the size it had then, so a
+     phone that reattaches at a different size — or after the frame on screen
+     went stale — sees a mangled composer. Ask for the whole screen again now
+     that the stream above is carrying it; the redraw lands after the replay.
+     A session created just now is already drawing at this size. */
+  if (existing) session.repaint(cols, rows)
+
   // Dangerous chunks (paste/voice/automation) are held until the user approves.
   const pendingApprovals = new Map<string, string>()
   let approvalSeq = 0
@@ -533,7 +540,12 @@ wss.on('connection', async (ws: WebSocket, req) => {
         pendingApprovals.delete(msg.id)
         break
       case 'resize':
-        session.resize(msg.cols, msg.rows)
+        /* Through `repaint`, so the agent's last word on the subject is a whole
+           frame drawn for the size it now has. Resizing plainly leaves it free
+           to patch the screen incrementally from a frame that no longer matches,
+           which is what tears the composer. The phone only sends this once the
+           layout has settled, so the extra draw costs nothing. */
+        session.repaint(msg.cols, msg.rows)
         break
       case 'ping':
         send({ type: 'pong' })

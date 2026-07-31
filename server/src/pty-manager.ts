@@ -55,6 +55,8 @@ export interface Session {
   exitCode: number | null
   write(data: string): void
   resize(cols: number, rows: number): void
+  /** Set the size and make whatever owns the screen draw itself again. */
+  repaint(cols: number, rows: number): void
   kill(): void
   /** Subscribe to output; returns unsubscribe. */
   onData(cb: (data: string) => void): () => void
@@ -75,6 +77,8 @@ class PtySession implements Session {
   onLabel: (() => void) | null = null
 
   private proc: pty.IPty
+  private cols: number
+  private rows: number
   private buffer = ''
   private typed = '' // keystrokes since the last Enter, until firstCommand is set
   private dataSubs = new Set<(data: string) => void>()
@@ -96,6 +100,8 @@ class PtySession implements Session {
       ? ['/bin/zsh', ['-l', '-i', '-c', `exec ${launch}`]]
       : [shell, ['-l']]
 
+    this.cols = cols
+    this.rows = rows
     this.proc = pty.spawn(file, args, {
       name: 'xterm-256color',
       cols,
@@ -107,7 +113,13 @@ class PtySession implements Session {
     this.proc.onData((data) => {
       this.buffer += data
       if (this.buffer.length > SCROLLBACK_LIMIT) {
-        this.buffer = this.buffer.slice(-SCROLLBACK_LIMIT)
+        /* Cutting at an exact offset lands in the middle of an escape sequence
+           often enough to matter: replaying that leaves the terminal parsing a
+           sequence that never started, and it eats the text that follows. Give
+           up the extra characters and cut after the next line break instead. */
+        const cut = this.buffer.length - SCROLLBACK_LIMIT
+        const nl = this.buffer.indexOf('\n', cut)
+        this.buffer = this.buffer.slice(nl === -1 ? cut : nl + 1)
       }
       for (const cb of this.dataSubs) cb(data)
     })
@@ -145,7 +157,23 @@ class PtySession implements Session {
   }
 
   resize(cols: number, rows: number) {
-    if (this.alive && cols > 0 && rows > 0) this.proc.resize(cols, rows)
+    if (this.alive && cols > 0 && rows > 0) {
+      this.cols = cols
+      this.rows = rows
+      this.proc.resize(cols, rows)
+    }
+  }
+
+  /* A phone that comes back is looking at the frame that was on screen when it
+     left, and its terminal may be a different size now. Nothing short of a size
+     change makes a full-screen app redraw itself, and the kernel only signals
+     one when the size actually differs — so arrive at the size the client wants
+     by way of one row less. The app draws twice; the second draw is the one
+     that fits. */
+  repaint(cols: number, rows: number) {
+    if (!this.alive || cols <= 0 || rows <= 0) return
+    this.resize(cols, Math.max(1, rows - 1))
+    this.resize(cols, rows)
   }
 
   kill() {

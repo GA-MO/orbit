@@ -35,6 +35,10 @@ export interface AskRequest {
 }
 
 const RECONNECT_DELAY_MS = 1500
+/** How long a returning phone waits for the server to answer before giving up on the socket. */
+const PROBE_TIMEOUT_MS = 3000
+/** Quiet spell that marks the end of a burst of layout changes. */
+const RESIZE_SETTLE_MS = 180
 
 // iOS Safari draws a lone ำ (U+0E33) as a dotted circle with a floating mark above
 // it. xterm gives ำ a cell of its own — it is a spacing character — and the shaper
@@ -163,11 +167,16 @@ export default function Terminal({
         rows: String(term.rows),
       })
 
-      ws = new WebSocket(`${proto}://${location.host}/ws?${params}`)
+      // Held so a socket we have already replaced cannot reconnect on our behalf.
+      const socket = new WebSocket(`${proto}://${location.host}/ws?${params}`)
+      ws = socket
 
-      ws.onopen = () => callbacksRef.current.onStatus('connected')
+      socket.onopen = () => callbacksRef.current.onStatus('connected')
 
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (ws !== socket) return
+        // Any frame at all proves the socket still carries traffic.
+        clearProbe()
         const msg = JSON.parse(event.data)
         switch (msg.type) {
           case 'ready':
@@ -177,7 +186,11 @@ export default function Terminal({
               break
             }
             readOnly = !!msg.readOnly
-            term.clear()
+            /* Reset, not clear: a dropped connection can leave the terminal
+               half-way through an escape sequence, or on the alternate screen
+               with mouse tracking on. The replay below sets up whatever it
+               needs again, so start it from a terminal with no history. */
+            term.reset()
             if (msg.replay) term.write(decomposeSaraAm(msg.replay))
             if (readOnly) {
               setReadOnly(true)
@@ -185,8 +198,8 @@ export default function Terminal({
               callbacksRef.current.onStatus('ended')
               callbacksRef.current.onSessionState?.()
             }
-            // The PTY may have been created (or last used) at a different size.
-            if (!readOnly) send({ type: 'resize', cols: term.cols, rows: term.rows })
+            // The size went out with the handshake, and the server has already
+            // asked the agent to draw the whole screen again at it.
             break
           case 'output':
             term.write(decomposeSaraAm(msg.data))
@@ -224,8 +237,9 @@ export default function Terminal({
         }
       }
 
-      ws.onclose = (event) => {
-        if (disposed) return
+      socket.onclose = (event) => {
+        if (disposed || ws !== socket) return
+        clearProbe()
         if (event.code === 4001) {
           callbacksRef.current.onAuthFail()
           return
@@ -243,6 +257,38 @@ export default function Terminal({
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
     }
     sendRef.current = send
+
+    let probeTimer: ReturnType<typeof setTimeout> | null = null
+    const clearProbe = () => {
+      if (probeTimer) clearTimeout(probeTimer)
+      probeTimer = null
+    }
+
+    /* iOS suspends a backgrounded tab, and the socket can die out on the network
+       while it is asleep — the browser fires no onclose for that, so coming back
+       we find a socket that looks open, carries nothing, and leaves the screen on
+       whatever frame it last drew. Ask the server to say something; if it does
+       not, close the socket ourselves and let the reconnect replay the session. */
+    const resync = () => {
+      if (disposed || stopReconnect || readOnly) return
+      if (document.visibilityState !== 'visible') return
+      if (ws?.readyState === WebSocket.OPEN) {
+        if (probeTimer) return
+        send({ type: 'ping' })
+        probeTimer = setTimeout(() => {
+          probeTimer = null
+          ws?.close()
+        }, PROBE_TIMEOUT_MS)
+        return
+      }
+      if (ws?.readyState === WebSocket.CONNECTING) return
+      // Already closed while we were away — no reason to sit out the backoff.
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      reconnectTimer = null
+      connect()
+    }
+    document.addEventListener('visibilitychange', resync)
+    window.addEventListener('pageshow', resync)
 
     /* An unnamed session is labelled with its first command, which the server
        only knows once that line is committed — refetch the metadata then. */
@@ -289,18 +335,35 @@ export default function Terminal({
       // Hidden (display:none) containers measure 0×0 — fitting then would
       // collapse the grid and garble the buffer via reflow.
       if (container.clientWidth === 0 || container.clientHeight === 0) return
+      // Losing rows scrolls the buffer; follow it so the composer stays in view.
+      const buffer = term.buffer.active
+      const atBottom = buffer.viewportY >= buffer.baseY
       try {
         fit.fit()
-        if (scrollToBottom) term.scrollToBottom()
+        if (scrollToBottom || atBottom) term.scrollToBottom()
       } catch {
         // fit() can race with dispose during unmount; safe to ignore
       }
     }
     refitRef.current = refit
-    const observer = new ResizeObserver(() => refit())
+
+    /* The key bar folding open, the soft keyboard sliding in, a rotation — none
+       of those are one layout change, they are a burst of them, and the observer
+       fires for every frame. Fitting on each one hands the agent a SIGWINCH it
+       answers with a full redraw, so frames drawn for one height land on a screen
+       that is already another height and the composer ends up half-erased. Let
+       the size stop moving, then fit once. */
+    let refitTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleRefit = () => {
+      if (refitTimer) clearTimeout(refitTimer)
+      refitTimer = setTimeout(() => {
+        refitTimer = null
+        refit()
+      }, RESIZE_SETTLE_MS)
+    }
+    const observer = new ResizeObserver(scheduleRefit)
     observer.observe(container)
-    const onViewportResize = () => refit()
-    window.visualViewport?.addEventListener('resize', onViewportResize)
+    window.visualViewport?.addEventListener('resize', scheduleRefit)
 
     // Tap (no drag) opens the keyboard; read-only keeps iOS from popping it on scroll.
     const onTextareaFocus = () => setKeyboardOpen(true)
@@ -367,8 +430,12 @@ export default function Terminal({
       if (handleRef) handleRef.current = null
       cancelAnimationFrame(openFrame)
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      clearProbe()
+      if (refitTimer) clearTimeout(refitTimer)
+      document.removeEventListener('visibilitychange', resync)
+      window.removeEventListener('pageshow', resync)
       observer.disconnect()
-      window.visualViewport?.removeEventListener('resize', onViewportResize)
+      window.visualViewport?.removeEventListener('resize', scheduleRefit)
       term.textarea?.removeEventListener('focus', onTextareaFocus)
       term.textarea?.removeEventListener('blur', onTextareaBlur)
       touchTarget?.removeEventListener('touchstart', onTouchStart)
