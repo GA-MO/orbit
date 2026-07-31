@@ -21,7 +21,7 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 **Phase 3 complete** — persistent session management:
 
 - Session metadata + terminal history persisted to `~/.orbit/` (`sessions.json` + `scrollback/<id>.txt`, debounced writes, sync flush on shutdown)
-- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ↻ resumes the agent's own conversation in that folder (`claude --continue`, `codex resume --last` — offered only where the provider has one), ＋ starts a fresh session with the same provider/folder/name, ✕ forgets (deletes history)
+- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ↻ resumes the agent's conversation in that folder (`claude --continue`, `codex resume --last`). Those commands address a folder, not an Orbit session, so ↻ appears only on the most recently ended session of a folder+agent and only while nothing is live there — anywhere else it would either reopen a different conversation than the one tapped, or put a second agent into one already in use, ＋ starts a fresh session with the same provider/folder/name, ✕ forgets (deletes history)
 - A session id the phone remembers but the Mac no longer has is reported as gone, rather than silently opening a shell in the home directory under the old id
 - Ended sessions capped at 20 (oldest pruned)
 

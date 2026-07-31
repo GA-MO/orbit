@@ -248,14 +248,15 @@ export class PtyManager {
   /**
    * Start again from an ended session: new PTY, same provider, folder, and name.
    * With `resume`, the agent is asked to pick its last conversation in that
-   * folder back up instead of starting a fresh one.
+   * folder back up instead of starting a fresh one — which only makes sense for
+   * the entry {@link list} marked resumable.
    */
   restart(id: string, resume = false): Session | null {
     const meta = this.dead.get(id)
     if (!meta) return null
     const provider = getProvider(meta.providerId)
     if (!provider) return null
-    if (resume && !provider.resumeCommand) return null
+    if (resume && !this.list().find((s) => s.id === id)?.resumable) return null
     return this.create({
       provider,
       cwd: meta.cwd,
@@ -277,17 +278,32 @@ export class PtyManager {
     this.persist()
   }
 
+  /* `claude --continue` (and `codex resume --last`) reopen the newest
+     conversation *in a folder* — they know nothing about which Orbit session
+     that was. So Resume can only be offered where those two meanings coincide:
+     on the most recently ended session of its folder and agent, and only while
+     nothing is still live there. Offering it on an older entry would promise a
+     conversation it cannot reach; offering it beside a running one would put a
+     second agent into the conversation that one is holding. */
   list(): SessionInfo[] {
-    const resumable = (providerId: string) => !!getProvider(providerId)?.resumeCommand
-    const active = [...this.active.values()].map((s) => ({
-      ...metaOf(s),
-      alive: true,
-      resumable: resumable(s.provider.id),
-    }))
-    const dead = [...this.dead.values()]
-      .sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''))
-      .map((m) => ({ ...m, alive: false, resumable: resumable(m.providerId) }))
-    return [...active, ...dead]
+    const active = [...this.active.values()].map((s) => ({ ...metaOf(s), alive: true }))
+    const dead = [...this.dead.values()].sort((a, b) =>
+      (b.endedAt ?? '').localeCompare(a.endedAt ?? ''),
+    )
+
+    const conversation = (s: { cwd: string; providerId: string }) => `${s.providerId}\0${s.cwd}`
+    const taken = new Set(active.map(conversation))
+
+    return [
+      ...active.map((s) => ({ ...s, resumable: false })),
+      ...dead.map((m) => {
+        const key = conversation(m)
+        const resumable = !!getProvider(m.providerId)?.resumeCommand && !taken.has(key)
+        // Whoever ended last owns the folder's conversation; the rest are history.
+        taken.add(key)
+        return { ...m, alive: false, resumable }
+      }),
+    ]
   }
 
   killAll() {
