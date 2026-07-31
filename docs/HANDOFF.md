@@ -272,6 +272,17 @@ shell, ตั้ง `trap 'echo REPAINT-RAN' WINCH`, ตัด ws, ต่อใ�
 
 ## ที่ต้องยืนยันบนเครื่องจริงหลังรีสตาร์ต
 
+> **รีสตาร์ตแล้ว 21:42 น.** — server ที่พอร์ต 3001 รัน `d47503d` + `9ac64cb` อยู่
+> (`~/.orbit/server.log` มีบรรทัด `=== up 2026-07-31 21:42:11 ===`) token ไม่เปลี่ยน
+>
+> ปิดไปหนึ่งข้อระหว่างนั้น: แฟล็ก `Secure` ของ cookie — ยิงผ่าน
+> `https://mb-h7vf72j2pq.tail965b92.ts.net/api/auth/check` แล้วได้
+> `HttpOnly; SameSite=Strict; Max-Age=31536000; Secure` ส่วนทาง `http://127.0.0.1:3001`
+> ไม่มี `Secure` ตามที่ตั้งใจ (`isSecureRequest` อ่าน `x-forwarded-proto` ที่
+> tailscale serve ใส่มาให้)
+>
+> `codex resume --last` ยังทดสอบไม่ได้ — เครื่องนี้ไม่มี Codex CLI ติดตั้งอยู่
+
 - ปิดแอปแล้วเปิดใหม่ตอน Claude กำลังคิด — กล่อง input ต้องเต็มใบ ไม่ฉีก
 - กด Keys เข้า/ออกรัว ๆ ระหว่าง Claude พิมพ์ — กล่อง input ต้องไม่แหว่ง
 - ปล่อยให้จบงานตอนจอล็อก แล้วปลดล็อกเข้าแอป — ต้องได้ banner **ใบเดียว**
