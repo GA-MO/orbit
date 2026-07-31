@@ -8,6 +8,7 @@ import {
 } from '../api'
 import NoticeOptIn from '../components/NoticeOptIn'
 import {
+  Button,
   EmptyState,
   IconButton,
   IconEdit,
@@ -204,7 +205,7 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
 
       <NoticeOptIn onToast={onToast} />
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-24">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-4">
         {alive.length === 0 && ended.length === 0 && (
           <EmptyState
             title="No sessions yet"
@@ -220,13 +221,16 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
         {ended.map(row)}
       </div>
 
-      <button
-        aria-label="New session"
-        onClick={onNew}
-        className="absolute right-5 bottom-24 z-10 flex size-14 items-center justify-center rounded-full bg-accent-strong text-white shadow-lg shadow-accent-strong/30 transition-transform hover:scale-105 active:scale-95"
-      >
-        <IconPlus size={24} />
-      </button>
+      {/* Docked, not floating: a circle hovering over the list landed on top of
+          whichever row happened to be under it — next to that row's own ＋,
+          which starts a session in that folder and means something else. This
+          one says which of the two it is, and sits where no row ever is. */}
+      <div className="shrink-0 border-t border-line-subtle bg-surface px-4 py-2.5">
+        <Button onClick={onNew} className="h-11 w-full">
+          <IconPlus size={18} />
+          New session
+        </Button>
+      </div>
     </div>
   )
 }
