@@ -89,6 +89,13 @@ Then open `http://<mac-ip>:3001` from your phone. That is enough for the termina
 
 On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; delete the file to rotate it).
 
+Smoke test (captures, the Mac→phone channel, MCP, the approval hook, auth) — against a throwaway instance, never the running one:
+
+```sh
+HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &
+HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
+```
+
 **User guide (Thai, with screenshots)**: [docs/USER-GUIDE.md](docs/USER-GUIDE.md) — a full walkthrough of every feature, captured from a real end-to-end session.
 
 **Using Orbit away from home**: see [docs/TAILSCALE.md](docs/TAILSCALE.md) — WireGuard tunnel to your Mac with real HTTPS (full PWA), no ports exposed to the internet.
