@@ -9,10 +9,19 @@ Orbit เปลี่ยน MacBook ของคุณเป็น AI developmen
 
 ## เริ่มต้น: จับคู่กับ Mac
 
-รัน server บน Mac (`npm run build && npm start -w server`) แล้วเปิด
-`http://<ip-ของ-mac>:3001` จากมือถือ — ครั้งแรกจะเจอหน้า login
-ใส่ access token ที่ server พิมพ์ไว้ใน console (`[orbit] access token: …`)
-ใส่ครั้งเดียว เครื่องจะจำไว้
+รัน server บน Mac (`npm run build && npm start -w server`) แล้วเปิดจากมือถือ
+ครั้งแรกจะเจอหน้า login ใส่ access token ที่ server พิมพ์ไว้ใน console
+(`[orbit] access token: …`) ใส่ครั้งเดียว เครื่องจะจำไว้
+
+เข้าได้ 2 ทาง:
+
+| ทาง | URL | ข้อจำกัด |
+|---|---|---|
+| **HTTPS ผ่าน Tailscale** (แนะนำ) | `https://<เครื่อง>.<tailnet>.ts.net` | ใช้ได้ทุกฟีเจอร์ + เข้าจากนอกบ้านได้ ตั้งครั้งเดียวตาม [TAILSCALE.md](TAILSCALE.md) |
+| LAN ธรรมดา | `http://<ip-ของ-mac>:3001` | ต้องอยู่ WiFi วงเดียวกัน และ **สั่งงานด้วยเสียงกับ Add to Home Screen จะใช้ไม่ได้** |
+
+ที่เสียงใช้ไม่ได้บน HTTP เพราะเบราว์เซอร์ยอมให้ขอไมค์และลงทะเบียน service worker
+เฉพาะบน secure context (HTTPS) เท่านั้น — ไม่ใช่ข้อจำกัดของ Orbit เอง
 
 <img src="images/01-login.png" width="390" alt="หน้า login ใส่ access token">
 
@@ -68,6 +77,9 @@ Ctrl+C, interactive TUI ทำงานครบ header บอกว่ากำ
 ## สั่งงานด้วยเสียง 🎙
 
 ปุ่มไมค์บน header ของ terminal → พูด → transcript ขึ้นสด **แก้ข้อความได้ก่อนส่ง**
+
+> ⚠️ ต้องเข้าผ่าน **HTTPS** เท่านั้น ถ้าเปิดด้วย `http://<ip-ของ-mac>:3001`
+> เบราว์เซอร์จะไม่ยอมให้ขอไมค์ ดู [TAILSCALE.md](TAILSCALE.md)
 
 - **Insert** — พิมพ์ข้อความลง terminal เฉย ๆ (ตรวจก่อนกด Enter เอง)
 - **Send ⏎** — พิมพ์แล้วส่งทันที
