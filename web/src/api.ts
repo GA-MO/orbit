@@ -156,6 +156,17 @@ export const deleteScreenshot = (file: string) =>
     token never lands in a URL. */
 export const screenshotUrl = (file: string) => `/api/screenshots/${file}`
 
+export const pushKey = () => get<{ publicKey: string }>('/api/push/key')
+
+export const subscribeToPush = async (subscription: unknown): Promise<void> => {
+  const res = await authFetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(subscription),
+  })
+  if (!res.ok) throw new Error((await res.json()).error ?? `subscribe failed: ${res.status}`)
+}
+
 export const uploadImage = async (file: File): Promise<{ path: string }> => {
   const res = await authFetch(`/api/upload?name=${encodeURIComponent(file.name)}`, {
     method: 'POST',

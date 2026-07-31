@@ -1,34 +1,80 @@
 /**
  * Notices from the Mac, shown where they can actually be seen.
  *
- * The in-app toast only helps if the phone is awake and Orbit is on screen —
- * which is exactly when you did not need telling. When it is not, fall back to
- * a system notification. iOS only allows those from an installed PWA and only
- * through the service worker registration, so that path is tried first.
+ * The in-app toast only helps while Orbit is on screen — which is exactly when
+ * you did not need telling. A locked phone is worse than hidden: iOS freezes the
+ * page and drops its WebSocket, so the notice reaches nothing at all. Web Push
+ * is the only channel that survives that, because the push service wakes the
+ * service worker with the app closed.
+ *
+ * So this module's real job is getting a push subscription registered, and iOS
+ * only grants one from a real tap inside an installed PWA — never on page load.
  */
+import { pushKey, subscribeToPush } from './api'
 
-let asked = false
+export type NoticePermission = 'unsupported' | 'default' | 'granted' | 'denied'
 
-export function requestNoticePermission(): void {
-  if (asked || !('Notification' in window) || Notification.permission !== 'default') return
-  asked = true
-  Notification.requestPermission().catch(() => {})
+export const noticePermission = (): NoticePermission => {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return 'unsupported'
+  }
+  return Notification.permission as NoticePermission
 }
 
+/** Must be called from a user gesture: iOS refuses the prompt otherwise. */
+export async function enableNotices(): Promise<NoticePermission> {
+  if (noticePermission() === 'unsupported') return 'unsupported'
+  const permission = await Notification.requestPermission()
+  if (permission === 'granted') await registerPush()
+  return permission as NoticePermission
+}
+
+/** Re-register on every launch: subscriptions expire and endpoints rotate. */
+export async function registerPush(): Promise<boolean> {
+  if (noticePermission() !== 'granted') return false
+  try {
+    const registration = await navigator.serviceWorker.ready
+    const { publicKey } = await pushKey()
+    const subscription =
+      (await registration.pushManager.getSubscription()) ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeKey(publicKey),
+      }))
+    await subscribeToPush(subscription.toJSON())
+    return true
+  } catch {
+    // No push is a degraded phone, not a broken app — the toast still works.
+    return false
+  }
+}
+
+/** VAPID keys travel as base64url; PushManager wants the raw bytes. */
+function decodeKey(base64url: string): ArrayBuffer {
+  const padded = base64url
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(base64url.length + ((4 - (base64url.length % 4)) % 4), '=')
+  const raw = atob(padded)
+  const buffer = new ArrayBuffer(raw.length)
+  const bytes = new Uint8Array(buffer)
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+  return buffer
+}
+
+/**
+ * Shown while the app is merely hidden — switched away from but not yet frozen.
+ * Anything deeper asleep than that is the push channel's job.
+ */
 export async function systemNotice(message: string): Promise<void> {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return
-  const options = { body: message, icon: '/icon-192.png', tag: 'orbit-notice' }
+  if (noticePermission() !== 'granted') return
   try {
     const registration = await navigator.serviceWorker?.ready
-    if (registration) {
-      await registration.showNotification('Orbit', options)
-      return
-    }
-  } catch {
-    // fall through to the plain constructor
-  }
-  try {
-    new Notification('Orbit', options)
+    await registration?.showNotification('Orbit', {
+      body: message,
+      icon: '/icon-192.png',
+      tag: 'orbit-notice',
+    })
   } catch {
     // notifications are a courtesy; the toast already fired
   }

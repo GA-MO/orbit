@@ -179,8 +179,20 @@ session ไหนของโฟลเดอร์นั้นรันอยู
 ทดสอบมันจับ terminal ที่มี access token ของ Orbit พิมพ์อยู่ติดมาด้วย — ภาพนั้นเข้าไป
 อยู่ในบริบทของ agent และในแกลเลอรี ปิดของที่ไม่อยากให้เห็นก่อนเรียก
 
+**PWA แบบ standalone ผ่านแล้ว** (19:40) — เปิดจาก PWA แล้ว `orbit_notify` ขึ้น
+"Delivered to 1", รูปในแท็บ Captures ขึ้นครบ 3 รูป, `orbit_ask` เด้งกล่องแล้วคำตอบ
+เดินทางกลับถึง agent จริง แปลว่า cookie auth ผ่านทั้ง WebSocket และ `<img>` ใน
+standalone context ของ WebKit
+
+**notification ตอนล็อกจอ — เดิมไม่ผ่าน แก้แล้ว** ยิงตอนล็อกจอได้ `delivered: 0`
+สองนัดติด เพราะ iOS แช่แข็งหน้าเว็บและตัด WebSocket ทิ้ง ข้อความจึงไม่ถึงใครเลย
+(สถาปัตยกรรมเดิมให้ **หน้าเว็บ** เป็นคนแสดง notification) แก้ด้วยสองชั้น: เก็บ
+notice ที่ส่งไม่ถึงแล้วส่งซ้ำตอนต่อกลับมา + Web Push ที่ปลุก service worker ได้
+แม้แอปปิด — **ยังไม่ได้ทดสอบบนเครื่องจริง** ต้องรีสตาร์ต server แล้วกด Turn on
+ในแท็บ Sessions ก่อน
+
 ยังเหลือ (ฝั่งมือถือล้วน ๆ): HTTPS ผ่าน Tailscale + แฟล็ก `Secure` ของ cookie,
-PWA แบบ standalone, voice ภาษาไทย, notification ตอนล็อกจอ, `codex resume --last`
+voice ภาษาไทย, Web Push บนเครื่องจริง, `codex resume --last`
 
 ## กติกาที่ควรรักษาไว้
 

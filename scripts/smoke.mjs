@@ -116,6 +116,50 @@ const p2 = phone(() => 'Allow')
 check('a phone joining mid-question is caught up', (await pending).body.answer === 'Allow')
 p2.ws.close()
 
+// ------------------------------------------------------------------- push
+
+section('push (the phone is asleep)')
+// The socket closed just above takes a moment to leave the server's set.
+await wait(500)
+const missedNotice = await api('/api/notify', { message: 'while you were away' })
+check(
+  'a notice with nobody connected is not delivered',
+  missedNotice.body.delivered === 0,
+  JSON.stringify(missedNotice.body),
+)
+check(
+  'push is attempted only then',
+  typeof missedNotice.body.pushed === 'number',
+  `pushed: ${missedNotice.body.pushed} (0 unless a device is registered)`,
+)
+const keyRes = await api('/api/push/key', null, 'GET')
+check('a VAPID key is served', typeof keyRes.body.publicKey === 'string' && keyRes.body.publicKey.length > 80)
+check('a malformed subscription is refused', (await api('/api/push/subscribe', { endpoint: 'x' })).status === 400)
+
+const late = phone()
+await late.open
+await wait(400)
+const replayed = late.seen.filter((m) => m.type === 'notice')
+check(
+  'the missed notice is replayed to the phone that turns up',
+  replayed.some((n) => n.message === 'while you were away' && n.missed),
+  `${replayed.length} replayed`,
+)
+const liveNotice = await api('/api/notify', { message: 'delivered live' })
+await wait(300)
+check('a live notice needs no push', liveNotice.body.delivered === 1 && liveNotice.body.pushed === 0)
+late.ws.close()
+await wait(500)
+const second = phone()
+await second.open
+await wait(400)
+check(
+  'nothing is replayed twice',
+  second.seen.filter((m) => m.type === 'notice').length === 0,
+)
+second.ws.close()
+await wait(400)
+
 // --------------------------------------------------------------- sessions
 
 section('sessions')

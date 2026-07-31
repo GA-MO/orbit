@@ -6,6 +6,7 @@ import {
   restartSession,
   type SessionInfo,
 } from '../api'
+import NoticeOptIn from '../components/NoticeOptIn'
 import {
   EmptyState,
   IconButton,
@@ -200,6 +201,8 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
           {alive.length} live{ended.length > 0 ? ` · ${ended.length} ended` : ''}
         </span>
       </header>
+
+      <NoticeOptIn onToast={onToast} />
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-24">
         {alive.length === 0 && ended.length === 0 && (

@@ -12,7 +12,7 @@ import CapturesView from './views/CapturesView'
 import NewSessionSheet from './sheets/NewSessionSheet'
 import VoiceSheet from './sheets/VoiceSheet'
 import { speechSupported, startSpeech, type SpeechSession } from './speech'
-import { requestNoticePermission, systemNotice } from './notice'
+import { registerPush, systemNotice } from './notice'
 import ApprovalModal from './components/ApprovalModal'
 import AskModal from './components/AskModal'
 import { IconCapture, IconSessions, IconTerminal } from './components/ui'
@@ -76,14 +76,29 @@ export default function App() {
     setTimeout(() => setToast(null), 3000)
   }, [])
 
-  const showNotice = useCallback(
-    (message: string) => {
-      showToast(message)
-      if (document.hidden) systemNotice(message)
-      else requestNoticePermission()
-    },
-    [showToast],
-  )
+  /* Notices can arrive in a batch — everything that happened while the phone
+     was asleep lands at once on reconnect. Queue them so each is actually read
+     instead of the last one winning. */
+  const noticeQueue = useRef<string[]>([])
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showNotice = useCallback((message: string) => {
+    noticeQueue.current.push(message)
+    if (document.hidden) systemNotice(message)
+    if (noticeTimer.current) return
+
+    const next = () => {
+      const message = noticeQueue.current.shift()
+      if (message === undefined) {
+        noticeTimer.current = null
+        setToast(null)
+        return
+      }
+      setToast(message)
+      noticeTimer.current = setTimeout(next, 3000)
+    }
+    next()
+  }, [])
 
   const addAsk = useCallback((request: AskRequest) => {
     setAsks((cur) => (cur.some((a) => a.id === request.id) ? cur : [...cur, request]))
@@ -108,6 +123,8 @@ export default function App() {
           return
         }
         if (!cancelled) setLocked(false)
+        // Push subscriptions expire and endpoints rotate; renew on every launch.
+        registerPush()
         const stored = localStorage.getItem(SESSION_KEY)
         const sessions = await fetchSessions()
         // Reattach even if the session ended — its history opens read-only.

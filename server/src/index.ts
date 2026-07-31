@@ -12,6 +12,7 @@ import * as screenshot from './screenshot.js'
 import * as uploads from './uploads.js'
 import * as store from './store.js'
 import * as notify from './notify.js'
+import * as push from './push.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
@@ -302,7 +303,38 @@ async function handleAuthedApi(
     const message = (body.message ?? '').trim().slice(0, 300)
     if (!message) return json(res, 400, { error: 'message is required' })
     const delivered = notify.notify(message, body.source ?? null)
-    return json(res, 200, { delivered })
+    // Nothing was listening: wake the phone instead, and it will also see the
+    // notice itself when it next connects.
+    const pushed = delivered === 0 ? await push.send('Orbit', message) : 0
+    return json(res, 200, { delivered, pushed })
+  }
+
+  if (route === 'GET /api/push/key') return json(res, 200, { publicKey: push.publicKey() })
+
+  if (route === 'POST /api/push/subscribe') {
+    let body: push.Subscription
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return json(res, 400, { error: 'invalid JSON' })
+    }
+    try {
+      push.subscribe(body)
+    } catch (err) {
+      return json(res, 400, { error: (err as Error).message })
+    }
+    return json(res, 201, { devices: push.count() })
+  }
+
+  if (route === 'POST /api/push/unsubscribe') {
+    let body: { endpoint?: string }
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return json(res, 400, { error: 'invalid JSON' })
+    }
+    if (body.endpoint) push.unsubscribe(body.endpoint)
+    return json(res, 200, { devices: push.count() })
   }
 
   if (route === 'POST /api/ask') {
@@ -324,6 +356,9 @@ async function handleAuthedApi(
       ? body.options.filter((o): o is string => typeof o === 'string' && !!o.trim()).map((o) => o.trim().slice(0, 40))
       : undefined
     const timeoutSeconds = Math.min(Math.max(body.timeoutSeconds ?? 120, 5), 600)
+    /* A question is worth waking someone for — and unlike a notice it is still
+       waiting when they arrive, so the push is a nudge rather than the content. */
+    if (notify.clientCount() === 0) await push.send('Orbit is asking', question)
     const result = await notify.ask({
       question,
       detail: body.detail?.slice(0, 2000) ?? null,

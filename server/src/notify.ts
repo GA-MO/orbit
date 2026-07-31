@@ -8,6 +8,9 @@
  */
 
 const ASK_TIMEOUT_MS = 120_000
+/** Notices that reached nobody, kept for whoever turns up next. */
+const MISSED_KEPT = 10
+const MISSED_MAX_AGE_MS = 6 * 60 * 60 * 1000
 
 export interface Notice {
   type: 'notice'
@@ -15,6 +18,10 @@ export interface Notice {
   message: string
   /** Where it came from, e.g. the session's folder. */
   source: string | null
+  /** Sent while nothing was connected — the phone shows it after the fact. */
+  missed?: boolean
+  /** When it was raised; only carried on missed notices, which are read late. */
+  at?: string
 }
 
 export interface Ask {
@@ -29,6 +36,7 @@ export interface Ask {
 type Send = (msg: Notice | Ask) => void
 
 const clients = new Set<Send>()
+const missed: Notice[] = []
 const pending = new Map<
   string,
   { ask: Ask; resolve: (answer: string | null) => void; timer: NodeJS.Timeout }
@@ -41,6 +49,12 @@ export function addClient(send: Send): () => void {
   clients.add(send)
   // A phone that connects mid-question still gets asked.
   for (const { ask } of pending.values()) send(ask)
+  /* And it is told what it slept through. A locked phone has no socket, so
+     those notices went nowhere at all — without this they are simply lost. */
+  const now = Date.now()
+  const fresh = missed.filter((n) => now - new Date(n.at!).getTime() < MISSED_MAX_AGE_MS)
+  missed.length = 0
+  for (const notice of fresh) send(notice)
   return () => clients.delete(send)
 }
 
@@ -57,8 +71,14 @@ const broadcast = (msg: Notice | Ask) => {
 }
 
 export function notify(message: string, source: string | null = null): number {
-  broadcast({ type: 'notice', id: nextId(), message, source })
-  return clients.size
+  const notice: Notice = { type: 'notice', id: nextId(), message, source }
+  if (clients.size > 0) {
+    broadcast(notice)
+    return clients.size
+  }
+  missed.push({ ...notice, missed: true, at: new Date().toISOString() })
+  if (missed.length > MISSED_KEPT) missed.shift()
+  return 0
 }
 
 export interface AskResult {

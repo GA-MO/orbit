@@ -14,6 +14,38 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+/* A push wakes this worker with the app closed and the phone locked — the one
+   path that survives iOS freezing the page and dropping its WebSocket. */
+self.addEventListener('push', (event) => {
+  let payload = { title: 'Orbit', body: '' }
+  try {
+    payload = { ...payload, ...event.data.json() }
+  } catch {
+    payload.body = event.data ? event.data.text() : ''
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: 'orbit-notice',
+      // Each notice replaces the last, but should still announce itself.
+      renotify: true,
+    }),
+  )
+})
+
+// Tapping it should land in Orbit, reusing the open window if there is one.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => 'focus' in w)
+      return open ? open.focus() : self.clients.openWindow('/')
+    }),
+  )
+})
+
 // Network-first for everything; cached shell only as an offline fallback.
 // API and WebSocket traffic is never cached.
 self.addEventListener('fetch', (event) => {
