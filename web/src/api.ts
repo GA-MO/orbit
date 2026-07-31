@@ -7,6 +7,8 @@ export interface ProviderInfo {
 export interface SessionInfo {
   id: string
   name: string | null
+  /** First line typed into the session — the label when it has no name. */
+  firstCommand: string | null
   providerId: string
   providerName: string
   cwd: string

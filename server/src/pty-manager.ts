@@ -9,6 +9,13 @@ import type { PersistedSession } from './store.js'
 const SCROLLBACK_LIMIT = 200_000 // chars kept for replay on reconnect
 const SCROLLBACK_FLUSH_MS = 2000
 const DEAD_SESSIONS_KEPT = 20
+const FIRST_COMMAND_MAX = 80
+
+/* Input arrives as raw keystrokes: cursor keys and the like are escape
+   sequences, and the phone's key bar sends control codes. Neither belongs in a
+   label, so only printable characters survive. */
+const ESCAPE_SEQUENCE = /\x1b(\[[0-9;?]*[A-Za-z~]|O[A-Za-z]|.)?/g
+const CONTROL_CHAR = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g
 
 /** Orbit's server process often inherits NO_COLOR from the IDE — strip it for PTYs. */
 const ptyEnv = (): Record<string, string> => {
@@ -29,6 +36,8 @@ export interface SessionInfo extends PersistedSession {
 export interface Session {
   id: string
   name: string | null
+  /** First line typed here, kept as a fallback label. */
+  firstCommand: string | null
   cwd: string
   provider: Provider
   createdAt: Date
@@ -47,12 +56,17 @@ export interface Session {
 class PtySession implements Session {
   id = randomUUID()
   name: string | null = null
+  firstCommand: string | null = null
   createdAt = new Date()
   alive = true
   exitCode: number | null = null
 
+  /** Called once firstCommand is known, so the manager can persist it. */
+  onLabel: (() => void) | null = null
+
   private proc: pty.IPty
   private buffer = ''
+  private typed = '' // keystrokes since the last Enter, until firstCommand is set
   private dataSubs = new Set<(data: string) => void>()
   private exitSubs = new Set<(code: number) => void>()
 
@@ -93,7 +107,28 @@ class PtySession implements Session {
   }
 
   write(data: string) {
-    if (this.alive) this.proc.write(data)
+    if (!this.alive) return
+    if (this.firstCommand === null) this.captureFirstCommand(data)
+    this.proc.write(data)
+  }
+
+  /* The first line the user commits is what the session is about — for a shell
+     it is a command, for an agent it is the opening prompt. Either way it says
+     far more than "Shell" does. */
+  private captureFirstCommand(data: string) {
+    for (const char of data.replace(ESCAPE_SEQUENCE, '').replace(CONTROL_CHAR, '')) {
+      if (char === '\r' || char === '\n') {
+        const line = this.typed.trim()
+        this.typed = ''
+        if (!line) continue
+        this.firstCommand = line.slice(0, FIRST_COMMAND_MAX)
+        this.onLabel?.()
+        return
+      }
+      // Backspace edits the line being typed, so the label matches what was sent.
+      if (char === '\x7f') this.typed = this.typed.slice(0, -1)
+      else if (this.typed.length < FIRST_COMMAND_MAX * 2) this.typed += char
+    }
   }
 
   resize(cols: number, rows: number) {
@@ -122,6 +157,7 @@ class PtySession implements Session {
 const metaOf = (s: PtySession): PersistedSession => ({
   id: s.id,
   name: s.name,
+  firstCommand: s.firstCommand,
   providerId: s.provider.id,
   providerName: s.provider.name,
   cwd: s.cwd,
@@ -154,6 +190,7 @@ export class PtyManager {
       opts.rows ?? 24,
     )
     if (opts.name) session.name = opts.name
+    session.onLabel = () => this.persist()
     this.active.set(session.id, session)
 
     let flushTimer: NodeJS.Timeout | null = null

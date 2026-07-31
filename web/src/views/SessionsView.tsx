@@ -15,6 +15,7 @@ import {
   IconTrash,
   PROVIDER_GLYPH,
   basename,
+  sessionLabel,
   timeAgo,
 } from '../components/ui'
 
@@ -41,7 +42,7 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
     await killSession(s.id)
     await new Promise((r) => setTimeout(r, 400))
     refresh()
-    onToast(`${s.name ?? s.providerName} stopped — history kept in Ended`)
+    onToast(`${sessionLabel(s)} stopped — history kept in Ended`)
   }
 
   const relaunch = async (s: SessionInfo) => {
@@ -69,6 +70,9 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
 
   const row = (s: SessionInfo) => {
     const isCurrent = s.id === currentId
+    const label = sessionLabel(s)
+    /* A borrowed first command reads as terminal output, not as a title. */
+    const isCommand = !s.name && !!s.firstCommand
     return (
       <div
         key={s.id}
@@ -108,11 +112,15 @@ export default function SessionsView({ active, currentId, onSelect, onNew, onToa
           />
         ) : (
           <span className="min-w-0 flex-1">
-            <span className={`block truncate text-sm font-medium ${s.alive ? '' : 'text-mut'}`}>
-              {s.name ?? s.providerName}
+            <span
+              className={`block truncate text-sm ${
+                isCommand ? 'font-mono text-[13px]' : 'font-medium'
+              } ${s.alive ? '' : 'text-mut'}`}
+            >
+              {label}
             </span>
             <span className="block truncate text-xs text-faint">
-              {s.name ? `${s.providerName} · ` : ''}
+              {label === s.providerName ? '' : `${s.providerName} · `}
               {basename(s.cwd)} ·{' '}
               {s.alive ? timeAgo(s.createdAt) : `ended ${s.endedAt ? timeAgo(s.endedAt) : '?'}`}
             </span>

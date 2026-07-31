@@ -189,9 +189,19 @@ export default function Terminal({
     }
     sendRef.current = send
 
+    /* An unnamed session is labelled with its first command, which the server
+       only knows once that line is committed — refetch the metadata then. */
+    let labelPending = true
+    const sendInput = (data: string) => {
+      send({ type: 'input', data })
+      if (!labelPending || !/[\r\n]/.test(data)) return
+      labelPending = false
+      setTimeout(() => callbacksRef.current.onSessionState?.(), 200)
+    }
+
     if (handleRef) {
       handleRef.current = {
-        write: (data) => send({ type: 'input', data }),
+        write: (data) => sendInput(data),
         approve: (id) => send({ type: 'approve', id }),
         deny: (id) => send({ type: 'deny', id }),
         focus: () => {
@@ -215,7 +225,7 @@ export default function Terminal({
       return String.fromCharCode(code - 64)
     }
 
-    const inputSub = term.onData((data) => send({ type: 'input', data: applyCtrl(data) }))
+    const inputSub = term.onData((data) => sendInput(applyCtrl(data)))
     const resizeSub = term.onResize(({ cols, rows }) => send({ type: 'resize', cols, rows }))
 
     const refit = (scrollToBottom = false) => {

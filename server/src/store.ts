@@ -16,6 +16,8 @@ export interface PersistedSession {
   providerName: string
   cwd: string
   createdAt: string
+  /** First line typed into the session — stands in for a name nobody gave it. */
+  firstCommand: string | null
   /** null while the session is running; set when it ends (or the server died). */
   endedAt: string | null
   exitCode: number | null
@@ -24,7 +26,9 @@ export interface PersistedSession {
 export function load(): PersistedSession[] {
   try {
     const list = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))
-    return Array.isArray(list) ? list : []
+    if (!Array.isArray(list)) return []
+    // Sessions persisted before firstCommand existed simply have none.
+    return list.map((s: PersistedSession) => ({ ...s, firstCommand: s.firstCommand ?? null }))
   } catch {
     return []
   }

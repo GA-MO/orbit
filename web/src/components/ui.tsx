@@ -232,6 +232,14 @@ export const timeAgo = (iso: string) => {
   return `${Math.floor(s / 86_400)}d`
 }
 
+/** What to call a session: its given name, else what was first typed in it,
+    else the agent — "Shell" tells three shells apart from each other not at all. */
+export const sessionLabel = (s: {
+  name: string | null
+  firstCommand: string | null
+  providerName: string
+}) => s.name ?? s.firstCommand ?? s.providerName
+
 export const PROVIDER_GLYPH: Record<string, string> = {
   shell: '❯',
   claude: '✳',

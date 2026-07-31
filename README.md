@@ -36,7 +36,7 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 
 - **Screenshot validation**: 📸 panel — enter your dev app's URL, capture renders it headless in system Chrome (`playwright-core`, `channel: 'chrome'`, no browser download) at iPhone viewport (or full page), gallery with tap-to-zoom, ⇥ inserts the PNG path into the terminal for the agent to inspect; stored in `~/.orbit/screenshots/` (last 50 kept)
 - **Command approval**: multi-character input chunks (paste / voice / automation) are screened server-side for dangerous patterns (`rm -rf`, `sudo`, disk writes, force-push, fork bombs, …). Matches are held and a red approval modal shows the exact command — Run anyway or Deny. Hand-typed single keystrokes pass through (they cannot be reconstructed reliably and are the user's own deliberate input).
-- Named sessions: optional name at creation, rename via ✎, created-time shown per session; the active session's name is the header title
+- Named sessions: optional name at creation, rename via ✎, created-time shown per session; the active session's name is the header title. A session nobody named is labelled with the first line typed into it (command for a shell, opening prompt for an agent) — captured server-side from the input stream, escape sequences and control codes stripped, backspace applied, so three unnamed shells are told apart by what they are doing
 - Agent CLIs launch via `zsh -lic 'exec <cmd>'` so the user's real PATH applies; exiting the agent ends the session
 - REST API: `GET/POST /api/sessions`, `DELETE /api/sessions/:id`, `GET /api/dirs` (home-restricted directory browsing)
 

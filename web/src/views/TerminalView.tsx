@@ -10,6 +10,7 @@ import {
   OrbitMark,
   PROVIDER_GLYPH,
   basename,
+  sessionLabel,
 } from '../components/ui'
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -61,8 +62,14 @@ export default function TerminalView({
                 {PROVIDER_GLYPH[session.providerId] ?? '❯'}
               </span>
             )}
-            <span className="truncate font-display text-sm font-semibold tracking-wide">
-              {session ? (session.name ?? session.providerName) : 'Orbit'}
+            <span
+              className={`truncate text-sm ${
+                session && !session.name && session.firstCommand
+                  ? 'font-mono text-[13px]'
+                  : 'font-display font-semibold tracking-wide'
+              }`}
+            >
+              {session ? sessionLabel(session) : 'Orbit'}
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-[11px] text-faint">
