@@ -9,7 +9,8 @@ import TerminalView from './views/TerminalView'
 import SessionsView from './views/SessionsView'
 import CapturesView from './views/CapturesView'
 import NewSessionSheet from './sheets/NewSessionSheet'
-import VoiceSheet, { speechSupported } from './sheets/VoiceSheet'
+import VoiceSheet from './sheets/VoiceSheet'
+import { speechSupported, startSpeech, type SpeechSession } from './speech'
 import ApprovalModal from './components/ApprovalModal'
 import { IconCapture, IconSessions, IconTerminal } from './components/ui'
 import {
@@ -17,6 +18,7 @@ import {
   checkAuth,
   createSession,
   fetchSessions,
+  restartSession,
   uploadImage,
   type SessionInfo,
 } from './api'
@@ -38,9 +40,10 @@ export default function App() {
   const [current, setCurrent] = useState<SessionInfo | null>(null)
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [newSessionOpen, setNewSessionOpen] = useState(false)
-  const [voiceOpen, setVoiceOpen] = useState(false)
+  const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [relaunching, setRelaunching] = useState(false)
   const termHandle = useRef<TerminalHandle | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -119,6 +122,20 @@ export default function App() {
     [refreshCurrent],
   )
 
+  // Ended session in the terminal tab: start a fresh one with the same agent + folder.
+  const relaunchCurrent = async () => {
+    if (!current || relaunching) return
+    setRelaunching(true)
+    try {
+      const fresh = await restartSession(current.id)
+      selectSession(fresh.id)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Relaunch failed')
+    } finally {
+      setRelaunching(false)
+    }
+  }
+
   const pickImage = async (file: File | null) => {
     if (!file) return
     try {
@@ -146,8 +163,11 @@ export default function App() {
             session={current}
             status={status}
             voiceAvailable={speechSupported()}
-            onOpenVoice={() => setVoiceOpen(true)}
+            /* Started here, inside the tap — iOS refuses a start one tick later. */
+            onOpenVoice={() => setVoiceSession(startSpeech())}
             onPickImage={() => fileInput.current?.click()}
+            onRelaunch={relaunchCurrent}
+            relaunching={relaunching}
           >
             {currentId && locked === false ? (
               <Terminal
@@ -225,11 +245,15 @@ export default function App() {
           onClose={() => setNewSessionOpen(false)}
         />
       )}
-      {voiceOpen && (
+      {voiceSession && (
         <VoiceSheet
+          session={voiceSession}
           onInsert={(text) => termHandle.current?.write(text)}
           onSend={(text) => termHandle.current?.write(`${text}\r`)}
-          onClose={() => setVoiceOpen(false)}
+          onClose={() => {
+            voiceSession.dispose()
+            setVoiceSession(null)
+          }}
         />
       )}
       {approval && (

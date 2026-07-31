@@ -2,9 +2,11 @@ import type { ReactNode } from 'react'
 import type { ConnectionStatus } from '../Terminal'
 import type { SessionInfo } from '../api'
 import {
+  Button,
   IconButton,
   IconImage,
   IconMic,
+  IconRestart,
   OrbitMark,
   PROVIDER_GLYPH,
   basename,
@@ -23,6 +25,9 @@ interface Props {
   voiceAvailable: boolean
   onOpenVoice: () => void
   onPickImage: () => void
+  /** Start a fresh session with the same agent + folder as this ended one. */
+  onRelaunch: () => void
+  relaunching: boolean
   /** The terminal element — owned by the parent so it survives tab switches. */
   children: ReactNode
 }
@@ -33,8 +38,11 @@ export default function TerminalView({
   voiceAvailable,
   onOpenVoice,
   onPickImage,
+  onRelaunch,
+  relaunching,
   children,
 }: Props) {
+  const ended = !!session && !session.alive
   const statusColor = {
     connected: 'text-ok',
     connecting: 'text-live',
@@ -65,7 +73,7 @@ export default function TerminalView({
               </>
             )}
             <span className={statusColor}>{STATUS_LABEL[status]}</span>
-            {session && !session.alive && (
+            {ended && (
               <>
                 <span>·</span>
                 <span>read-only</span>
@@ -73,14 +81,29 @@ export default function TerminalView({
             )}
           </div>
         </div>
-        {voiceAvailable && (
-          <IconButton label="Voice input" onClick={onOpenVoice}>
-            <IconMic size={19} />
-          </IconButton>
+        {/* An ended session has no PTY — voice and image would write into nothing. */}
+        {ended ? (
+          <Button
+            variant="outline"
+            disabled={relaunching}
+            onClick={onRelaunch}
+            className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
+          >
+            <IconRestart size={15} />
+            {relaunching ? 'Relaunching…' : 'Relaunch'}
+          </Button>
+        ) : (
+          <>
+            {voiceAvailable && (
+              <IconButton label="Voice input" onClick={onOpenVoice}>
+                <IconMic size={19} />
+              </IconButton>
+            )}
+            <IconButton label="Upload image into terminal" onClick={onPickImage}>
+              <IconImage size={19} />
+            </IconButton>
+          </>
         )}
-        <IconButton label="Upload image into terminal" onClick={onPickImage}>
-          <IconImage size={19} />
-        </IconButton>
       </header>
       <div className="min-h-0 flex-1 p-1.5">{children}</div>
     </div>

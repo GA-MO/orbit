@@ -315,9 +315,8 @@ wss.on('connection', async (ws: WebSocket, req) => {
       type: 'ready',
       sessionId: requestedId,
       readOnly: true,
-      replay:
-        history +
-        '\r\n\x1b[90m[session ended — read-only. Open the menu (☰) and tap ↻ to relaunch]\x1b[0m\r\n',
+      // Just the fact — the client owns the affordance (Relaunch lives in the header).
+      replay: history + '\r\n\x1b[90m[session ended — read-only]\x1b[0m\r\n',
     })
     return
   }

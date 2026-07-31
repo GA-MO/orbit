@@ -3,7 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { getToken } from './api'
-import TerminalKeys from './components/TerminalKeys'
+import TerminalKeys, { type ModState } from './components/TerminalKeys'
 import TerminalScrollPads from './components/TerminalScrollPads'
 import { isTouchDevice } from './touch'
 
@@ -74,6 +74,15 @@ export default function Terminal({
   const mobileRef = useRef(isTouchDevice())
   const [showKeys] = useState(() => isTouchDevice())
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+  // Ended sessions replay history with no PTY behind them — input controls are hidden.
+  const [readOnly, setReadOnly] = useState(false)
+  const [ctrl, setCtrl] = useState<ModState>('off')
+  const ctrlRef = useRef<ModState>('off')
+
+  const setCtrlMod = (next: ModState) => {
+    ctrlRef.current = next
+    setCtrl(next)
+  }
   const callbacksRef = useRef({ onStatus, onSession, onExit, onSessionState, onAuthFail, onApproval })
   callbacksRef.current = { onStatus, onSession, onExit, onSessionState, onAuthFail, onApproval }
 
@@ -133,6 +142,8 @@ export default function Terminal({
             term.clear()
             if (msg.replay) term.write(decomposeSaraAm(msg.replay))
             if (readOnly) {
+              setReadOnly(true)
+              setCtrlMod('off')
               callbacksRef.current.onStatus('ended')
               callbacksRef.current.onSessionState?.()
             }
@@ -145,6 +156,8 @@ export default function Terminal({
           case 'exit':
             stopReconnect = true
             readOnly = true
+            setReadOnly(true)
+            setCtrlMod('off')
             term.write(`\r\n\x1b[90m[session exited with code ${msg.code}]\x1b[0m\r\n`)
             callbacksRef.current.onStatus('ended')
             callbacksRef.current.onExit(msg.code)
@@ -192,7 +205,17 @@ export default function Terminal({
       }
     }
 
-    const inputSub = term.onData((data) => send({ type: 'input', data }))
+    // Ctrl armed on the key bar rewrites the next character the soft keyboard
+    // produces: @ A-Z [ \ ] ^ _ map onto control codes 0x00–0x1f.
+    const applyCtrl = (data: string) => {
+      if (ctrlRef.current === 'off' || data.length !== 1) return data
+      const code = data.toUpperCase().charCodeAt(0)
+      if (code < 64 || code > 95) return data
+      if (ctrlRef.current === 'once') setCtrlMod('off')
+      return String.fromCharCode(code - 64)
+    }
+
+    const inputSub = term.onData((data) => send({ type: 'input', data: applyCtrl(data) }))
     const resizeSub = term.onResize(({ cols, rows }) => send({ type: 'resize', cols, rows }))
 
     const refit = (scrollToBottom = false) => {
@@ -243,7 +266,8 @@ export default function Terminal({
     }
 
     const onTouchEnd = () => {
-      if (!mobileRef.current || touchMoved || !term.textarea) return
+      // No PTY behind a read-only session — popping the keyboard would go nowhere.
+      if (!mobileRef.current || touchMoved || readOnly || !term.textarea) return
       term.textarea.readOnly = false
       term.textarea.focus()
     }
@@ -327,9 +351,11 @@ export default function Terminal({
           />
         )}
       </div>
-      {showKeys && (
+      {showKeys && !readOnly && (
         <TerminalKeys
           keyboardOpen={keyboardOpen}
+          ctrl={ctrl}
+          onCtrlChange={setCtrlMod}
           onSend={sendKey}
           onFocus={() => {
             const term = termRef.current

@@ -86,6 +86,28 @@ Ctrl+C, interactive TUI ทำงานครบ header บอกว่ากำ
 
 <img src="images/07-voice.png" width="390" alt="voice input พร้อม transcript">
 
+### บน iPhone ต้องรู้
+
+iOS ไม่ได้ถอดเสียงในเครื่อง แต่ยิงไปที่ **บริการ dictation ของ Apple** —
+เลยมีข้อจำกัดที่ Android/Chrome ไม่มี:
+
+- **เลือกภาษาก่อนพูด** — ปุ่ม **ไทย / EN** มุมขวาบนของ sheet dictation ฟังทีละภาษา
+  ตั้งเป็น EN แล้วพูดไทยจะได้ผลมั่ว สลับกลางคันได้ (มันเริ่มฟังใหม่ให้ ข้อความเดิมไม่หาย)
+  แต่ **ไทยปนอังกฤษในประโยคเดียวไม่เวิร์ค** — ศัพท์เทคนิคอย่าง `npm run build`
+  ให้พูดไทยส่วนที่เป็นคำสั่งงาน แล้วพิมพ์ส่วนที่เป็นโค้ดเอาเองในช่อง transcript
+- **ฟังทีละช่วง** — พอเงียบสักพัก iOS จะปิด session เอง สถานะเปลี่ยนเป็น
+  “Stopped” กด **Continue listening** พูดต่อได้ ข้อความเดิมไม่หาย (ต่อท้ายให้)
+- **มีสวิตช์ 3 ตัวต้องเปิดครบ** — ปิดตัวไหนก็ขึ้น `service-not-allowed` เหมือนกันหมด
+  แยกไม่ออกจาก error เลยต้องไล่เช็คทั้งสาม แล้ว **reload หน้าเว็บ** หลังแก้:
+  1. Settings › Privacy & Security › **Speech Recognition** › Safari — เปิด
+  2. Settings › General › Keyboard › **Enable Dictation** — เปิด
+  3. ใน Safari กด **“AA”** ที่แถบ URL › Website Settings › **Microphone** › Allow
+
+  (ถ้าเครื่องมี Screen Time เช็ค Content & Privacy › **Siri & Dictation** ด้วย)
+- **ห้ามใช้จากไอคอน Home Screen** — WebKit บล็อก speech recognition ใน PWA
+  แบบ standalone เปิดผ่าน Safari ปกติแทน
+- **ต้องมีเน็ต** — dictation วิ่งผ่าน server ของ Apple ต่อ Tailscale อย่างเดียวไม่พอ
+
 ## ส่งภาพให้ agent 🖼
 
 ปุ่มรูปภาพบน header → เลือกรูป/ถ่ายภาพ (เช่น screenshot ของ error หรือ
@@ -122,7 +144,10 @@ Input ที่มาเป็นก้อน (วางข้อความ, �
 
 Session ที่จบแล้ว (agent ออกเอง, กดหยุด, หรือ server restart) ยังเปิดดูได้ —
 terminal แสดงประวัติทั้งหมดแบบ **read-only** พร้อมป้ายบอกใน header
-อยากทำงานต่อ กด ↻ ในแท็บ Sessions เพื่อเปิดตัวใหม่ที่เดิม
+แถบคีย์ลัดจะซ่อนไปเอง (ไม่มี PTY ให้ส่งอะไรแล้ว) เลื่อนดูประวัติได้ตามปกติ
+
+อยากทำงานต่อ กดปุ่ม **Relaunch** ที่มุมขวาบนของ terminal ได้เลย — เปิด session
+ใหม่ด้วย agent + โฟลเดอร์ + ชื่อเดิม (หรือกด ↻ ในแท็บ Sessions ก็ได้เหมือนกัน)
 
 <img src="images/10-ended-readonly.png" width="390" alt="ดูประวัติ session ที่จบแล้วแบบ read-only">
 

@@ -96,6 +96,7 @@ export const IconEdit = icon(
 )
 export const IconInsert = icon(<path d="M4 12h12m0 0-4-4m4 4-4 4M20 5v14" />)
 export const IconClose = icon(<path d="m6 6 12 12M18 6 6 18" />)
+export const IconChevronDown = icon(<path d="m6 10 6 6 6-6" />)
 export const IconSearch = icon(
   <>
     <circle cx="11" cy="11" r="6.5" />
@@ -131,12 +132,14 @@ export function IconButton({
   size = 'md',
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: 'sm' | 'md' }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: 'sm' | 'md' | 'lg' }) {
+  // lg = 44px, the minimum comfortable touch target.
+  const box = { sm: 'size-7', md: 'size-9', lg: 'size-11' }[size]
   return (
     <button
       aria-label={label}
       title={label}
-      className={`inline-flex items-center justify-center rounded-(--radius-field) text-mut transition-colors hover:bg-raised hover:text-fore active:bg-overlay disabled:opacity-40 ${size === 'sm' ? 'size-7' : 'size-9'} ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-(--radius-field) text-mut transition-colors hover:bg-raised hover:text-fore active:bg-overlay disabled:opacity-40 ${box} ${className}`}
       {...props}
     />
   )
