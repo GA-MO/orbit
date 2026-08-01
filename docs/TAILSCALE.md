@@ -87,7 +87,7 @@ dev server เป็น http บนพอร์ตที่มีแต่ Mac �
 http ซึ่ง Orbit (https) เอามาแสดงในเฟรมไม่ได้ (mixed content) ลิงก์จึงเหลือแค่
 **Copy** และการกดตามไปคือการเดินออกจากแอป ซึ่งบน PWA แปลว่า session เสียหน้าจอ
 
-แท็บ **Captures** มีแถวจัดการเรื่องนี้: พิมพ์ URL ของ dev server ลงช่องเดิม
+แท็บ **Preview** มีแถวจัดการเรื่องนี้: พิมพ์ URL ของ dev server ลงช่องเดิม
 (`http://localhost:3000`) แล้วกด **Share :3000 over https** Orbit จะเรียก
 `tailscale serve` ให้เอง จองพอร์ต 8443 ขึ้นไปพอร์ตละ dev server แล้วแสดงเป็นแถว
 — แตะแถวเพื่อเปิดทับ terminal (session ยังต่ออยู่ข้างหลัง), กด ✕ เพื่อปิด

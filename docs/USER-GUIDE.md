@@ -174,7 +174,7 @@ iOS ไม่ได้ถอดเสียงในเครื่อง แต
 design ที่อยากได้) → ไฟล์ถูกอัปโหลดไปเก็บบน Mac แล้ว **path ถูกพิมพ์ลง
 terminal ให้เลย** — พิมพ์ต่อว่าอยากให้ Claude ทำอะไรกับภาพนั้นได้ทันที
 
-## แท็บ Captures: ตรวจงานด้วยตา
+## แท็บ Preview: ตรวจงานด้วยตา
 
 Agent แก้เว็บให้แล้ว — หน้าตาเป็นยังไง? ใส่ URL ของ dev server เลือกขนาดจอ
 (**Phone / Tablet / Desktop** หรือติ๊ก Full page) แล้วกด **Capture**: Mac จะเปิด
@@ -233,7 +233,7 @@ desktop เปล่า ๆ ที่ไม่มีหน้าต่างแ�
 
 > "capture http://localhost:5173 แบบ desktop แล้วบอกว่า layout พังตรงไหน"
 
-รูปที่ agent ถ่ายจะโผล่ในแท็บ Captures ของคุณด้วย นอกจากนั้น agent ยัง
+รูปที่ agent ถ่ายจะโผล่ในแท็บ Preview ของคุณด้วย นอกจากนั้น agent ยัง
 **เตือนคุณขึ้นมือถือ** ตอนงานเสร็จ (`orbit_notify`) และ **ถามแล้วรอคำตอบ**
 จากคุณกลางทางได้ (`orbit_ask`) — คำถามจะเด้งเป็นกล่องบนจอ กดเลือกแล้ว
 agent ถึงจะเดินต่อ
@@ -301,8 +301,8 @@ terminal แสดงประวัติทั้งหมดแบบ **read-
 |---|---|
 | สั่ง Claude แก้โค้ดโปรเจกต์ X | Sessions → + → Claude Code → เลือก X → Start |
 | ดูว่าเมื่อกี้ agent ทำอะไรไป | Sessions → แตะ session (จบแล้วก็เปิดดูได้) |
-| ตรวจหน้าเว็บหลัง agent แก้ | Captures → ใส่ URL → เลือกขนาดจอ → Capture |
-| ดู Simulator / แอป native บน Mac | Captures → Mac screen → Capture |
+| ตรวจหน้าเว็บหลัง agent แก้ | Preview → ใส่ URL → เลือกขนาดจอ → Capture |
+| ดู Simulator / แอป native บน Mac | Preview → Mac screen → Capture |
 | ให้ agent ตรวจงานตัวเองด้วยภาพ | ลง MCP ([MCP.md](MCP.md)) แล้วสั่ง "capture … แล้วดูให้หน่อย" |
 | ส่ง error screenshot ให้ agent | Terminal → 🖼 → เลือกรูป → พิมพ์คำสั่งต่อท้าย path |
 | สั่งงานยาว ๆ ไม่อยากพิมพ์ | Terminal → 🎙 → พูด → แก้ transcript → Send |

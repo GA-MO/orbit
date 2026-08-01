@@ -260,12 +260,15 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
 
   return (
     <div className="flex h-full flex-col">
+      {/* One line. The long version of this sat here and again in the empty
+          state below it, and on a 390px screen two of them is most of the
+          fold. The empty state keeps the full sentence — it has the room. */}
       <header className="shrink-0 px-5 pt-4 pb-3">
-        <h1 className="font-display text-lg font-semibold tracking-wide">Captures</h1>
+        <h1 className="font-display text-lg font-semibold tracking-wide">Preview</h1>
         <p className="mt-0.5 text-xs text-mut">
           {source === 'url'
-            ? 'Render your running app headless and hand the screenshot to an agent'
-            : "Grab the Mac's own screen — simulators, native apps, anything Chrome cannot render"}
+            ? 'Your running app — live in a frame, or as a screenshot'
+            : "The Mac's own screen — simulators, native apps, Xcode"}
         </p>
       </header>
 
@@ -309,15 +312,23 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
               />
               {/* A screenshot answers "how does it look"; some questions only the
                   running app answers. localhost is rewritten to whichever host
-                  this phone reached Orbit on, so the tap lands on the Mac. */}
-              <IconButton
-                size="lg"
-                label="Open live in the browser"
-                disabled={!url.trim()}
-                onClick={() => openExternal(resolveUri(url.trim()))}
-              >
-                <IconExternal size={18} />
-              </IconButton>
+                  this phone reached Orbit on, so the tap lands on the Mac.
+
+                  Gone once the port is published, because then it is the worse
+                  of two doors sitting side by side: it hands the phone plain
+                  http on a port a loopback-bound dev server never answers, and
+                  leaving costs an installed app its session screen. The row
+                  below opens the same app over the terminal instead. */}
+              {!shared && (
+                <IconButton
+                  size="lg"
+                  label="Open live in the browser"
+                  disabled={!url.trim()}
+                  onClick={() => openExternal(resolveUri(url.trim()))}
+                >
+                  <IconExternal size={18} />
+                </IconButton>
+              )}
               <Button disabled={busy === 'main'} onClick={capture}>
                 {busy === 'main' ? 'Capturing…' : 'Capture'}
               </Button>
@@ -328,10 +339,13 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 onChange={setPreset}
                 options={PRESETS.map((p) => ({ id: p.id, label: p.label }))}
               />
-              <label className="flex items-center gap-1.5 text-xs whitespace-nowrap text-mut">
+              {/* The label is the target, not the box — but it was only as tall
+                  as the text, which on a phone is the same miss the Share
+                  button was making. */}
+              <label className="flex min-h-11 items-center gap-1.5 text-xs whitespace-nowrap text-mut">
                 <input
                   type="checkbox"
-                  className="accent-accent-strong"
+                  className="size-4 accent-accent-strong"
                   checked={fullPage}
                   onChange={(e) => setFullPage(e.target.checked)}
                 />
@@ -368,40 +382,50 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 {previews.map((p) => (
                   <div
                     key={p.publicPort}
-                    className="flex items-center gap-1 rounded-(--radius-field) border border-line-subtle bg-ink px-1 py-0.5"
+                    className="flex items-center gap-1 rounded-(--radius-field) border border-line-subtle bg-ink px-1"
                   >
+                    {/* The tailnet host used to be spelled out here and it was
+                        the one part of the row carrying no information: the
+                        same name on every row, and long enough that what does
+                        differ — the port it answers on — was inside the
+                        ellipsis. The two ports say it all; the whole address
+                        is on the frame's Copy button when it is wanted. */}
                     <button
                       onClick={() => setFramed(p)}
-                      className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left"
+                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-1.5 text-left"
                     >
-                      <span className="shrink-0 font-mono text-[11px] text-accent">:{p.port}</span>
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-faint">
-                        {p.url.replace(/^https:\/\//, '')}
-                      </span>
+                      <span className="shrink-0 font-mono text-xs text-accent">:{p.port}</span>
+                      <span className="shrink-0 font-mono text-xs text-faint">→ :{p.publicPort}</span>
                       {/* A published port outlives the dev server behind it, and
                           an empty frame does not say which of the two is wrong. */}
                       {!p.listening && (
-                        <span className="shrink-0 text-[11px] text-mut">nothing there yet</span>
+                        <span className="min-w-0 flex-1 truncate text-right text-[11px] text-mut">
+                          nothing there yet
+                        </span>
                       )}
                     </button>
+                    {/* 44px, like the Share button above them: a miss on ✕ lands
+                        on the row, which opens the frame — a wrong action is
+                        worse than the nothing a small button usually gives. */}
                     <IconButton
                       label={`Capture :${p.port}`}
-                      className="size-8 hover:text-accent"
+                      size="lg"
+                      className="hover:text-accent"
                       disabled={busy === `row:${p.publicPort}` || !p.listening}
                       onClick={() => captureRow(p)}
                     >
                       {busy === `row:${p.publicPort}` ? (
-                        <OrbitMark size={15} />
+                        <OrbitMark size={16} />
                       ) : (
-                        <IconCapture size={14} />
+                        <IconCapture size={16} />
                       )}
                     </IconButton>
                     <IconButton
                       label={`Stop sharing :${p.port}`}
-                      className="size-8"
+                      size="lg"
                       onClick={() => unshare(p)}
                     >
-                      <IconClose size={14} />
+                      <IconClose size={16} />
                     </IconButton>
                   </div>
                 ))}

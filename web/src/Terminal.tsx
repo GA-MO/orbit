@@ -998,7 +998,7 @@ export default function Terminal({
             <p className="text-xs text-faint">
               {linkCanFrame
                 ? 'Opens over the terminal without leaving Orbit — the session stays connected behind it.'
-                : 'Plain http cannot load inside Orbit, which is served over https. Copy it and open it yourself — or publish the port over https from Captures, and it will open here.'}
+                : 'Plain http cannot load inside Orbit, which is served over https. Copy it and open it yourself — or publish the port over https from Preview, and it will open here.'}
             </p>
             <div className="flex gap-2">
               {linkCanFrame && (

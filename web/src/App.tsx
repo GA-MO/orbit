@@ -36,7 +36,10 @@ type View = 'terminal' | 'sessions' | 'captures'
 const TABS: { id: View; label: string; Icon: typeof IconTerminal }[] = [
   { id: 'terminal', label: 'Terminal', Icon: IconTerminal },
   { id: 'sessions', label: 'Sessions', Icon: IconSessions },
-  { id: 'captures', label: 'Captures', Icon: IconCapture },
+  /* "Captures" named the gallery, back when the gallery was all there was.
+     The tab now publishes a dev server over https and opens it live over the
+     terminal too, and a screenshot is the thing you fall back to. */
+  { id: 'captures', label: 'Preview', Icon: IconCapture },
 ]
 
 export default function App() {

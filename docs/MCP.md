@@ -6,7 +6,7 @@
 
 | Tool | ทำอะไร |
 | --- | --- |
-| `orbit_capture` | render เว็บที่รันอยู่แล้ว **เห็นภาพเลย** (ไม่ใช่ path) — รูปโผล่ในแท็บ Captures บนมือถือด้วย |
+| `orbit_capture` | render เว็บที่รันอยู่แล้ว **เห็นภาพเลย** (ไม่ใช่ path) — รูปโผล่ในแท็บ Preview บนมือถือด้วย |
 | `orbit_screen` | จับหน้าจอ Mac จริง — Simulator, Xcode, แอป native ที่ headless Chrome เห็นไม่ได้ |
 | `orbit_notify` | ส่งข้อความสั้นขึ้นมือถือ เช่น "งานเสร็จแล้ว" |
 | `orbit_ask` | ถามคำถามขึ้นมือถือ **แล้วรอ** จนกว่าจะกดตอบ |
@@ -31,7 +31,7 @@ claude mcp add -s user orbit -- node /Users/<คุณ>/Development/orbit/server
 capture http://localhost:5173 แบบ desktop แล้วบอกหน่อยว่า layout พังตรงไหน
 ```
 
-agent จะเรียก `orbit_capture` เอง เห็นรูปเอง และคุณเห็นรูปเดียวกันในแท็บ Captures
+agent จะเรียก `orbit_capture` เอง เห็นรูปเอง และคุณเห็นรูปเดียวกันในแท็บ Preview
 
 ## hook แจ้งเตือนตอน Claude รอคุณ
 
