@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
+import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -106,6 +107,33 @@ console.log(
   '       (a capture with no app windows in it means Screen Recording is not granted —',
 )
 console.log('        macOS reports no error for that, so no test can catch it)')
+
+// ------------------------------------------------------------- dev servers
+
+section('dev servers on this Mac')
+{
+  /* Something that answers HTTP, and something that answers with anything but
+     — the second is the whole reason the probe exists rather than a bare TCP
+     connect, since a database on a round-numbered port is the noise it removes. */
+  const web = http.createServer((_, res) => res.end('ok'))
+  await new Promise((r) => web.listen(3097, '127.0.0.1', r))
+  const mute = net.createServer((s) => s.on('data', () => {}))
+  await new Promise((r) => mute.listen(3096, '127.0.0.1', r))
+
+  const found = await api('/api/ports', undefined, 'GET')
+  const at = (p) => found.body.find?.((d) => d.port === p)
+  check('a listening web server is offered', !!at(3097), JSON.stringify(found.body))
+  check('…named after the program holding it', typeof at(3097)?.command === 'string')
+  check('something that does not speak HTTP is not', !at(3096))
+  check('Orbit itself is not offered — it is already on screen', !at(PORT))
+
+  await new Promise((r) => web.close(r))
+  await new Promise((r) => mute.close(r))
+  check(
+    'a dev server that stopped drops off the list',
+    !(await api('/api/ports', undefined, 'GET')).body.find?.((d) => d.port === 3097),
+  )
+}
 
 // ---------------------------------------------------------------- previews
 

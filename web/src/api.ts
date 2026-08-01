@@ -140,16 +140,19 @@ export const captureScreenshot = async (opts: {
   return res.json()
 }
 
-/** Capture the Mac's screen itself — simulators, native apps, anything Chrome cannot render. */
-export const captureScreen = async (): Promise<Screenshot> => {
-  const res = await authFetch('/api/screenshot', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: 'screen' }),
-  })
-  if (!res.ok) throw new Error((await res.json()).error ?? `capture failed: ${res.status}`)
-  return res.json()
+/* `POST /api/screenshot { source: 'screen' }` captures the Mac's own screen and
+   has no caller here on purpose: it belongs to the agent, through the
+   `orbit_screen` MCP tool. Simulators and native apps are what an agent cannot
+   otherwise see; the person holding the phone is not looking at the Mac. */
+
+/** Something on this Mac that answers HTTP right now — a dev server to look at. */
+export interface DevPort {
+  port: number
+  /** The program holding it, as the Mac names it — `node`, `Python`, `ruby`. */
+  command: string
 }
+
+export const fetchDevPorts = () => get<DevPort[]>('/api/ports')
 
 export const fetchScreenshots = () => get<Screenshot[]>('/api/screenshots')
 

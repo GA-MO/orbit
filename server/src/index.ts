@@ -10,6 +10,7 @@ import { getToken, hasSessionCookie, isSecureRequest, sessionCookie } from './au
 import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
 import * as preview from './preview.js'
+import * as ports from './ports.js'
 import * as uploads from './uploads.js'
 import * as store from './store.js'
 import * as notify from './notify.js'
@@ -302,6 +303,12 @@ async function handleAuthedApi(
   }
 
   if (route === 'GET /api/presets') return json(res, 200, screenshot.PRESETS)
+
+  /* What is serving a page on this Mac right now, so the phone can offer it
+     instead of asking someone to type a port on a touch keyboard. Costs one
+     `lsof` and a short-lived socket per candidate, so it is asked on arrival
+     and on waking — never polled. */
+  if (route === 'GET /api/ports') return json(res, 200, await ports.devServers(PORT))
 
   // ---- Previews: a dev server, over https, on the tailnet ----
 

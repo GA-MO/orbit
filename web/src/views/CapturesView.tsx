@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import {
   PRESETS,
-  captureScreen,
   captureScreenshot,
   deleteScreenshot,
+  fetchDevPorts,
   fetchLiveness,
   fetchPreviews,
   fetchScreenshots,
   screenshotUrl,
   startPreview,
   stopPreview,
+  type DevPort,
   type Preview,
   type PresetId,
   type Screenshot,
@@ -22,6 +23,9 @@ import {
   IconButton,
   IconCapture,
   IconClose,
+  /* The Mac's own screen is no longer something this page can ask for — only
+     the agent can, through `orbit_screen`. The shots still land in this
+     gallery, so the tile that marks one still needs its icon. */
   IconDisplay,
   IconExternal,
   IconInsert,
@@ -34,28 +38,7 @@ import {
 import { openExternal, resolveUri } from '../local-url'
 
 const URL_KEY = 'orbit.screenshotUrl'
-const RECENT_KEY = 'orbit.screenshotUrls'
 const PRESET_KEY = 'orbit.screenshotPreset'
-const RECENT_KEPT = 4
-
-/* Typing a localhost URL with a port on a phone keyboard is the slowest part of
-   checking a change, and it is nearly always one of the same few. */
-const loadRecent = (): string[] => {
-  try {
-    const list = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]')
-    return Array.isArray(list) ? list.filter((u) => typeof u === 'string').slice(0, RECENT_KEPT) : []
-  } catch {
-    return []
-  }
-}
-
-const rememberRecent = (url: string): string[] => {
-  const next = [url, ...loadRecent().filter((u) => u !== url)].slice(0, RECENT_KEPT)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(next))
-  return next
-}
-
-type Source = 'url' | 'screen'
 
 /**
  * Where to render a shot from, and what to file it under.
@@ -106,12 +89,11 @@ interface Props {
 }
 
 export default function CapturesView({ active, onInsertPath, onToast }: Props) {
-  const [source, setSource] = useState<Source>('url')
   const [url, setUrl] = useState(() => localStorage.getItem(URL_KEY) ?? 'http://localhost:3000')
   const [preset, setPreset] = useState<PresetId>(
     () => (localStorage.getItem(PRESET_KEY) as PresetId | null) ?? 'phone',
   )
-  const [recent, setRecent] = useState<string[]>(loadRecent)
+  const [devPorts, setDevPorts] = useState<DevPort[]>([])
   const [fullPage, setFullPage] = useState(false)
   const [shots, setShots] = useState<Screenshot[]>([])
   const [viewing, setViewing] = useState<Screenshot | null>(null)
@@ -132,14 +114,26 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
       .then((s) => setPreviews(s.available ? s.previews : null))
       .catch(() => {})
 
+  /* Same cost profile as the published list — a process launch and a socket per
+     candidate — so it is asked at the same two moments and never polled. An
+     agent that starts a dev server while this is on screen is the case a poll
+     would catch, and switching away and back is cheaper than paying for it all
+     day. */
+  const refreshDevPorts = () => fetchDevPorts().then(setDevPorts).catch(() => {})
+
   useEffect(() => {
     if (!active) return
     fetchScreenshots().then(setShots).catch(() => {})
     refreshPreviews()
+    refreshDevPorts()
     /* Coming back from the lock screen or another app: what was published, and
        what is still running behind it, both had every chance to change while
        the page was frozen. */
-    const onWake = () => document.visibilityState === 'visible' && refreshPreviews()
+    const onWake = () => {
+      if (document.visibilityState !== 'visible') return
+      refreshPreviews()
+      refreshDevPorts()
+    }
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
     return () => {
@@ -208,19 +202,13 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
   }
 
   const capture = async () => {
-    if (busy === 'main' || (source === 'url' && !url.trim())) return
+    if (busy === 'main' || !url.trim()) return
     setBusy('main')
     setError(null)
     try {
-      if (source === 'screen') {
-        await captureScreen()
-      } else {
-        localStorage.setItem(URL_KEY, url.trim())
-        localStorage.setItem(PRESET_KEY, preset)
-        await captureScreenshot({ ...captureVia(url.trim(), shared), preset, fullPage })
-        // Only URLs that actually rendered are worth offering again.
-        setRecent(rememberRecent(url.trim()))
-      }
+      localStorage.setItem(URL_KEY, url.trim())
+      localStorage.setItem(PRESET_KEY, preset)
+      await captureScreenshot({ ...captureVia(url.trim(), shared), preset, fullPage })
       setShots(await fetchScreenshots())
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -266,190 +254,164 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
       <header className="shrink-0 px-5 pt-4 pb-3">
         <h1 className="font-display text-lg font-semibold tracking-wide">Preview</h1>
         <p className="mt-0.5 text-xs text-mut">
-          {source === 'url'
-            ? 'Your running app — live in a frame, or as a screenshot'
-            : "The Mac's own screen — simulators, native apps, Xcode"}
+          Your running app — live in a frame, or as a screenshot
         </p>
       </header>
 
       {/* Deliberate rows: on a phone every control fits without stealing the gallery's height. */}
       <div className="flex shrink-0 flex-col gap-2 px-4 pb-3">
         <div className="flex items-center gap-2">
-          <Segmented
-            value={source}
-            onChange={(id) => {
-              setSource(id)
-              setError(null)
-            }}
-            options={[
-              { id: 'url', label: 'App URL' },
-              { id: 'screen', label: 'Mac screen' },
-            ]}
+          <Field
+            className="min-w-32 flex-1 font-mono text-[13px]"
+            type="url"
+            placeholder="http://localhost:3000"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && capture()}
           />
-          {source === 'screen' && (
-            <>
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-faint">
-                <IconDisplay size={15} className="shrink-0" />
-                <span className="truncate">Needs Screen Recording permission</span>
-              </span>
-              <Button disabled={busy === 'main'} onClick={capture}>
-                {busy === 'main' ? 'Capturing…' : 'Capture'}
-              </Button>
-            </>
+          {/* A screenshot answers "how does it look"; some questions only the
+              running app answers. localhost is rewritten to whichever host this
+              phone reached Orbit on, so the tap lands on the Mac.
+
+              Gone once the port is published, because then it is the worse of
+              two doors sitting side by side: it hands the phone plain http on a
+              port a loopback-bound dev server never answers, and leaving costs
+              an installed app its session screen. The row below opens the same
+              app over the terminal instead. */}
+          {!shared && (
+            <IconButton
+              size="lg"
+              label="Open live in the browser"
+              disabled={!url.trim()}
+              onClick={() => openExternal(resolveUri(url.trim()))}
+            >
+              <IconExternal size={18} />
+            </IconButton>
           )}
+          <Button disabled={busy === 'main'} onClick={capture}>
+            {busy === 'main' ? 'Capturing…' : 'Capture'}
+          </Button>
         </div>
 
-        {source === 'url' && (
-          <>
-            <div className="flex items-center gap-2">
-              <Field
-                className="min-w-32 flex-1 font-mono text-[13px]"
-                type="url"
-                placeholder="http://localhost:3000"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && capture()}
-              />
-              {/* A screenshot answers "how does it look"; some questions only the
-                  running app answers. localhost is rewritten to whichever host
-                  this phone reached Orbit on, so the tap lands on the Mac.
+        {/* What the Mac is actually serving, so the port does not have to be
+            typed on a touch keyboard or remembered at all. This replaced a list
+            of URLs that had rendered before, which existed only because typing
+            was the way in: a port that is up right now is both more useful and
+            never stale, and a chip for a dev server that has since died is
+            precisely the wrong thing to offer. The field still remembers the
+            last URL, so a path typed after the port survives coming back. */}
+        {devPorts.length > 0 && (
+          <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+            {devPorts.map((d) => (
+              <button
+                key={d.port}
+                onClick={() => setUrl(`http://localhost:${d.port}`)}
+                className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${
+                  d.port === port
+                    ? 'border-accent/50 text-accent'
+                    : 'border-line-subtle text-faint hover:text-mut'
+                }`}
+              >
+                <span className="font-mono">:{d.port}</span>
+                <span className="opacity-70">{d.command}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
-                  Gone once the port is published, because then it is the worse
-                  of two doors sitting side by side: it hands the phone plain
-                  http on a port a loopback-bound dev server never answers, and
-                  leaving costs an installed app its session screen. The row
-                  below opens the same app over the terminal instead. */}
-              {!shared && (
-                <IconButton
-                  size="lg"
-                  label="Open live in the browser"
-                  disabled={!url.trim()}
-                  onClick={() => openExternal(resolveUri(url.trim()))}
+        <div className="flex items-center gap-3">
+          <Segmented
+            value={preset}
+            onChange={setPreset}
+            options={PRESETS.map((p) => ({ id: p.id, label: p.label }))}
+          />
+          {/* The label is the target, not the box — but it was only as tall as
+              the text, which on a phone is the same miss the Share button was
+              making. */}
+          <label className="flex min-h-11 items-center gap-1.5 text-xs whitespace-nowrap text-mut">
+            <input
+              type="checkbox"
+              className="size-4 accent-accent-strong"
+              checked={fullPage}
+              onChange={(e) => setFullPage(e.target.checked)}
+            />
+            Full page
+          </label>
+        </div>
+
+        {/* A dev server is http on a port only the Mac can see; published over
+            the tailnet it becomes https, which means it opens over the terminal
+            instead of walking the app off its own page. */}
+        {previews && (previews.length > 0 || port !== null) && (
+          <div className="flex flex-col gap-1.5">
+            {/* 44px tall, not the 26 a pill this size comes out at: a tap
+                landing a few px low hit the gap instead, and missing looked
+                exactly like a press that did nothing — no row, no error, and
+                the same button still sitting there to press again. */}
+            {port !== null && !shared && (
+              <button
+                onClick={share}
+                disabled={sharing}
+                className="flex min-h-11 items-center gap-1.5 self-start rounded-full border border-line-subtle px-3.5 text-xs text-mut transition-colors hover:text-fore disabled:opacity-40"
+              >
+                <IconLink size={14} />
+                {sharing ? `Sharing :${port}…` : `Share :${port} over https`}
+              </button>
+            )}
+            {/* Tapping a row is the point of the row, and nothing else on the
+                screen says so once the Share button has done its job. */}
+            {previews.length > 0 && (
+              <span className="px-0.5 text-[11px] text-faint">
+                Shared over https — tap to open here
+              </span>
+            )}
+            {previews.map((p) => (
+              <div
+                key={p.publicPort}
+                className="flex items-center gap-1 rounded-(--radius-field) border border-line-subtle bg-ink px-1"
+              >
+                {/* The tailnet host used to be spelled out here and it was the
+                    one part of the row carrying no information: the same name
+                    on every row, and long enough that what does differ — the
+                    port it answers on — was inside the ellipsis. The two ports
+                    say it all; the whole address is on the frame's Copy
+                    button when it is wanted. */}
+                <button
+                  onClick={() => setFramed(p)}
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-1.5 text-left"
                 >
-                  <IconExternal size={18} />
+                  <span className="shrink-0 font-mono text-xs text-accent">:{p.port}</span>
+                  <span className="shrink-0 font-mono text-xs text-faint">→ :{p.publicPort}</span>
+                  {/* A published port outlives the dev server behind it, and an
+                      empty frame does not say which of the two is wrong. */}
+                  {!p.listening && (
+                    <span className="min-w-0 flex-1 truncate text-right text-[11px] text-mut">
+                      nothing there yet
+                    </span>
+                  )}
+                </button>
+                {/* 44px, like the Share button above them: a miss on ✕ lands on
+                    the row, which opens the frame — a wrong action is worse
+                    than the nothing a small button usually gives. */}
+                <IconButton
+                  label={`Capture :${p.port}`}
+                  size="lg"
+                  className="hover:text-accent"
+                  disabled={busy === `row:${p.publicPort}` || !p.listening}
+                  onClick={() => captureRow(p)}
+                >
+                  {busy === `row:${p.publicPort}` ? (
+                    <OrbitMark size={16} />
+                  ) : (
+                    <IconCapture size={16} />
+                  )}
                 </IconButton>
-              )}
-              <Button disabled={busy === 'main'} onClick={capture}>
-                {busy === 'main' ? 'Capturing…' : 'Capture'}
-              </Button>
-            </div>
-            <div className="flex items-center gap-3">
-              <Segmented
-                value={preset}
-                onChange={setPreset}
-                options={PRESETS.map((p) => ({ id: p.id, label: p.label }))}
-              />
-              {/* The label is the target, not the box — but it was only as tall
-                  as the text, which on a phone is the same miss the Share
-                  button was making. */}
-              <label className="flex min-h-11 items-center gap-1.5 text-xs whitespace-nowrap text-mut">
-                <input
-                  type="checkbox"
-                  className="size-4 accent-accent-strong"
-                  checked={fullPage}
-                  onChange={(e) => setFullPage(e.target.checked)}
-                />
-                Full page
-              </label>
-            </div>
-
-            {/* A dev server is http on a port only the Mac can see; published
-                over the tailnet it becomes https, which means it opens over the
-                terminal instead of walking the app off its own page. */}
-            {previews && (previews.length > 0 || port !== null) && (
-              <div className="flex flex-col gap-1.5">
-                {/* 44px tall, not the 26 a pill this size comes out at: a tap
-                    landing a few px low hit the gap instead, and missing looked
-                    exactly like a press that did nothing — no row, no error,
-                    and the same button still sitting there to press again. */}
-                {port !== null && !shared && (
-                  <button
-                    onClick={share}
-                    disabled={sharing}
-                    className="flex min-h-11 items-center gap-1.5 self-start rounded-full border border-line-subtle px-3.5 text-xs text-mut transition-colors hover:text-fore disabled:opacity-40"
-                  >
-                    <IconLink size={14} />
-                    {sharing ? `Sharing :${port}…` : `Share :${port} over https`}
-                  </button>
-                )}
-                {/* Tapping a row is the point of the row, and nothing else on
-                    the screen says so once the Share button has done its job. */}
-                {previews.length > 0 && (
-                  <span className="px-0.5 text-[11px] text-faint">
-                    Shared over https — tap to open here
-                  </span>
-                )}
-                {previews.map((p) => (
-                  <div
-                    key={p.publicPort}
-                    className="flex items-center gap-1 rounded-(--radius-field) border border-line-subtle bg-ink px-1"
-                  >
-                    {/* The tailnet host used to be spelled out here and it was
-                        the one part of the row carrying no information: the
-                        same name on every row, and long enough that what does
-                        differ — the port it answers on — was inside the
-                        ellipsis. The two ports say it all; the whole address
-                        is on the frame's Copy button when it is wanted. */}
-                    <button
-                      onClick={() => setFramed(p)}
-                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-1.5 text-left"
-                    >
-                      <span className="shrink-0 font-mono text-xs text-accent">:{p.port}</span>
-                      <span className="shrink-0 font-mono text-xs text-faint">→ :{p.publicPort}</span>
-                      {/* A published port outlives the dev server behind it, and
-                          an empty frame does not say which of the two is wrong. */}
-                      {!p.listening && (
-                        <span className="min-w-0 flex-1 truncate text-right text-[11px] text-mut">
-                          nothing there yet
-                        </span>
-                      )}
-                    </button>
-                    {/* 44px, like the Share button above them: a miss on ✕ lands
-                        on the row, which opens the frame — a wrong action is
-                        worse than the nothing a small button usually gives. */}
-                    <IconButton
-                      label={`Capture :${p.port}`}
-                      size="lg"
-                      className="hover:text-accent"
-                      disabled={busy === `row:${p.publicPort}` || !p.listening}
-                      onClick={() => captureRow(p)}
-                    >
-                      {busy === `row:${p.publicPort}` ? (
-                        <OrbitMark size={16} />
-                      ) : (
-                        <IconCapture size={16} />
-                      )}
-                    </IconButton>
-                    <IconButton
-                      label={`Stop sharing :${p.port}`}
-                      size="lg"
-                      onClick={() => unshare(p)}
-                    >
-                      <IconClose size={16} />
-                    </IconButton>
-                  </div>
-                ))}
+                <IconButton label={`Stop sharing :${p.port}`} size="lg" onClick={() => unshare(p)}>
+                  <IconClose size={16} />
+                </IconButton>
               </div>
-            )}
-
-            {recent.length > 1 && (
-              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
-                {recent.map((u) => (
-                  <button
-                    key={u}
-                    onClick={() => setUrl(u)}
-                    className={`shrink-0 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
-                      u === url
-                        ? 'border-accent/50 text-accent'
-                        : 'border-line-subtle text-faint hover:text-mut'
-                    }`}
-                  >
-                    {u.replace(/^https?:\/\//, '')}
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
+            ))}
+          </div>
         )}
       </div>
 

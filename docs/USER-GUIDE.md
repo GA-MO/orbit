@@ -216,10 +216,25 @@ npm run preview:off     # เลิกแชร์
 
 <img src="images/04-capture-viewer.png" width="390" alt="ดูภาพเต็มจอ">
 
-### สลับเป็น Mac screen
+### ไม่ต้องพิมพ์พอร์ตเอง
 
-กดสวิตช์ **Mac screen** แล้ว Capture = จับหน้าจอ Mac จริง ๆ ทั้งจอ ใช้ดูของที่
-headless Chrome เห็นไม่ได้ — iOS Simulator, Xcode, แอป native, Figma
+ใต้ช่อง URL มีชิปของ **พอร์ตที่กำลังเสิร์ฟหน้าเว็บอยู่บน Mac ตอนนี้** พร้อมชื่อ
+โปรแกรมที่ถืออยู่ (`:5173 node`, `:8899 Python`) แตะแล้วช่อง URL เติมให้เอง
+
+Orbit ถาม `lsof` ว่ามีอะไร listen อยู่ แล้วกรองสามชั้น: ตัดช่วงพอร์ตที่ระบบแจก
+เอง (≥32768) กับที่ต้องเป็น root (<1024), ตัดบริการของ macOS ที่ชอบนั่งทับพอร์ต
+ยอดฮิต (ControlCenter ถือ 5000 กับ 7000), แล้วลอง**ยิง HTTP จริง**หนึ่งดอก —
+ฐานข้อมูลกับ agent ต่าง ๆ ตกรอบตรงนี้ เครื่องที่เขียนคู่มือนี้เหลือจาก 13 เหลือ 1
+
+ถามตอนเข้าแท็บและตอนกลับมาจากหน้าล็อกเท่านั้น ไม่ poll — ถ้า agent เพิ่งสตาร์ต
+dev server ให้สลับแท็บออกแล้วกลับเข้ามา
+
+### หน้าจอ Mac — ตอนนี้เป็นของ agent
+
+สวิตช์ **Mac screen** ถูกถอดออกจากแท็บนี้แล้ว คนถือมือถืออยู่ไม่ได้มองจอ Mac
+ความสามารถยังอยู่ครบแต่ย้ายไปอยู่ฝั่ง agent: สั่ง `orbit_screen` ผ่าน MCP
+(ดู [MCP.md](MCP.md)) agent จะเห็น iOS Simulator, Xcode, แอป native, Figma
+และรูปนั้นก็ยังโผล่ในแกลเลอรีของคุณเหมือนเดิม
 
 ต้องเปิดสิทธิ์ **Screen Recording** ให้แอปที่รัน Orbit server (Terminal / iTerm /
 VS Code) ก่อน จุดที่หลอกคือถ้าไม่ได้เปิดสิทธิ์ macOS **จะไม่ error** แต่จะได้ภาพ
@@ -301,8 +316,8 @@ terminal แสดงประวัติทั้งหมดแบบ **read-
 |---|---|
 | สั่ง Claude แก้โค้ดโปรเจกต์ X | Sessions → + → Claude Code → เลือก X → Start |
 | ดูว่าเมื่อกี้ agent ทำอะไรไป | Sessions → แตะ session (จบแล้วก็เปิดดูได้) |
-| ตรวจหน้าเว็บหลัง agent แก้ | Preview → ใส่ URL → เลือกขนาดจอ → Capture |
-| ดู Simulator / แอป native บน Mac | Preview → Mac screen → Capture |
+| ตรวจหน้าเว็บหลัง agent แก้ | Preview → แตะชิปพอร์ต → เลือกขนาดจอ → Capture |
+| ดู Simulator / แอป native บน Mac | ลง MCP แล้วสั่ง agent ว่า "ดูหน้าจอ Mac ให้หน่อย" (`orbit_screen`) |
 | ให้ agent ตรวจงานตัวเองด้วยภาพ | ลง MCP ([MCP.md](MCP.md)) แล้วสั่ง "capture … แล้วดูให้หน่อย" |
 | ส่ง error screenshot ให้ agent | Terminal → 🖼 → เลือกรูป → พิมพ์คำสั่งต่อท้าย path |
 | สั่งงานยาว ๆ ไม่อยากพิมพ์ | Terminal → 🎙 → พูด → แก้ transcript → Send |

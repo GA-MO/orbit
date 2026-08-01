@@ -39,17 +39,34 @@ HANDOFF รอบเก่า — ตอนนั้นมันชื่อ Cap
   ตอนนี้เหลือ `:8899 → :8444` ส่วน URL เต็มอยู่ที่ปุ่ม Copy ในเฟรม
 - **ปุ่มในแถวและ Full page → 44px** ตามปุ่ม Share
 
+**5. ไม่ต้องพิมพ์พอร์ตเอง และตัด Mac screen ออกจากแท็บ** สองข้อนี้มาจากคำถาม
+เดียวกัน — หน้านี้ควรมีอะไรบ้าง
+
+- **ชิปพอร์ตที่กำลังเสิร์ฟอยู่** `GET /api/ports` ถาม `lsof` ว่ามีอะไร listen แล้ว
+  กรองสามชั้นเรียงตามราคา: เลขพอร์ต (ตัด ≥32768 ที่ระบบแจกเอง กับ <1024 ที่ต้อง
+  เป็น root), ชื่อโปรแกรม (ControlCenter ถือ 5000 กับ 7000 ซึ่งเป็นพอร์ต dev
+  ยอดฮิตที่สุดสองอันบน Mac), แล้ว**ยิง `HEAD /` จริง** ซึ่งเป็นอย่างเดียวที่แยก
+  dev server ออกจาก Postgres ได้ เครื่องนี้ 13 listener เหลือ 1 — แทนที่รายการ
+  URL ที่เคยเรนเดอร์ ซึ่งมีอยู่เพราะการพิมพ์เป็นทางเข้าเดียว และเสียตรงที่มันเสนอ
+  dev server ที่ตายไปแล้ว ถามตอนเข้าแท็บกับตอนกลับมา foreground ไม่ poll
+- **ถอดสวิตช์ Mac screen** คนถือมือถือไม่ได้มองจอ Mac — คนที่ต้องมองคือ agent
+  route `POST /api/screenshot {source:'screen'}` และ `orbit_screen` ยังอยู่ครบ
+  รูปยังเข้าแกลเลอรีเหมือนเดิม (ไอคอน `IconDisplay` บน tile จึงยังอยู่)
+
 | ไฟล์ | เรื่อง |
 | --- | --- |
-| `web/src/views/CapturesView.tsx` | ปุ่ม Share → 44px, หัวข้อ/คำโปรย, ตัด ↗, แถว preview |
+| `server/src/ports.ts` | ใหม่ — dev server ที่รันอยู่บนเครื่อง (lsof + กรอง + probe HTTP) |
+| `server/src/index.ts` | `GET /api/ports` |
+| `web/src/views/CapturesView.tsx` | ปุ่ม Share → 44px, หัวข้อ/คำโปรย, ตัด ↗, แถว preview, ชิปพอร์ต, ตัด Mac screen |
 | `web/src/App.tsx` | ชื่อแท็บ |
 | `web/src/terminal-links.ts` | host ต้องหน้าตาเป็น host |
 | `web/src/components/PageViewer.tsx` | ตัด photo picker + `busy` เหลือ boolean |
 | `scripts/touch-smoke.mjs` | +1 ข้อ: host ที่ถูกย่อไม่เป็นลิงก์ |
+| `scripts/smoke.mjs` | +5 ข้อ: ชิปพอร์ต (เสนอเว็บ, ไม่เสนอ non-HTTP, ไม่เสนอตัวเอง, ตายแล้วหาย) |
 
-`touch-smoke` **36/36**, `smoke` **61/61** (อินสแตนซ์แยก พอร์ต 3099, `HOME` แยก)
+`touch-smoke` **36/36**, `smoke` **66/66** (อินสแตนซ์แยก พอร์ต 3099, `HOME` แยก)
 
-**ที่ยังเหลือ** — `Segmented` (App URL/Mac screen, Phone/Tablet/Desktop) สูง 32px
+**ที่ยังเหลือ** — `Segmented` (Phone/Tablet/Desktop) สูง 32px
 และ `Button` (Capture) สูง 40px ยังต่ำกว่า 44 ทั้งคู่ แต่เป็นคอมโพเนนต์กลางที่ใช้
 ทั้งแอป การขยายเป็นการเปลี่ยนหน้าตาทุกหน้า ไม่ใช่แค่แท็บนี้ — ยังไม่แตะ ทั้งที่
 `ui.tsx` เขียนกำกับ `Segmented` ไว้เองว่า "sized for a thumb"
