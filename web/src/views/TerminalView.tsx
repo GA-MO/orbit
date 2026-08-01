@@ -6,6 +6,7 @@ import {
   IconButton,
   IconImage,
   IconMic,
+  IconPaste,
   IconPlus,
   IconRestart,
   OrbitMark,
@@ -27,6 +28,8 @@ interface Props {
   voiceAvailable: boolean
   onOpenVoice: () => void
   onPickImage: () => void
+  /** Clipboard into the prompt — the phone has no way to do it itself. */
+  onPaste: () => void
   /** Start a fresh session with the same agent + folder as this ended one. */
   onNewSession: () => void
   /** Same, but asking the agent to carry on its last conversation there. */
@@ -42,6 +45,7 @@ export default function TerminalView({
   voiceAvailable,
   onOpenVoice,
   onPickImage,
+  onPaste,
   onNewSession,
   onResume,
   starting,
@@ -134,6 +138,9 @@ export default function TerminalView({
             )}
           </div>
         ) : (
+          /* The three ways text gets in that the keyboard cannot manage on its
+             own, kept together on the right. Paste sits nearest the edge: it is
+             the one reached mid-sentence, with the keyboard already up. */
           <>
             {voiceAvailable && (
               <IconButton label="Voice input" onClick={onOpenVoice}>
@@ -142,6 +149,9 @@ export default function TerminalView({
             )}
             <IconButton label="Upload image into terminal" onClick={onPickImage}>
               <IconImage size={19} />
+            </IconButton>
+            <IconButton label="Paste clipboard into terminal" onClick={onPaste}>
+              <IconPaste size={19} />
             </IconButton>
           </>
         )}

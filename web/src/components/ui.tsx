@@ -96,6 +96,13 @@ export const IconEdit = icon(
   <path d="M14.5 5.5 18.5 9.5 9 19H5v-4L14.5 5.5ZM12.5 7.5l4 4" />,
 )
 export const IconInsert = icon(<path d="M4 12h12m0 0-4-4m4 4-4 4M20 5v14" />)
+export const IconPaste = icon(
+  <>
+    <path d="M9 4.5H7A1.5 1.5 0 0 0 5.5 6v13A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2" />
+    <rect x="9" y="3" width="6" height="3.5" rx="1" />
+    <path d="M9 12h6M9 15.5h4" />
+  </>,
+)
 export const IconDisplay = icon(
   <>
     <rect x="2.5" y="4.5" width="19" height="12.5" rx="2" />
@@ -103,6 +110,18 @@ export const IconDisplay = icon(
   </>,
 )
 export const IconClose = icon(<path d="m6 6 12 12M18 6 6 18" />)
+export const IconLink = icon(
+  <>
+    <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7L11.8 6.5" />
+    <path d="M13.5 10.5a4 4 0 0 0-5.7 0L5 13.3a4 4 0 0 0 5.7 5.7l1.4-1.4" />
+  </>,
+)
+export const IconExternal = icon(
+  <>
+    <path d="M14 4h6v6M20 4l-8.5 8.5" />
+    <path d="M18 14v5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 19V8a1.5 1.5 0 0 1 1.5-1.5H10" />
+  </>,
+)
 export const IconChevronDown = icon(<path d="m6 10 6 6 6-6" />)
 export const IconSearch = icon(
   <>

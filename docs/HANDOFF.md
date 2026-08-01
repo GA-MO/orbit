@@ -1,3 +1,77 @@
+# ส่งงาน: รอบ preview — ส่ง dev server ขึ้น tailnet (2 ส.ค. 2026)
+
+> **รอรีสตาร์ต server** — โค้ดฝั่ง web ถูกเสิร์ฟจาก `web/dist` ทุก request จึงถึงมือถือ
+> แล้ว แต่ route `/api/previews` อยู่ในโปรเซสที่ยังรันของเก่า ตอนนี้แถวใน Captures
+> จึง **ไม่ขึ้น** (fetch ได้ 404 → ซ่อนแถว ไม่มี error ค้างจอ) รีสตาร์ตแล้วจะขึ้นเอง
+
+## สิ่งที่เพิ่ม
+
+**1. publish dev server** — แท็บ Captures: พิมพ์ `http://localhost:3000` แล้วกด
+**Share :3000 over https** → Orbit เรียก `tailscale serve` ให้เอง จองพอร์ต 8443
+ขึ้นไป แสดงเป็นแถว แตะแถวเพื่อเปิดทับ terminal (session ยังต่ออยู่) กด ✕ เพื่อปิด
+
+**2. ในเฟรมทำงานต่อได้** — ↻ โหลดใหม่ (remount iframe เพราะข้าม origin เรียก
+`reload()` ไม่ได้), 📷 ส่งภาพหน้าจอ iOS (เก็บ scroll + state ครบ, WebKit จริง),
+⧉ เรนเดอร์ทั้งหน้าใหม่แบบ headless (ได้ใต้จอ แต่ไม่มี state) ทั้งคู่แทรก path
+ลง prompt แล้วปิดเฟรม
+
+**3. capture ผ่าน https ที่ published** — พอร์ตที่ share แล้วจะถูกเรนเดอร์ผ่าน
+tailnet URL ไม่ใช่ localhost (คนละ secure context กัน) แต่ตั้งชื่อไฟล์ด้วยพอร์ตเดิม
++ ปุ่มกล้องในแถว preview ถ่ายได้โดยไม่ต้องพิมพ์ URL
+
+**4. แถว preview พูดความจริงตลอดเวลา ไม่ใช่แค่ตอนเข้าแท็บ** — แยก
+`GET /api/previews/live?ports=…` (TCP probe ล้วน ไม่ spawn อะไร) ออกจาก
+`GET /api/previews` (แพง, spawn `tailscale` สองครั้ง) แล้ว poll เฉพาะอันแรกทุก 10
+วินาทีตอนแท็บอยู่บนจอจริง ส่วนอันแพงเรียกตอนเข้าแท็บกับตอนแอปกลับมา foreground
+— agent restart dev server แล้วแถวรู้เองโดยไม่ต้องสลับแท็บ
+
+**5. กดกล้องในแถวแล้วรู้ว่าเกิดอะไรขึ้น** — `busy` เปลี่ยนจาก boolean เป็น key
+ต่อเป้าหมาย (แถวหนึ่งถ่ายอยู่ไม่ทำให้แถวอื่น disable) ปุ่มที่กำลังทำงานแสดง
+`OrbitMark` ที่หมุนอยู่ และมี toast ตอนถ่ายเสร็จ เพราะรูปใหม่ไปโผล่บนสุดของ
+gallery ซึ่งมักอยู่ใต้จอ
+
+**6. `timeAgo` เดินจริง** — เดิมคำนวณตอน render และ tile จะ re-render ต่อเมื่อ
+รายการเปลี่ยน รูปเลยเขียนว่า "now" ค้างไปเรื่อย ๆ ตอนนี้ tick ทุก 30 วิตอนแท็บ active
+
+เหตุผลละเอียดอยู่ใน `README.md` วิธีใช้อยู่ใน `docs/TAILSCALE.md` §4.1
+
+| ไฟล์ | เรื่อง |
+| --- | --- |
+| `server/src/preview.ts` | ครอบ `tailscale serve` — ไม่เก็บ state เอง ถาม CLI ทุกครั้ง |
+| `server/src/index.ts` | `GET/POST /api/previews`, `GET /api/previews/live`, `DELETE /api/previews/:port` |
+| `server/src/screenshot.ts` | `label` แยกจาก URL ที่ยิง (sanitize ก่อนลงชื่อไฟล์) |
+| `web/src/components/PageViewer.tsx` | เฟรมที่เคยฝังใน `Terminal.tsx` + ↻ 📷 ⧉ |
+| `web/src/clipboard.ts` | `writeToClipboard` แยกออกมาด้วยเหตุผลเดียวกัน |
+| `web/src/views/CapturesView.tsx` | ปุ่ม Share + แถว preview + กล้องในแถว + `captureVia` |
+| `web/src/App.tsx`, `Terminal.tsx` | ส่ง `onInsertPath`/`onToast` ลงไปถึงเฟรม |
+
+## ทดสอบไปแล้ว (อินสแตนซ์แยก พอร์ต 3099)
+
+- `scripts/smoke.mjs` — ผ่าน **61/61** (previews 15 ข้อ: กันไม่ให้ปิดทางเข้าตัวเอง,
+  publish ซ้ำได้พอร์ตเดิม, dev server ตายแล้วรายงาน `listening:false`, liveness ตอบ
+  รายพอร์ตและถูก cap ที่ 32 พอร์ตกันเอาไป port-scan; capture อีก 2 ข้อ: label
+  override ใช้ได้ และ label หนีออกนอกไดเรกทอรีไม่ได้)
+- `scripts/touch-smoke.mjs` — ผ่านครบ ยืนยันว่าการแยก `PageViewer` ออกมาไม่ทำให้
+  ทางเดิม (แตะลิงก์ใน terminal → เปิดในเฟรม) พัง
+- ขับ UI จริงด้วย Playwright ผ่าน 24/24: share สองพอร์ต → แตะ → เฟรมโหลดผ่าน https
+  → ↻ โหลดซ้ำได้ → ⧉ ได้รูป 780×5058 ชื่อ `localhost:3098` แล้วปิดเฟรมพร้อม path
+  ใน prompt → กล้องในแถวหมุนอยู่แถวเดียว แถวข้าง ๆ ยังกดได้ → toast ขึ้น →
+  **ฆ่า dev server ทั้งที่ยังอยู่หน้าเดิม แล้วแถวขึ้น "nothing there yet" เองใน 13
+  วินาที และกลับมาเองเมื่อ dev server กลับมา** → ✕ แถวหาย
+
+## เหลือพิสูจน์บนเครื่องจริงหลังรีสตาร์ต
+
+- แถว Share ขึ้นจริงบน iOS และแตะแล้วเปิดเฟรมได้ (ทดสอบผ่าน Chrome desktop มาแล้ว)
+- **📷 ในเฟรม** — เป็นข้อเดียวที่พิสูจน์บน Chrome ไม่ได้เลยตามนิยาม: ต้องกดปุ่มข้าง +
+  เพิ่มเสียงบน iPhone จริง แล้วดูว่า photo picker เปิดจากในเฟรมได้ และรูปที่เลือก
+  อัปโหลดแล้ว path เข้า prompt (iOS บางรุ่นเปิด picker จาก sheet ซ้อน sheet ไม่ได้)
+- ตอนนี้มี mapping ค้างไว้ให้ดูเลย: `:3000 → 8443` (python http.server หน้าเทสต์)
+  เปิด Captures จะเห็นแถวนี้อยู่แล้ว กด ✕ ปิดได้ถ้าไม่ใช้ และปิด http.server ด้วย
+- **จุดเล็กที่ยังไม่ได้แก้**: ตัวหาลิงก์ใน terminal รับ `https://...:8443/` (hostname
+  เป็นจุดล้วน) เป็นลิงก์ถูกต้อง แล้วเสนอ Open here ให้ → ได้เฟรมเปล่า
+
+---
+
 # ส่งงาน: รอบ MCP + capture + auth (31 ก.ค. 2026)
 
 > **อัปเดตหลังรีสตาร์ตแล้ว (19:20 น.)** — ทดสอบบนเครื่องจริงไปแล้วส่วนใหญ่ ดูหัวข้อ

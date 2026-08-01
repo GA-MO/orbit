@@ -39,8 +39,9 @@ type KeyDef = {
  * the Keys toggle keep the same slot in both states, so expanding grows the bar
  * upward and nothing under the thumb moves. Everything else lives in the row
  * above, except the arrows, which hold the inverted-T of a real keyboard on the
- * right: ↑ over ← ↓ →, corners left empty, because that shape is read by muscle
- * memory rather than by looking.
+ * right: ↑ over ← ↓ →, because that shape is read by muscle memory rather than
+ * by looking. The T only needs one bare corner to read, so the other one pays
+ * for the / key — see SLASH.
  */
 const ROW_UPPER: KeyDef[] = [
   { label: 'Esc', data: '\x1b' },
@@ -52,6 +53,13 @@ const ROW_LOWER: KeyDef[] = [
   { label: '⏎', data: '\r', glyph: true },
   { label: '⌫', data: '\x7f', ctrlData: '\x17', repeat: true, glyph: true }, // ctrl → delete word
 ]
+
+/*
+ * The one character worth a key of its own: every skill starts with it, and iOS
+ * buries / a layer deep behind the 123 switch. Shift makes it ?, the way it does
+ * on the keyboard it is standing in for.
+ */
+const SLASH: KeyDef = { label: '/', data: '/', shiftData: '?', glyph: true }
 
 const arrow = (label: string, final: string): KeyDef => ({
   label,
@@ -303,11 +311,13 @@ export default function TerminalKeys({
               <Key label="Ctrl" mod={ctrl} className={FLEX_KEY} onPress={pressCtrl} />
               {ROW_UPPER.map((key) => keyOf(key))}
             </div>
-            {/* Top of the inverted-T: ↑ centred, the two corners deliberately bare. */}
+            {/* Top of the inverted-T: ↑ centred over ↓, its left corner bare so the
+                shape still reads; / takes the right corner, out at the edge where
+                a thumb reaching for ↑ does not pass through it. */}
             <div className="flex shrink-0 items-center gap-1">
               <span className={ARROW_W} aria-hidden />
               {arrowOf(ARROWS.up)}
-              <span className={ARROW_W} aria-hidden />
+              {keyOf(SLASH, ARROW_W)}
             </div>
           </div>
         )}

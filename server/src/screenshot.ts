@@ -43,12 +43,14 @@ export interface Screenshot {
 
 /* Thirty phone-sized thumbnails all look alike; the filename is the only place
    to keep what each one was of without inventing a database for it. */
+/* A colon survives (host:port is the whole point of the label and reads badly
+   without it); a slash cannot — it would leave the directory. */
+const sanitize = (label: string) => label.replace(/[^\w.:]/g, '_').slice(0, 40)
+
 const labelFrom = (url: string): string => {
   try {
     const { host, pathname } = new URL(url)
-    /* A colon survives (host:port is the whole point of the label and reads
-       badly without it); a slash cannot — it would leave the directory. */
-    return `${host}${pathname === '/' ? '' : pathname}`.replace(/[^\w.:]/g, '_').slice(0, 40)
+    return sanitize(`${host}${pathname === '/' ? '' : pathname}`)
   } catch {
     return ''
   }
@@ -59,6 +61,14 @@ export interface CaptureOptions {
   width?: number
   height?: number
   fullPage?: boolean
+  /**
+   * What the picture is *of*, when that differs from where it was fetched.
+   * A published dev server is rendered through its tailnet address, because
+   * that is the one the phone gets — https, secure context, `Secure` cookies
+   * and all. Labelling the file with that address would file the shot under
+   * `ts.net:8443`, which says nothing about which app it was.
+   */
+  label?: string
 }
 
 // ---- Shared browser ----
@@ -119,7 +129,7 @@ export async function capture(url: string, opts: CaptureOptions = {}): Promise<S
       if (netError) throw new Error(`${url} did not respond (${netError})`)
       await page.waitForLoadState('load', { timeout: 5000 }).catch(() => {})
     }
-    const file = `${Date.now()}-url-${labelFrom(url)}.png`
+    const file = `${Date.now()}-url-${opts.label ? sanitize(opts.label) : labelFrom(url)}.png`
     const filePath = path.join(SCREENSHOT_DIR, file)
     await page.screenshot({ path: filePath, fullPage: opts.fullPage ?? false })
     await prune()

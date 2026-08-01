@@ -10,6 +10,7 @@ import TerminalView from './views/TerminalView'
 import SessionsView from './views/SessionsView'
 import CapturesView from './views/CapturesView'
 import NewSessionSheet from './sheets/NewSessionSheet'
+import PasteSheet from './sheets/PasteSheet'
 import VoiceSheet from './sheets/VoiceSheet'
 import { speechSupported, startSpeech, type SpeechSession } from './speech'
 import { registerPush, systemNotice } from './notice'
@@ -27,6 +28,8 @@ import {
 } from './api'
 
 const SESSION_KEY = 'orbit.sessionId'
+/** How long a clipboard read gets before the manual sheet takes over. */
+const CLIPBOARD_WAIT_MS = 6000
 
 type View = 'terminal' | 'sessions' | 'captures'
 
@@ -46,6 +49,7 @@ export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
+  const [pasteOpen, setPasteOpen] = useState(false)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   // Questions from the Mac queue up: each one is blocking something over there.
   const [asks, setAsks] = useState<AskRequest[]>([])
@@ -217,6 +221,42 @@ export default function App() {
     }
   }
 
+  /* Read it here rather than making the phone do it: iOS will hand a page the
+     clipboard on a tap — behind its own Paste confirmation — but only over
+     https, and only if it is text. Everything else falls back to the sheet,
+     where the phone's own Paste menu does the part we are not allowed to.
+
+     The wait is because the read can also do neither: a browser that will not
+     answer leaves the promise pending forever, and a paste button that sits
+     there doing nothing is the thing this is meant to fix. The generous window
+     is for iOS, where the promise stays open while its Paste confirmation is on
+     screen — long enough to read it, short enough not to look broken. */
+  const pasteClipboard = async () => {
+    if (!navigator.clipboard?.readText) return setPasteOpen(true)
+
+    let handled = false
+    const giveUp = setTimeout(() => {
+      if (handled) return
+      handled = true
+      setPasteOpen(true)
+    }, CLIPBOARD_WAIT_MS)
+
+    let text: string | null = null
+    try {
+      text = await navigator.clipboard.readText()
+    } catch {
+      text = null // refused, or the confirmation was dismissed
+    }
+    clearTimeout(giveUp)
+    if (handled) return // the sheet already took over; pasting now would double it
+    handled = true
+
+    if (text === null) return setPasteOpen(true)
+    // Read, and genuinely empty: a sheet would only ask them to paste nothing.
+    if (!text) return showToast('Nothing on the clipboard')
+    termHandle.current?.paste(text)
+  }
+
   const insertPath = (path: string) => {
     termHandle.current?.write(`${path} `)
     setView('terminal')
@@ -236,6 +276,7 @@ export default function App() {
             /* Started here, inside the tap — iOS refuses a start one tick later. */
             onOpenVoice={() => setVoiceSession(startSpeech())}
             onPickImage={() => fileInput.current?.click()}
+            onPaste={pasteClipboard}
             onNewSession={() => startFreshSession(false)}
             onResume={() => startFreshSession(true)}
             starting={startingNew}
@@ -254,6 +295,8 @@ export default function App() {
                 onApproval={setApproval}
                 onNotice={showNotice}
                 onAsk={addAsk}
+                onInsertPath={insertPath}
+                onToast={showToast}
                 handleRef={termHandle}
               />
             ) : (
@@ -317,6 +360,16 @@ export default function App() {
             selectSession(id)
           }}
           onClose={() => setNewSessionOpen(false)}
+        />
+      )}
+      {pasteOpen && (
+        <PasteSheet
+          onInsert={(text) => termHandle.current?.paste(text)}
+          onSend={(text) => {
+            termHandle.current?.paste(text)
+            termHandle.current?.write('\r')
+          }}
+          onClose={() => setPasteOpen(false)}
         />
       )}
       {voiceSession && (

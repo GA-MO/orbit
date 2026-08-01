@@ -126,6 +126,10 @@ export const captureScreenshot = async (opts: {
   url: string
   preset?: PresetId
   fullPage?: boolean
+  /** Overrides the preset's viewport width — used to render at this phone's own. */
+  width?: number
+  /** What the shot is of, when the URL it was fetched from says something else. */
+  label?: string
 }): Promise<Screenshot> => {
   const res = await authFetch('/api/screenshot', {
     method: 'POST',
@@ -155,6 +159,43 @@ export const deleteScreenshot = (file: string) =>
 /** Image URL usable in <img src> — the session cookie authenticates it, so the
     token never lands in a URL. */
 export const screenshotUrl = (file: string) => `/api/screenshots/${file}`
+
+/** A dev server published over https on the tailnet, so the phone can frame it. */
+export interface Preview {
+  port: number
+  publicPort: number
+  url: string
+  /** Whether the dev server behind it is up — a published port outlives it. */
+  listening: boolean
+}
+
+export interface PreviewState {
+  available: boolean
+  reason: string | null
+  host: string | null
+  previews: Preview[]
+}
+
+export const fetchPreviews = () => get<PreviewState>('/api/previews')
+
+/** Just "is anything behind these ports" — cheap enough to poll. */
+export const fetchLiveness = (ports: number[]) =>
+  get<Record<string, boolean>>(`/api/previews/live?ports=${ports.join(',')}`)
+
+export const startPreview = async (port: number): Promise<Preview> => {
+  const res = await authFetch('/api/previews', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ port }),
+  })
+  if (!res.ok) throw new Error((await res.json()).error ?? `share failed: ${res.status}`)
+  return res.json()
+}
+
+export const stopPreview = async (publicPort: number): Promise<void> => {
+  const res = await authFetch(`/api/previews/${publicPort}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.json()).error ?? `stop failed: ${res.status}`)
+}
 
 export const pushKey = () => get<{ publicKey: string }>('/api/push/key')
 

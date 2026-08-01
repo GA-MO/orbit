@@ -14,9 +14,12 @@
     "mcp": "node server/dist/mcp.js",
     "remote:on": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --bg 3001",
     "remote:off": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --https=443 off",
-    "remote:status": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve status"
+    "remote:status": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve status",
+    "preview:on": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --bg --https=8443 ${PREVIEW_PORT:-5173}",
+    "preview:off": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --https=8443 off"
   },
   "devDependencies": {
+    "@fontsource-variable/anuphan": "^5.3.0",
     "concurrently": "^9.1.0"
   }
 }

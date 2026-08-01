@@ -9,6 +9,7 @@ import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
 import { getToken, hasSessionCookie, isSecureRequest, sessionCookie } from './auth.js'
 import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
+import * as preview from './preview.js'
 import * as uploads from './uploads.js'
 import * as store from './store.js'
 import * as notify from './notify.js'
@@ -95,7 +96,17 @@ async function serveStatic(url: URL, res: http.ServerResponse) {
 
   let stat = await fsp.stat(file).catch(() => null)
   if (!stat?.isFile()) {
-    file = path.join(WEB_DIST, 'index.html') // SPA fallback
+    /* The app is one screen with no client-side routes, so the only address it
+       answers to is `/`. Anything else that misses is a mistyped or truncated
+       URL, and handing those the app makes a wrong address look like the app
+       bouncing back — which is exactly how a link split across two terminal
+       rows presents itself. */
+    if (rel !== '/' && rel !== '/index.html') {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end(`Orbit: no such path — ${rel}`)
+      return
+    }
+    file = path.join(WEB_DIST, 'index.html')
     stat = await fsp.stat(file).catch(() => null)
   }
   if (!stat?.isFile()) {
@@ -260,6 +271,7 @@ async function handleAuthedApi(
       height?: number
       fullPage?: boolean
       display?: number
+      label?: string
     }
     try {
       body = JSON.parse((await readBody(req)) || '{}')
@@ -290,6 +302,47 @@ async function handleAuthedApi(
   }
 
   if (route === 'GET /api/presets') return json(res, 200, screenshot.PRESETS)
+
+  // ---- Previews: a dev server, over https, on the tailnet ----
+
+  if (route === 'GET /api/previews') return json(res, 200, await preview.state(PORT))
+
+  /* The half worth polling. `ports` is a list because the phone already knows
+     which ones it is showing, and asking about those costs a TCP connect each —
+     no `tailscale` process, so a tab left open is not a process every few
+     seconds. Capped so one request cannot ask for a port scan. */
+  if (route === 'GET /api/previews/live') {
+    const ports = (url.searchParams.get('ports') ?? '')
+      .split(',')
+      .map(Number)
+      .filter(Boolean)
+      .slice(0, 32)
+    return json(res, 200, await preview.liveness(ports))
+  }
+
+  if (route === 'POST /api/previews') {
+    let body: { port?: number }
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return json(res, 400, { error: 'invalid JSON' })
+    }
+    try {
+      return json(res, 201, await preview.start(Number(body.port), PORT))
+    } catch (err) {
+      return json(res, 400, { error: (err as Error).message })
+    }
+  }
+
+  const previewMatch = url.pathname.match(/^\/api\/previews\/(\d+)$/)
+  if (req.method === 'DELETE' && previewMatch) {
+    try {
+      await preview.stop(Number(previewMatch[1]), PORT)
+      return json(res, 200, { ok: true })
+    } catch (err) {
+      return json(res, 400, { error: (err as Error).message })
+    }
+  }
 
   // ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
 

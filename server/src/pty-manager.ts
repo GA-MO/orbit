@@ -8,6 +8,8 @@ import type { PersistedSession } from './store.js'
 
 const SCROLLBACK_LIMIT = 200_000 // chars kept for replay on reconnect
 const SCROLLBACK_FLUSH_MS = 2000
+/** How long a repaint holds the nudged size — see `repaint`. */
+const REPAINT_HOLD_MS = 120
 const DEAD_SESSIONS_KEPT = 20
 const FIRST_COMMAND_MAX = 80
 
@@ -81,6 +83,8 @@ class PtySession implements Session {
   private rows: number
   private buffer = ''
   private typed = '' // keystrokes since the last Enter, until firstCommand is set
+  /** Pending second half of a `repaint`. */
+  private repaintTimer: ReturnType<typeof setTimeout> | null = null
   private dataSubs = new Set<(data: string) => void>()
   private exitSubs = new Set<(code: number) => void>()
 
@@ -127,6 +131,8 @@ class PtySession implements Session {
     this.proc.onExit(({ exitCode }) => {
       this.alive = false
       this.exitCode = exitCode
+      if (this.repaintTimer) clearTimeout(this.repaintTimer)
+      this.repaintTimer = null
       for (const cb of this.exitSubs) cb(exitCode)
     })
   }
@@ -169,11 +175,22 @@ class PtySession implements Session {
      change makes a full-screen app redraw itself, and the kernel only signals
      one when the size actually differs — so arrive at the size the client wants
      by way of one row less. The app draws twice; the second draw is the one
-     that fits. */
+     that fits.
+
+     Both sizes have to be *observed*, though, and that is why this waits in
+     between. SIGWINCH is not queued: two of them raised in the same breath
+     reach a busy process as one, and the handler then reads the size that is
+     already back to what it was — no change, no redraw. Which is exactly the
+     case this exists for, since the agent is usually mid-tool when the phone
+     returns. Hold the shorter size long enough for the app to answer it. */
   repaint(cols: number, rows: number) {
     if (!this.alive || cols <= 0 || rows <= 0) return
+    if (this.repaintTimer) clearTimeout(this.repaintTimer)
     this.resize(cols, Math.max(1, rows - 1))
-    this.resize(cols, rows)
+    this.repaintTimer = setTimeout(() => {
+      this.repaintTimer = null
+      this.resize(cols, rows)
+    }, REPAINT_HOLD_MS)
   }
 
   kill() {

@@ -4,22 +4,34 @@ import {
   captureScreen,
   captureScreenshot,
   deleteScreenshot,
+  fetchLiveness,
+  fetchPreviews,
   fetchScreenshots,
   screenshotUrl,
+  startPreview,
+  stopPreview,
+  type Preview,
   type PresetId,
   type Screenshot,
 } from '../api'
+import PageViewer from '../components/PageViewer'
 import {
   Button,
   EmptyState,
   Field,
   IconButton,
+  IconCapture,
+  IconClose,
   IconDisplay,
+  IconExternal,
   IconInsert,
+  IconLink,
   IconTrash,
+  OrbitMark,
   Segmented,
   timeAgo,
 } from '../components/ui'
+import { openExternal, resolveUri } from '../local-url'
 
 const URL_KEY = 'orbit.screenshotUrl'
 const RECENT_KEY = 'orbit.screenshotUrls'
@@ -45,6 +57,42 @@ const rememberRecent = (url: string): string[] => {
 
 type Source = 'url' | 'screen'
 
+/**
+ * Where to render a shot from, and what to file it under.
+ *
+ * A published port is captured through its tailnet address rather than
+ * `localhost`, because that is the one the phone gets: https, a secure context,
+ * `Secure` cookies, a registered service worker. An app that only misbehaves
+ * under https would otherwise photograph perfectly. The label stays the port,
+ * or the gallery would file every shot under the same `ts.net:8443`.
+ */
+const captureVia = (raw: string, shared: Preview | null): { url: string; label?: string } => {
+  if (!shared) return { url: raw }
+  try {
+    const typed = new URL(raw.includes('://') ? raw : `http://${raw}`)
+    const via = new URL(shared.url)
+    via.pathname = typed.pathname
+    via.search = typed.search
+    via.hash = typed.hash
+    const path = typed.pathname === '/' ? '' : typed.pathname
+    return { url: via.toString(), label: `localhost:${shared.port}${path}` }
+  } catch {
+    return { url: raw }
+  }
+}
+
+/* Only a port on this Mac can be published — `tailscale serve` proxies to
+   loopback, and a URL pointing anywhere else is already reachable as it is. */
+const localPortOf = (raw: string): number | null => {
+  try {
+    const u = new URL(raw.includes('://') ? raw : `http://${raw}`)
+    if (!['localhost', '127.0.0.1', '0.0.0.0'].includes(u.hostname)) return null
+    return Number(u.port) || (u.protocol === 'https:' ? 443 : 80)
+  } catch {
+    return null
+  }
+}
+
 /** Taller than this and the tile stops being a thumbnail and becomes a column. */
 const MAX_TILE_RATIO = 16 / 9
 const isLong = (s: Screenshot) => !!(s.width && s.height && s.height / s.width > MAX_TILE_RATIO)
@@ -67,16 +115,101 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
   const [fullPage, setFullPage] = useState(false)
   const [shots, setShots] = useState<Screenshot[]>([])
   const [viewing, setViewing] = useState<Screenshot | null>(null)
-  const [busy, setBusy] = useState(false)
+  /* What is running, not whether anything is: two captures can be in flight at
+     once (each gets its own page in the shared Chrome), and one of them
+     greying out the others said they were related when they are not. */
+  const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [previews, setPreviews] = useState<Preview[] | null>(null)
+  const [sharing, setSharing] = useState(false)
+  const [framed, setFramed] = useState<Preview | null>(null)
+
+  /* Null until the first answer, and left null when tailscale is missing or
+     logged out — there is no useful thing to say about a machine that cannot
+     publish anything, so the row simply is not there. */
+  const refreshPreviews = () =>
+    fetchPreviews()
+      .then((s) => setPreviews(s.available ? s.previews : null))
+      .catch(() => {})
 
   useEffect(() => {
-    if (active) fetchScreenshots().then(setShots).catch(() => {})
+    if (!active) return
+    fetchScreenshots().then(setShots).catch(() => {})
+    refreshPreviews()
+    /* Coming back from the lock screen or another app: what was published, and
+       what is still running behind it, both had every chance to change while
+       the page was frozen. */
+    const onWake = () => document.visibilityState === 'visible' && refreshPreviews()
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    return () => {
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+    }
   }, [active])
 
+  /* An agent restarting a dev server is the normal case, and until this ran the
+     row only told the truth about the moment the tab was opened. Only the
+     liveness half is polled; see `preview.liveness` for why the other half is
+     not. `ports` is a string so a re-render with the same set does not restart
+     the interval. */
+  const ports = (previews ?? []).map((p) => p.port).join(',')
+  useEffect(() => {
+    if (!active || !ports) return
+    const poll = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const live = await fetchLiveness(ports.split(',').map(Number))
+        setPreviews((cur) =>
+          cur ? cur.map((p) => ({ ...p, listening: live[p.port] ?? p.listening })) : cur,
+        )
+      } catch {
+        // a poll that fails leaves the last answer standing
+      }
+    }
+    const timer = setInterval(poll, 10_000)
+    return () => clearInterval(timer)
+  }, [active, ports])
+
+  /* `timeAgo` reads the clock when it renders, and a tile only re-renders when
+     the list changes — so every capture sat there saying "now" indefinitely. */
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => tick((n) => n + 1), 30_000)
+    return () => clearInterval(timer)
+  }, [active])
+
+  const port = localPortOf(url)
+  const shared = previews?.find((p) => p.port === port) ?? null
+
+  const share = async () => {
+    if (!port || sharing) return
+    setSharing(true)
+    setError(null)
+    try {
+      await startPreview(port)
+      await refreshPreviews()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSharing(false)
+    }
+  }
+
+  const unshare = async (p: Preview) => {
+    setError(null)
+    try {
+      await stopPreview(p.publicPort)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+    await refreshPreviews()
+  }
+
   const capture = async () => {
-    if (busy || (source === 'url' && !url.trim())) return
-    setBusy(true)
+    if (busy === 'main' || (source === 'url' && !url.trim())) return
+    setBusy('main')
     setError(null)
     try {
       if (source === 'screen') {
@@ -84,7 +217,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
       } else {
         localStorage.setItem(URL_KEY, url.trim())
         localStorage.setItem(PRESET_KEY, preset)
-        await captureScreenshot({ url: url.trim(), preset, fullPage })
+        await captureScreenshot({ ...captureVia(url.trim(), shared), preset, fullPage })
         // Only URLs that actually rendered are worth offering again.
         setRecent(rememberRecent(url.trim()))
       }
@@ -92,7 +225,30 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setBusy(null)
+    }
+  }
+
+  /**
+   * Capture a published port straight from its row — no URL to type at all.
+   *
+   * Says so when it lands: the new tile goes to the top of a gallery that is
+   * often below the fold, so from up here a capture that worked and one that
+   * quietly did nothing looked identical.
+   */
+  const captureRow = async (p: Preview) => {
+    const key = `row:${p.publicPort}`
+    if (busy === key) return
+    setBusy(key)
+    setError(null)
+    try {
+      await captureScreenshot({ url: p.url, label: `localhost:${p.port}`, preset, fullPage })
+      setShots(await fetchScreenshots())
+      onToast(`Captured localhost:${p.port}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -133,8 +289,8 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 <IconDisplay size={15} className="shrink-0" />
                 <span className="truncate">Needs Screen Recording permission</span>
               </span>
-              <Button disabled={busy} onClick={capture}>
-                {busy ? 'Capturing…' : 'Capture'}
+              <Button disabled={busy === 'main'} onClick={capture}>
+                {busy === 'main' ? 'Capturing…' : 'Capture'}
               </Button>
             </>
           )}
@@ -151,8 +307,19 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 onChange={(e) => setUrl(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && capture()}
               />
-              <Button disabled={busy} onClick={capture}>
-                {busy ? 'Capturing…' : 'Capture'}
+              {/* A screenshot answers "how does it look"; some questions only the
+                  running app answers. localhost is rewritten to whichever host
+                  this phone reached Orbit on, so the tap lands on the Mac. */}
+              <IconButton
+                size="lg"
+                label="Open live in the browser"
+                disabled={!url.trim()}
+                onClick={() => openExternal(resolveUri(url.trim()))}
+              >
+                <IconExternal size={18} />
+              </IconButton>
+              <Button disabled={busy === 'main'} onClick={capture}>
+                {busy === 'main' ? 'Capturing…' : 'Capture'}
               </Button>
             </div>
             <div className="flex items-center gap-3">
@@ -171,6 +338,71 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 Full page
               </label>
             </div>
+
+            {/* A dev server is http on a port only the Mac can see; published
+                over the tailnet it becomes https, which means it opens over the
+                terminal instead of walking the app off its own page. */}
+            {previews && (previews.length > 0 || port !== null) && (
+              <div className="flex flex-col gap-1.5">
+                {port !== null && !shared && (
+                  <button
+                    onClick={share}
+                    disabled={sharing}
+                    className="flex items-center gap-1.5 self-start rounded-full border border-line-subtle px-2.5 py-1 text-[11px] text-mut transition-colors hover:text-fore disabled:opacity-40"
+                  >
+                    <IconLink size={13} />
+                    {sharing ? `Sharing :${port}…` : `Share :${port} over https`}
+                  </button>
+                )}
+                {/* Tapping a row is the point of the row, and nothing else on
+                    the screen says so once the Share button has done its job. */}
+                {previews.length > 0 && (
+                  <span className="px-0.5 text-[11px] text-faint">
+                    Shared over https — tap to open here
+                  </span>
+                )}
+                {previews.map((p) => (
+                  <div
+                    key={p.publicPort}
+                    className="flex items-center gap-1 rounded-(--radius-field) border border-line-subtle bg-ink px-1 py-0.5"
+                  >
+                    <button
+                      onClick={() => setFramed(p)}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left"
+                    >
+                      <span className="shrink-0 font-mono text-[11px] text-accent">:{p.port}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-faint">
+                        {p.url.replace(/^https:\/\//, '')}
+                      </span>
+                      {/* A published port outlives the dev server behind it, and
+                          an empty frame does not say which of the two is wrong. */}
+                      {!p.listening && (
+                        <span className="shrink-0 text-[11px] text-mut">nothing there yet</span>
+                      )}
+                    </button>
+                    <IconButton
+                      label={`Capture :${p.port}`}
+                      className="size-8 hover:text-accent"
+                      disabled={busy === `row:${p.publicPort}` || !p.listening}
+                      onClick={() => captureRow(p)}
+                    >
+                      {busy === `row:${p.publicPort}` ? (
+                        <OrbitMark size={15} />
+                      ) : (
+                        <IconCapture size={14} />
+                      )}
+                    </IconButton>
+                    <IconButton
+                      label={`Stop sharing :${p.port}`}
+                      className="size-8"
+                      onClick={() => unshare(p)}
+                    >
+                      <IconClose size={14} />
+                    </IconButton>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {recent.length > 1 && (
               <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
@@ -260,6 +492,16 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
           </figure>
         ))}
       </div>
+
+      {framed && (
+        <PageViewer
+          uri={framed.url}
+          label={`localhost:${framed.port}`}
+          onClose={() => setFramed(null)}
+          onInsertPath={onInsertPath}
+          onToast={onToast}
+        />
+      )}
 
       {viewing && (
         <div

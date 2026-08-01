@@ -16,6 +16,7 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -81,6 +82,17 @@ for (const [preset, expected] of [['phone', 780], ['tablet', 1668], ['desktop', 
 const labelled = await api('/api/screenshot', { url: `${BASE}/healthz` })
 check('capture carries a label', labelled.body.label?.includes('healthz'), labelled.body.file)
 
+/* A published dev server is rendered through its tailnet address, so the URL
+   says `…ts.net:8443` while the picture is of `localhost:3000`. */
+const relabelled = await api('/api/screenshot', { url: BASE, label: 'localhost:3000' })
+check(
+  'a capture can be filed under something other than where it was fetched',
+  relabelled.body.label === 'localhost:3000',
+  relabelled.body.file,
+)
+const nasty = await api('/api/screenshot', { url: BASE, label: '../../etc/passwd' })
+check('…and that label cannot leave the directory', !nasty.body.file?.includes('/'), nasty.body.file)
+
 const deadPort = await api('/api/screenshot', { url: 'http://127.0.0.1:4321' })
 check('a dead dev server is an error, not a picture of one', deadPort.status === 502, deadPort.body.error)
 check(
@@ -94,6 +106,89 @@ console.log(
   '       (a capture with no app windows in it means Screen Recording is not granted —',
 )
 console.log('        macOS reports no error for that, so no test can catch it)')
+
+// ---------------------------------------------------------------- previews
+
+section('previews')
+const previewState = await api('/api/previews', undefined, 'GET')
+if (!previewState.body.available) {
+  console.log(`       skipped — ${previewState.body.reason}`)
+} else {
+  /* A port that is really listening, so the `listening` flag has something to
+     be right about. Anything that accepts a connection will do. */
+  const stub = net.createServer((s) => s.end())
+  await new Promise((r) => stub.listen(3098, '127.0.0.1', r))
+
+  const front = previewState.body.previews.find((p) => p.publicPort === 443)
+  check('the way in is never listed as a preview', front === undefined)
+  check(
+    'refusing to unpublish the way in',
+    (await api('/api/previews/443', undefined, 'DELETE')).status === 400,
+  )
+  check(
+    "refusing to publish Orbit's own port",
+    (await api('/api/previews', { port: PORT })).status === 400,
+  )
+  check('a nonsense port is refused', (await api('/api/previews', { port: 0 })).status === 400)
+
+  const made = await api('/api/previews', { port: 3098 })
+  check(
+    'a local port is published over https',
+    made.status === 201 && made.body.url?.startsWith('https://') && made.body.publicPort >= 8443,
+    made.body.error ?? made.body.url,
+  )
+  check('…and knows the dev server is up', made.body.listening === true)
+
+  const again = await api('/api/previews', { port: 3098 })
+  check(
+    'publishing twice returns the same address',
+    again.body.publicPort === made.body.publicPort,
+    `${made.body.publicPort} → ${again.body.publicPort}`,
+  )
+
+  const listed = await api('/api/previews', undefined, 'GET')
+  check(
+    'it shows up in the list',
+    listed.body.previews.some((p) => p.publicPort === made.body.publicPort && p.port === 3098),
+  )
+
+  /* The half the phone polls: no `tailscale` process, so a tab left open does
+     not spawn one every few seconds. */
+  const live = await api('/api/previews/live?ports=3098,4321', undefined, 'GET')
+  check('liveness answers per port', live.body['3098'] === true && live.body['4321'] === false,
+    JSON.stringify(live.body))
+  const scan = await api(`/api/previews/live?ports=${Array.from({ length: 60 }, (_, i) => 9000 + i)}`,
+    undefined, 'GET')
+  check('…and will not be turned into a port scan', Object.keys(scan.body).length <= 32,
+    `${Object.keys(scan.body).length} ports`)
+
+  /* Down goes the dev server, but not the mapping — the phone must be told the
+     difference between an empty frame and a wrong address. */
+  await new Promise((r) => stub.close(r))
+  const orphaned = await api('/api/previews', undefined, 'GET')
+  check(
+    'a published port outlives its dev server, and says so',
+    orphaned.body.previews.find((p) => p.publicPort === made.body.publicPort)?.listening === false,
+  )
+  check(
+    '…and the cheap poll agrees',
+    (await api('/api/previews/live?ports=3098', undefined, 'GET')).body['3098'] === false,
+  )
+
+  check(
+    'unpublishing',
+    (await api(`/api/previews/${made.body.publicPort}`, undefined, 'DELETE')).status === 200,
+  )
+  const after = await api('/api/previews', undefined, 'GET')
+  check(
+    '…leaves nothing behind',
+    !after.body.previews.some((p) => p.publicPort === made.body.publicPort),
+  )
+  check(
+    'unpublishing what was never published is an error',
+    (await api(`/api/previews/${made.body.publicPort}`, undefined, 'DELETE')).status === 400,
+  )
+}
 
 // ------------------------------------------------------------ mac → phone
 
