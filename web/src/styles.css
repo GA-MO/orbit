@@ -44,10 +44,18 @@ body,
 
 /* The whole visible area, and nothing outside it. Fixed rather than 100dvh in
    the flow: an installed web app must never hand iOS a document taller than
-   the viewport, or it insets the entire scroll view and the app slides down. */
+   the viewport, or it insets the entire scroll view and the app slides down.
+
+   Height and offset come from the visual viewport (see viewport.ts) so the
+   keyboard sliding in shortens the app instead of covering the bottom of it.
+   The fallbacks are the layout viewport — what every browser without a
+   visualViewport already gives us. */
 .app-fill {
   position: fixed;
-  inset: 0;
+  top: var(--app-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--app-height, 100%);
 }
 
 /* ---- Signature: the orbit ring — a satellite tracing a slow orbit ---- */
