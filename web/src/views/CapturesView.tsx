@@ -344,13 +344,17 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                 terminal instead of walking the app off its own page. */}
             {previews && (previews.length > 0 || port !== null) && (
               <div className="flex flex-col gap-1.5">
+                {/* 44px tall, not the 26 a pill this size comes out at: a tap
+                    landing a few px low hit the gap instead, and missing looked
+                    exactly like a press that did nothing — no row, no error,
+                    and the same button still sitting there to press again. */}
                 {port !== null && !shared && (
                   <button
                     onClick={share}
                     disabled={sharing}
-                    className="flex items-center gap-1.5 self-start rounded-full border border-line-subtle px-2.5 py-1 text-[11px] text-mut transition-colors hover:text-fore disabled:opacity-40"
+                    className="flex min-h-11 items-center gap-1.5 self-start rounded-full border border-line-subtle px-3.5 text-xs text-mut transition-colors hover:text-fore disabled:opacity-40"
                   >
-                    <IconLink size={13} />
+                    <IconLink size={14} />
                     {sharing ? `Sharing :${port}…` : `Share :${port} over https`}
                   </button>
                 )}

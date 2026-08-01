@@ -280,6 +280,21 @@ check(
 await page.locator('[aria-label="Close"]').first().click()
 await page.waitForTimeout(400)
 
+// An address with the host left out — our own docs print this, and so does any
+// program eliding a hostname. It used to be offered as a link, and following it
+// could only ever open a frame with nothing in it.
+await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height * 0.7)
+await page.waitForTimeout(400)
+await page.keyboard.type(`clear; echo "open https://...:8443/ on the phone"\n`)
+await page.waitForTimeout(1200)
+const elided = await spanAt([':8443', '8443'])
+await page.touchscreen.tap(elided.x, elided.y)
+await page.waitForTimeout(800)
+check(
+  'an address with the host elided is not offered as a link',
+  !(await page.locator('.app-fill.z-40').isVisible().catch(() => false)),
+)
+
 // A link Orbit serves itself opens inside Orbit: installed to the home screen,
 // WebKit walks the app window over to a same-origin URL instead of opening a tab.
 await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height * 0.7)

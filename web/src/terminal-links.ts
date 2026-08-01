@@ -15,8 +15,29 @@ import { logicalCells, logicalSpan } from './terminal-selection'
 /* URLs are ASCII. Saying so, rather than "anything but a space", is what keeps
    a Thai word that ends up next to one out of the address. */
 const URL_CHAR = "[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]"
+/**
+ * The host has to look like a host.
+ *
+ * `https://...:8443/` is a real thing to find in terminal output — a program
+ * eliding a hostname it did not want to print, our own docs among them — and
+ * while anything after `://` counted as one, that was offered as a link. It
+ * resolves to nothing, so following it could only ever open a blank frame, and
+ * a blank frame does not say whether the address or the server was the problem.
+ *
+ * Dot-separated labels that begin and end alphanumeric, or an IPv6 literal in
+ * brackets. `..` has no label between the dots and so cannot match.
+ */
+const LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?'
+const HOST = `(?:\\[[0-9A-Fa-f:]+\\]|${LABEL}(?:\\.${LABEL})*)`
+/* `token@github.com` — rare to read, but a git remote prints it, and stopping
+   the match at the `@` would hand back an address missing its host. */
+const USERINFO = "(?:[A-Za-z0-9\\-._~%!$&'()*+,;=:]+@)?"
+const AUTHORITY = `${USERINFO}${HOST}(?::\\d+)?`
+/* Everything after the host is free-form again: a path, query and fragment can
+   hold anything `URL_CHAR` allows. */
 const URL_RE = new RegExp(
-  `(?:(?:https?://|www\\.)${URL_CHAR}+|(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):\\d+(?:/${URL_CHAR}*)?)`,
+  `(?:(?:https?://|www\\.)${AUTHORITY}(?:[/?#]${URL_CHAR}*)?` +
+    `|(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):\\d+(?:/${URL_CHAR}*)?)`,
   'g',
 )
 /** Sentence punctuation that a URL at the end of a line collects but never owns. */
