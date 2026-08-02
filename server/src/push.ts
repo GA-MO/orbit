@@ -117,9 +117,16 @@ export function unsubscribe(endpoint: string): void {
  * Endpoints the push service has retired are dropped — a phone that reinstalls
  * the app leaves one behind, and a dead endpoint fails every time otherwise.
  */
-export async function send(title: string, body: string): Promise<number> {
+export async function send(
+  title: string,
+  body: string,
+  /* Which session it came out of, so tapping the banner lands on that one
+     rather than on whatever was last open — which, for a phone woken by this
+     very notification, is almost never the session that sent it. */
+  sessionId: string | null = null,
+): Promise<number> {
   if (subscriptions.length === 0) return 0
-  const payload = JSON.stringify({ title, body })
+  const payload = JSON.stringify({ title, body, sessionId })
 
   const deliver = async (subscription: Subscription): Promise<boolean> => {
     try {

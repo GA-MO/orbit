@@ -13,7 +13,7 @@
  *
  * Every line prints what happened; read them, do not just look for a zero exit.
  */
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -57,8 +57,13 @@ const api = async (route, body, method = 'POST') => {
   }
 }
 
-/** A stand-in for the phone: one socket, answering whatever it is asked. */
-const phone = (answerWith) => {
+/**
+ * A stand-in for the phone: one socket, answering whatever it is asked.
+ * `viewing` is the session it claims to have on screen — which the server uses
+ * to decide whether a `quiet` message would be telling someone what they can
+ * already see.
+ */
+const phone = (answerWith, viewing) => {
   const seen = []
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, {
     headers: { Authorization: `Bearer ${TOKEN}` },
@@ -70,7 +75,10 @@ const phone = (answerWith) => {
       ws.send(JSON.stringify({ type: 'answer', id: msg.id, choice: answerWith(msg) }))
     }
   })
-  return { ws, seen, open: new Promise((r) => ws.on('open', r)) }
+  const open = new Promise((r) => ws.on('open', r)).then(() => {
+    if (viewing !== undefined) ws.send(JSON.stringify({ type: 'viewing', sessionId: viewing }))
+  })
+  return { ws, seen, open }
 }
 
 // ---------------------------------------------------------------- captures
@@ -322,6 +330,164 @@ if (agent.resumable) {
   console.log('  skip  agent resume — Claude Code is not installed on this machine')
 }
 for (const id of [shell.id, agent.id]) await api(`/api/sessions/${id}`, null, 'DELETE')
+
+// ------------------------------------------------------------- attention
+
+section('attention (what a session is still waiting to tell you)')
+const attentionOf = async (id) =>
+  (await api('/api/sessions', null, 'GET')).body.find((s) => s.id === id)?.attention ?? null
+
+/* Its own folder, because a bare `/ws` connection opens a shell in the home
+   directory and several of those are still around by now — the folder fallback
+   below is about whether *this* folder names one session, not the busiest one
+   on the machine. */
+const FOLDER = path.join(HOME, 'attention-smoke')
+fs.mkdirSync(FOLDER, { recursive: true })
+const one = (await api('/api/sessions', { provider: 'shell', cwd: FOLDER, name: 'one' })).body
+const two = (await api('/api/sessions', { provider: 'shell', cwd: FOLDER, name: 'two' })).body
+
+const filed = await api('/api/notify', { message: 'Claude is waiting', sessionId: one.id, kind: 'waiting' })
+check('a notice is filed against the session that sent it', filed.body.sessionId === one.id)
+check('…and outlives the toast', (await attentionOf(one.id))?.message === 'Claude is waiting')
+check('…leaving the other session alone', (await attentionOf(two.id)) === null)
+
+await api('/api/notify', { message: 'Finished: something', sessionId: one.id, kind: 'done' })
+check(
+  'a finished turn does not bury an unanswered question',
+  (await attentionOf(one.id))?.kind === 'waiting',
+)
+
+check('reading it clears it', (await api(`/api/sessions/${one.id}/attention`, null, 'DELETE')).body.cleared)
+check('…and it stays cleared', (await attentionOf(one.id)) === null)
+
+/* The rule this whole feature turns on: `quiet` means "they can see this", and
+   what they can see is one session — not "Orbit is open somewhere". */
+const watcher = phone(null, one.id)
+await watcher.open
+await wait(200)
+const atWatched = await api('/api/notify', { message: 'you are looking at this', sessionId: one.id, quiet: true })
+check('a quiet notice about the session on screen is dropped', atWatched.body.dropped === true)
+check('…and leaves nothing to read later', (await attentionOf(one.id)) === null)
+
+const atOther = await api('/api/notify', { message: 'the other one wants you', sessionId: two.id, quiet: true })
+check('a quiet notice about another session still gets through', atOther.body.delivered === 1)
+check('…and is held against that session', (await attentionOf(two.id))?.message === 'the other one wants you')
+check(
+  'the notice tells the phone which session it came from',
+  watcher.seen.some((m) => m.type === 'notice' && m.sessionId === two.id),
+)
+watcher.ws.close()
+await wait(300)
+
+const guessed = await api('/api/notify', { message: 'from a folder', source: FOLDER })
+check(
+  'two sessions in one folder make the folder no answer at all',
+  guessed.body.sessionId === null,
+  JSON.stringify(guessed.body),
+)
+await api(`/api/sessions/${two.id}`, null, 'DELETE')
+await wait(400)
+const lone = await api('/api/notify', { message: 'from the only one left', source: FOLDER })
+check('…but one of them is', lone.body.sessionId === one.id, JSON.stringify(lone.body))
+
+check(
+  'a session id nobody has heard of is filed against nothing',
+  (await api('/api/notify', { message: 'orphan', sessionId: 'not-a-real-id' })).body.sessionId === null,
+)
+
+await api(`/api/sessions/${one.id}/attention`, null, 'DELETE')
+const answerer = phone(() => 'Yes', null)
+await answerer.open
+await wait(200)
+const asked = await api('/api/ask', { question: 'Ship it?', sessionId: one.id, timeoutSeconds: 10 })
+check('an answered question leaves nothing waiting', asked.body.answer === 'Yes' && (await attentionOf(one.id)) === null)
+answerer.ws.close()
+await wait(500)
+const ignored = await api('/api/ask', { question: 'Ship it anyway?', sessionId: one.id, timeoutSeconds: 5 })
+check('one nobody answered does', ignored.body.timedOut && (await attentionOf(one.id))?.kind === 'waiting')
+
+await api(`/api/sessions/${one.id}`, null, 'DELETE')
+await wait(400)
+await api(`/api/sessions/${one.id}`, null, 'DELETE') // forget it entirely
+check('a forgotten session takes its record with it', (await attentionOf(one.id)) === null)
+
+// -------------------------------------------------------------------- git
+
+section('changes (what the agent wrote)')
+const REPO_DIR = path.join(HOME, 'git-smoke')
+const BARE = path.join(HOME, 'git-smoke-origin.git')
+fs.rmSync(REPO_DIR, { recursive: true, force: true })
+fs.rmSync(BARE, { recursive: true, force: true })
+fs.mkdirSync(REPO_DIR, { recursive: true })
+const git = (args, cwd = REPO_DIR) =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
+
+execFileSync('git', ['init', '--bare', '-b', 'main', BARE])
+execFileSync('git', ['init', '-b', 'main', REPO_DIR])
+git(['config', 'user.email', 'smoke@example.com'])
+git(['config', 'user.name', 'Smoke'])
+fs.writeFileSync(path.join(REPO_DIR, 'kept.txt'), 'one\ntwo\nthree\n')
+git(['add', '.'])
+git(['commit', '-m', 'first'])
+git(['remote', 'add', 'origin', BARE])
+
+const gitApi = (route, body, method = 'POST') => api(`/api/git/${route}`, body, method)
+const statusOf = async () =>
+  (await gitApi(`status?cwd=${encodeURIComponent(REPO_DIR)}`, null, 'GET')).body
+
+check('a folder with no history says so, rather than erroring', (await gitApi(`status?cwd=${encodeURIComponent(HOME)}`, null, 'GET')).body.repo === false)
+check('a folder outside home is refused', (await gitApi('status?cwd=%2Fetc', null, 'GET')).status === 400)
+
+let st = await statusOf()
+check('a clean repository is reported clean', st.repo && st.files.length === 0, JSON.stringify(st.files))
+check('…on the branch and commit it is actually on', st.branch === 'main' && st.head?.subject === 'first')
+check('…knowing whether there is anywhere to push to', st.hasRemote === true)
+
+fs.writeFileSync(path.join(REPO_DIR, 'kept.txt'), 'one\nTWO\nthree\nfour\n')
+fs.writeFileSync(path.join(REPO_DIR, 'fresh.txt'), 'brand new\n')
+st = await statusOf()
+const kept = st.files.find((f) => f.path === 'kept.txt')
+const fresh = st.files.find((f) => f.path === 'fresh.txt')
+check('a modified file is listed with its line counts', kept?.worktree === 'M' && kept.added === 2 && kept.removed === 1, JSON.stringify(kept))
+check('an untracked file is listed as one', fresh?.worktree === '?' && fresh.added === 1, JSON.stringify(fresh))
+
+const unstagedDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=kept.txt`, null, 'GET')).body
+check('its diff shows both sides of the change', unstagedDiff.patch.includes('-two') && unstagedDiff.patch.includes('+TWO'))
+const newDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=fresh.txt`, null, 'GET')).body
+check('an untracked file still has a diff to read', newDiff.patch.includes('+brand new'), newDiff.patch.slice(0, 60))
+check(
+  'a path climbing out of the repository is refused',
+  (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=..%2F..%2F.orbit%2Fconfig.json`, null, 'GET')).status === 400,
+)
+
+st = (await gitApi('stage', { cwd: REPO_DIR, files: ['kept.txt'], add: true })).body
+check('staging moves it to the index', st.files.find((f) => f.path === 'kept.txt')?.staged === 'M')
+const stagedDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=kept.txt&staged=1`, null, 'GET')).body
+check('…and the staged diff is the one that would be committed', stagedDiff.patch.includes('+TWO'))
+st = (await gitApi('stage', { cwd: REPO_DIR, files: ['kept.txt'], add: false })).body
+check('unstaging puts it back', st.files.find((f) => f.path === 'kept.txt')?.staged === ' ')
+
+check('committing nothing is refused, in words', (await gitApi('commit', { cwd: REPO_DIR, message: 'nope' })).body.error === 'nothing is staged')
+await gitApi('stage', { cwd: REPO_DIR, files: ['kept.txt', 'fresh.txt'], add: true })
+check('a commit needs a message', (await gitApi('commit', { cwd: REPO_DIR, message: '   ' })).status === 400)
+const made = await gitApi('commit', { cwd: REPO_DIR, message: 'from the phone' })
+check('the commit lands', made.status === 201 && made.body.subject === 'from the phone', JSON.stringify(made.body).slice(0, 120))
+check(
+  '…counted in something a toast can hold',
+  made.body.files === 2 && made.body.added === 3 && made.body.removed === 1,
+  JSON.stringify({ files: made.body.files, added: made.body.added, removed: made.body.removed }),
+)
+check('…and the list is clean afterwards', made.body.status.files.length === 0)
+check('…with the new commit at the head', made.body.status.head?.subject === 'from the phone')
+
+check('a branch with no upstream is ahead of nothing yet', made.body.status.upstream === null)
+const pushed = await gitApi('push', { cwd: REPO_DIR })
+check('pushing sets the upstream it did not have', pushed.status === 200 && pushed.body.status.upstream === 'origin/main', JSON.stringify(pushed.body).slice(0, 140))
+check('…and leaves nothing ahead', pushed.body.status.ahead === 0)
+check('the bare repository actually received it', git(['log', '-1', '--format=%s'], BARE) === 'from the phone')
+
+fs.rmSync(REPO_DIR, { recursive: true, force: true })
+fs.rmSync(BARE, { recursive: true, force: true })
 
 // ------------------------------------------------------------------- auth
 

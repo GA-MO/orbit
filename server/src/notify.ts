@@ -18,6 +18,8 @@ export interface Notice {
   message: string
   /** Where it came from, e.g. the session's folder. */
   source: string | null
+  /** Which session raised it, when the sender knew — see `ORBIT_SESSION_ID`. */
+  sessionId?: string | null
   /** Sent while nothing was connected — the phone shows it after the fact. */
   missed?: boolean
   /** A push already put this on the phone's screen; a banner would be the second. */
@@ -33,11 +35,24 @@ export interface Ask {
   detail: string | null
   options: string[]
   source: string | null
+  sessionId?: string | null
 }
 
 type Send = (msg: Notice | Ask) => void
 
-const clients = new Set<Send>()
+/** One connected phone, and which session it currently has on screen. */
+interface Client {
+  send: Send
+  viewing: string | null
+}
+
+export interface ClientHandle {
+  drop(): void
+  /** The session this phone is looking at right now, or null when it is away. */
+  setViewing(sessionId: string | null): void
+}
+
+const clients = new Set<Client>()
 const missed: Notice[] = []
 const pending = new Map<
   string,
@@ -47,8 +62,9 @@ const pending = new Map<
 let seq = 0
 const nextId = () => `n${++seq}-${Date.now().toString(36)}`
 
-export function addClient(send: Send): () => void {
-  clients.add(send)
+export function addClient(send: Send): ClientHandle {
+  const client: Client = { send, viewing: null }
+  clients.add(client)
   // A phone that connects mid-question still gets asked.
   for (const { ask } of pending.values()) send(ask)
   /* And it is told what it slept through. A locked phone has no socket, so
@@ -57,13 +73,26 @@ export function addClient(send: Send): () => void {
   const fresh = missed.filter((n) => now - new Date(n.at!).getTime() < MISSED_MAX_AGE_MS)
   missed.length = 0
   for (const notice of fresh) send(notice)
-  return () => clients.delete(send)
+  return {
+    drop: () => clients.delete(client),
+    setViewing: (sessionId) => (client.viewing = sessionId),
+  }
 }
 
 export const clientCount = () => clients.size
 
+/**
+ * Whether a phone has this session on screen right now — not merely connected.
+ *
+ * The two used to be the same question, and answering it with "is anything
+ * connected" is what made a second session's "Claude is waiting" disappear
+ * while you were reading the first one.
+ */
+export const isViewing = (sessionId: string): boolean =>
+  [...clients].some((c) => c.viewing === sessionId)
+
 const broadcast = (msg: Notice | Ask) => {
-  for (const send of clients) {
+  for (const { send } of clients) {
     try {
       send(msg)
     } catch {
@@ -72,11 +101,18 @@ const broadcast = (msg: Notice | Ask) => {
   }
 }
 
-export function notify(
-  message: string,
-  source: string | null = null,
-): { delivered: number; id: string } {
-  const notice: Notice = { type: 'notice', id: nextId(), message, source }
+export function notify(opts: {
+  message: string
+  source?: string | null
+  sessionId?: string | null
+}): { delivered: number; id: string } {
+  const notice: Notice = {
+    type: 'notice',
+    id: nextId(),
+    message: opts.message,
+    source: opts.source ?? null,
+    sessionId: opts.sessionId ?? null,
+  }
   if (clients.size > 0) {
     broadcast(notice)
     return { delivered: clients.size, id: notice.id }
@@ -106,6 +142,7 @@ export function ask(opts: {
   detail?: string | null
   options?: string[]
   source?: string | null
+  sessionId?: string | null
   timeoutMs?: number
 }): Promise<AskResult> {
   const id = nextId()
@@ -116,6 +153,7 @@ export function ask(opts: {
     detail: opts.detail ?? null,
     options: opts.options?.length ? opts.options.slice(0, 4) : ['Allow', 'Deny'],
     source: opts.source ?? null,
+    sessionId: opts.sessionId ?? null,
   }
 
   return new Promise<AskResult>((resolve) => {

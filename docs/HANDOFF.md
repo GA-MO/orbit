@@ -1,3 +1,102 @@
+# ส่งงาน: รอบ "session ไหนรอเราอยู่" + แท็บ Changes (2 ส.ค. 2026, ค่ำ)
+
+> **รอบนี้ต้องรีสตาร์ต server** — มีโค้ดฝั่ง server ใหม่ทั้งสองเรื่อง (`attention.ts`,
+> `git.ts`, route ใหม่, `ORBIT_SESSION_ID` ใน env ของ PTY) หน้าเว็บอย่างเดียวไม่พอ
+> agent ทำเองไม่ได้เพราะ session ที่ทำงานอยู่ใน PTY ของ server ตัวนั้น
+>
+> **`ORBIT_SESSION_ID` มีผลกับ session ที่เปิด _หลัง_ รีสตาร์ตเท่านั้น** — ของเก่า
+> ไม่มีตัวแปรนี้ใน env จะตกไปใช้การเดาจากโฟลเดอร์ (ซึ่งใช้ได้เมื่อโฟลเดอร์นั้นมี
+> session เดียว)
+
+## 1. notice ไม่ใช่ toast ที่หายไปเฉย ๆ อีกแล้ว
+
+ปัญหาเดิม: agent หยุดรอคำตอบ → toast ขึ้น 3 วิ → หายถาวร ถ้าไม่ทันเห็นก็ไม่เหลือ
+ร่องรอยที่ไหนเลย และ push ที่กดเข้ามาก็พาไปหา session ที่เปิดค้างไว้ ไม่ใช่ตัวที่เรียก
+
+- **`server/src/attention.ts`** เก็บข้อความล่าสุดต่อ session (`waiting` / `done`)
+  ในหน่วยความจำ (session ที่รันอยู่ตายพร้อม server อยู่แล้ว ไฟล์จะโกหกได้อย่างเดียว)
+  โผล่ใน `GET /api/sessions` ล้างด้วย `DELETE /api/sessions/:id/attention`
+- **`done` ทับ `waiting` ไม่ได้** — Claude ถามเสร็จแล้วค่อยจบเทิร์นเป็นลำดับปกติ
+  ถ้าปล่อยให้ทับ ป้ายจะกลายเป็น "เสร็จแล้ว" ทั้งที่คำถามยังไม่มีใครตอบ
+- **`ORBIT_SESSION_ID` ใน `ptyEnv()`** — hook กับ MCP server เป็นลูกหลานของ PTY
+  เลยได้มาเอง ไม่ต้องเดาจาก cwd อีก (cwd ยังเป็นทางสำรอง และ **ใช้ได้เฉพาะตอนที่
+  โฟลเดอร์นั้นมี session รันอยู่ตัวเดียว** — ผิดตัวแย่กว่าไม่รู้เลย)
+- **`quiet` เปลี่ยนความหมาย** จาก "มีมือถือต่ออยู่ไหม" เป็น "มือถือกำลังดู session
+  **นี้** อยู่ไหม" มือถือรายงานเองผ่าน ws (`{type:'viewing'}`) ทุกครั้งที่สลับแท็บ
+  และทุกครั้งที่แอปเข้า/ออก foreground ของเดิมทำให้ "Claude is waiting" ของอีก
+  session หายไปเงียบ ๆ ระหว่างที่เรานั่งอ่านอันแรกอยู่
+- **ฝั่งแอป**: ตัวเลขบนไอคอน Sessions (ทึบเมื่อมีตัวที่ `waiting`), ข้อความในแถว
+  2 บรรทัด, toast ที่มาจาก session อื่นมีปุ่ม **Open** ในตัว, และ **การเปิด session
+  นั้นคือการอ่าน** (ไม่ใช่การเปิดแอป ไม่ใช่การกด toast)
+- **notification พาไปถูกที่**: payload พก `sessionId`, sw เปิด `/?session=<id>`
+  ถ้ายังไม่มีหน้าต่าง และ `postMessage` ถ้ามี (WebKit ไม่ยอมให้ `navigate` client
+  ของ PWA แบบ standalone)
+
+**จุดที่พลาดตอนแรกและแก้แล้ว**: อ่าน `?session=` แล้วเคลียร์ทันที ทำให้ boot รอบแรก
+(ที่ `setLocked` ยกเลิกทิ้ง) กินไป รอบสองเลยตกไปใช้ session ใน localStorage — ซึ่งคือ
+ตัวที่ notification *ไม่ได้* พูดถึงพอดี ตอนนี้ค่าถูก "ใช้" โดยรอบที่ได้ลงมือจริงเท่านั้น
+
+## 2. แท็บ Changes — อ่าน diff และ commit จากมือถือ
+
+Terminal ตอบว่า agent กำลังทำอะไร Preview ตอบว่าแอปหน้าตาเป็นยังไง ไม่มีใครตอบว่า
+**มันเขียนอะไรลงไป** — ทางเดียวคือ `git diff` ในเทอร์มินัลจอ 390px
+
+- `server/src/git.ts` — status (พร้อมจำนวนบรรทัดต่อไฟล์), diff ต่อไฟล์ทั้งฝั่ง
+  staged และ unstaged, stage/unstage, commit, push ทุกคำสั่งเป็น `git -C <cwd>` +
+  array (ไม่ผ่าน shell) path ถูกกันทั้งออกนอก home และออกนอก repo
+- ไฟล์ untracked นับบรรทัดและทำ diff โดยเทียบกับ `/dev/null` — มันไม่อยู่ใน index
+  ให้ git เทียบ `--no-index` จบด้วย exit 1 เสมอ ซึ่งสำหรับที่นี่คือคำตอบ ไม่ใช่ error
+- ตัด 4 บรรทัดหัว hunk ของ git ทิ้ง (`diff --git`, `index`, `---`, `+++`) — พูดซ้ำ
+  กับชื่อไฟล์บนหัว sheet และกินพื้นที่ 1/5 ของหน้าจอแรก
+- บรรทัดยาว **เลื่อนออกข้าง ไม่ตัดขึ้นบรรทัดใหม่** diff ที่ wrap แล้วดูไม่ออกว่า
+  `+` อยู่คอลัมน์ไหน
+- commit ใช้ `-m` ไม่มี `-a` — สิ่งที่เข้า commit คือสิ่งที่หมวด Staged แสดงเป๊ะ ๆ
+- **Push โผล่เฉพาะตอนที่กดแล้วเกิดอะไรขึ้นจริง** (มี commit ค้าง หรือ branch ยังไม่เคย
+  push → `--set-upstream` ให้เอง) repo ที่ไม่มี remote ไม่มีปุ่มนี้ ตอนทดสอบครั้งแรก
+  ปุ่มขึ้นแล้วกดยังไงก็ error เลยเพิ่ม `hasRemote` เข้ามาใน status
+- `GIT_TERMINAL_PROMPT=0` — git ที่จะถามรหัสผ่านไม่มีใครพิมพ์ให้ ปล่อยไว้มันจะค้าง
+  จนหมดเวลาแล้วรายงานว่า "timeout" แทนที่จะบอกว่า remote ขอรหัสผ่าน
+
+| ไฟล์ | เรื่อง |
+| --- | --- |
+| `server/src/attention.ts` | ใหม่ — สิ่งที่แต่ละ session ยังรอจะบอก |
+| `server/src/git.ts` | ใหม่ — status / diff / stage / commit / push |
+| `server/src/notify.ts` | `sessionId` บน notice+ask, client รู้ว่าดู session ไหนอยู่ |
+| `server/src/index.ts` | `resolveSession`, route git, `/attention`, `viewing` |
+| `server/src/pty-manager.ts` | `ORBIT_SESSION_ID` |
+| `server/src/push.ts` | payload พก `sessionId` |
+| `server/src/mcp.ts`, `scripts/orbit-notify-hook.mjs` | ส่ง `sessionId` + `kind` |
+| `web/src/views/ChangesView.tsx` | ใหม่ — แท็บ Changes + sheet อ่าน diff |
+| `web/src/App.tsx` | แท็บที่ 4, สถานะ attention, badge, toast ที่กดไปได้, `?session=` |
+| `web/src/views/SessionsView.tsx` | ข้อความที่ค้างอยู่ในแถว + ตัวนับ waiting |
+| `web/src/Terminal.tsx` | รายงาน `viewing`, ส่ง `sessionId` ต่อจาก notice/ask |
+| `web/public/sw.js` | notification พาไปที่ session ที่เรียก |
+
+## ทดสอบไปแล้ว
+
+- `scripts/smoke.mjs` **106/106** (อินสแตนซ์แยก พอร์ต 3099, `HOME` แยก) — เดิม 66
+  เพิ่ม 17 ข้อเรื่อง attention (รวมข้อสำคัญ: quiet ที่ดูอยู่ถูก drop, quiet ของ
+  session อื่นผ่าน, done ไม่ทับ waiting, โฟลเดอร์ที่มีสอง session ตอบ null) และ
+  21 ข้อเรื่อง git (รวม push จริงเข้า bare repo แล้วเช็คว่า commit ไปถึง)
+- ขับ UI จริงด้วย Chrome ที่ emulate 390×844 mobile+touch: stage all → พิมพ์
+  message → commit ได้ sha กลับมาจริง, อ่าน diff เต็มจอ, ปุ่ม Push หายไปเองเมื่อ
+  repo ไม่มี remote, toast จาก session อื่นมีปุ่ม Open แล้วกดกระโดดไปถูกตัวและ
+  badge ลดจาก 3 → 2, `?session=` เปิดถูก session, `postMessage` ของ sw ก็เปลี่ยน
+  session ได้, และ **quiet notice ถูก drop ตอนอยู่แท็บ Terminal ของ session นั้น
+  แต่ส่งถึงทันทีที่สลับไปแท็บอื่น**
+
+## ที่ยังไม่ได้ทำ
+
+- diff ยังไม่ highlight ระดับคำ (เห็นทั้งบรรทัดว่าเปลี่ยน ไม่เห็นว่าเปลี่ยนคำไหน)
+- stage ทีละ hunk ยังไม่มี — ทั้งไฟล์อย่างเดียว
+- ยังไม่มี discard/checkout ตั้งใจไม่ใส่: ปุ่มลบงานถาวรบนจอมือถือที่กดโดนง่าย
+- `orbit_notify` ของ MCP ยังไม่มีพารามิเตอร์ `kind` (นับเป็น `done` เสมอ) — hook
+  เท่านั้นที่บอกได้ว่าอันไหนคือการรอ
+- Web Push ของจริงยังไม่ได้ทดสอบรอบนี้ (payload เปลี่ยนไปพก `sessionId`) — ต้องลอง
+  บนเครื่องจริงตอนล็อกจอ แล้วกด banner ดูว่าไปตรง session ไหม
+
+---
+
 # ส่งงาน: รอบเก็บของหลังใช้จริงบนมือถือ (2 ส.ค. 2026, บ่าย)
 
 > รอบนี้ไม่ต้องรีสตาร์ต — แก้ฝั่ง web ล้วน **reload หน้าเว็บบนมือถือหนึ่งครั้ง** พอ

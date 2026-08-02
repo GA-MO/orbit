@@ -4,6 +4,16 @@ export interface ProviderInfo {
   available: boolean
 }
 
+/** `waiting` is holding up work on the Mac; `done` is only worth knowing about. */
+export type AttentionKind = 'waiting' | 'done'
+
+/** The last thing a session said, kept until someone actually reads it. */
+export interface Attention {
+  kind: AttentionKind
+  message: string
+  at: string
+}
+
 export interface SessionInfo {
   id: string
   name: string | null
@@ -18,6 +28,8 @@ export interface SessionInfo {
   alive: boolean
   /** This agent can pick its last conversation in the folder back up. */
   resumable: boolean
+  /** Unread word from this session — absent on the reply that creates one. */
+  attention?: Attention | null
 }
 
 export interface DirListing {
@@ -89,6 +101,10 @@ export const renameSession = (id: string, name: string) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   })
+
+/** Mark a session's word as read — sent when it is actually on screen. */
+export const clearAttention = (id: string) =>
+  authFetch(`/api/sessions/${id}/attention`, { method: 'DELETE' })
 
 /** Start again from an ended session — fresh, or resuming the agent's conversation. */
 export const restartSession = async (id: string, resume = false): Promise<SessionInfo> => {
@@ -199,6 +215,77 @@ export const stopPreview = async (publicPort: number): Promise<void> => {
   const res = await authFetch(`/api/previews/${publicPort}`, { method: 'DELETE' })
   if (!res.ok) throw new Error((await res.json()).error ?? `stop failed: ${res.status}`)
 }
+
+/* ---- What the agent changed ---- */
+
+const post = async <T>(url: string, body: unknown): Promise<T> => {
+  const res = await authFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error((await res.json()).error ?? `${url}: ${res.status}`)
+  return res.json()
+}
+
+export interface FileChange {
+  path: string
+  /** Index status letter, a space when the file is not staged at all. */
+  staged: string
+  /** Working-tree status letter, `?` for untracked. */
+  worktree: string
+  from: string | null
+  added: number
+  removed: number
+  binary: boolean
+}
+
+export interface GitStatus {
+  repo: boolean
+  root: string | null
+  branch: string | null
+  upstream: string | null
+  /** Whether there is anywhere to push to at all. */
+  hasRemote: boolean
+  ahead: number
+  behind: number
+  files: FileChange[]
+  head: { sha: string; subject: string } | null
+}
+
+export interface GitDiff {
+  file: string
+  patch: string
+  truncated: boolean
+  binary: boolean
+}
+
+export const fetchGitStatus = (cwd: string) =>
+  get<GitStatus>(`/api/git/status?cwd=${encodeURIComponent(cwd)}`)
+
+export const fetchGitDiff = (cwd: string, file: string, staged: boolean) =>
+  get<GitDiff>(
+    `/api/git/diff?cwd=${encodeURIComponent(cwd)}&file=${encodeURIComponent(file)}${
+      staged ? '&staged=1' : ''
+    }`,
+  )
+
+/** Stage (`add`) or unstage a set of paths; answers with the status that follows. */
+export const stageFiles = (cwd: string, files: string[], add: boolean) =>
+  post<GitStatus>('/api/git/stage', { cwd, files, add })
+
+export const commitStaged = (cwd: string, message: string) =>
+  post<{
+    sha: string
+    subject: string
+    files: number
+    added: number
+    removed: number
+    status: GitStatus
+  }>('/api/git/commit', { cwd, message })
+
+export const pushBranch = (cwd: string) =>
+  post<{ message: string; status: GitStatus }>('/api/git/push', { cwd })
 
 export const pushKey = () => get<{ publicKey: string }>('/api/push/key')
 

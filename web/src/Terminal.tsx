@@ -53,6 +53,8 @@ export interface AskRequest {
   detail: string | null
   options: string[]
   source: string | null
+  /** The session it came out of, when the Mac side knew which one that was. */
+  sessionId: string | null
 }
 
 const RECONNECT_DELAY_MS = 1500
@@ -99,7 +101,10 @@ interface Props {
    * phone. `alreadyPushed` marks the ones that arrived as a notification while
    * the app was away — showing them again would be the second banner.
    */
-  onNotice: (message: string, alreadyPushed?: boolean) => void
+  onNotice: (
+    message: string,
+    meta?: { sessionId?: string | null; alreadyPushed?: boolean },
+  ) => void
   onAsk: (request: AskRequest) => void
   /** Hand a file on the Mac to the prompt — a capture taken from a framed page. */
   onInsertPath?: (path: string) => void
@@ -188,6 +193,12 @@ export default function Terminal({
   const sendRef = useRef<(msg: object) => void>(() => {})
   const refitRef = useRef<(scrollToBottom?: boolean) => void>(() => {})
   const redrawRef = useRef<() => void>(() => {})
+  /* Whether this session is the one on screen — not merely the one connected.
+     The terminal stays mounted behind the other two tabs, and a phone in a
+     pocket holds its socket open until iOS gets round to freezing it. The
+     server needs the difference to decide what is worth interrupting for. */
+  const activeRef = useRef(active)
+  const reportViewingRef = useRef<() => void>(() => {})
   const mobileRef = useRef(isTouchDevice())
   const [showKeys] = useState(() => isTouchDevice())
   const [keyboardOpen, setKeyboardOpen] = useState(false)
@@ -375,6 +386,10 @@ export default function Terminal({
               break
             }
             readOnly = !!msg.readOnly
+            /* The server assumed this session was on screen when the socket
+               opened, which is right on launch and wrong when the app was left
+               on another tab. Say which it is. */
+            reportViewingRef.current()
             /* Reset, not clear: a dropped connection can leave the terminal
                half-way through an escape sequence, or on the alternate screen
                with mouse tracking on. The replay below sets up whatever it
@@ -415,7 +430,10 @@ export default function Terminal({
             callbacksRef.current.onGone()
             break
           case 'notice':
-            callbacksRef.current.onNotice(msg.message, !!msg.pushed)
+            callbacksRef.current.onNotice(msg.message, {
+              sessionId: msg.sessionId ?? null,
+              alreadyPushed: !!msg.pushed,
+            })
             break
           case 'ask':
             callbacksRef.current.onAsk({
@@ -424,6 +442,7 @@ export default function Terminal({
               detail: msg.detail ?? null,
               options: msg.options ?? [],
               source: msg.source ?? null,
+              sessionId: msg.sessionId ?? null,
             })
             break
         }
@@ -449,6 +468,13 @@ export default function Terminal({
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
     }
     sendRef.current = send
+
+    const reportViewing = () => {
+      const watching = activeRef.current && document.visibilityState === 'visible'
+      send({ type: 'viewing', sessionId: watching ? sessionId : null })
+    }
+    reportViewingRef.current = reportViewing
+    document.addEventListener('visibilitychange', reportViewing)
 
     let probeTimer: ReturnType<typeof setTimeout> | null = null
     const clearProbe = () => {
@@ -835,6 +861,7 @@ export default function Terminal({
       if (sizeTimer) clearTimeout(sizeTimer)
       if (repaintTimer) clearTimeout(repaintTimer)
       document.removeEventListener('visibilitychange', resync)
+      document.removeEventListener('visibilitychange', reportViewing)
       window.removeEventListener('pageshow', resync)
       observer.disconnect()
       window.visualViewport?.removeEventListener('resize', onBoxResize)
@@ -861,6 +888,8 @@ export default function Terminal({
      left: no resize, no SIGWINCH, and the agent goes on patching a frame it
      drew before. Same tear as coming back from the home screen, one tab over. */
   useEffect(() => {
+    activeRef.current = active
+    reportViewingRef.current()
     if (!active) return
     requestAnimationFrame(() => refitRef.current(true))
     redrawRef.current()

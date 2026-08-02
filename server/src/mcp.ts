@@ -27,6 +27,11 @@ const execFileAsync = promisify(execFile)
 const PROTOCOL_VERSION = '2025-06-18'
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const BASE = `http://127.0.0.1:${PORT}`
+/* Inherited from the PTY the agent was launched in — this process is its
+   grandchild. It lets a message be filed against the session it came out of
+   rather than guessed at from a folder two sessions may share. Empty when
+   Claude Code is running at the desk instead of through Orbit. */
+const SESSION_ID = process.env.ORBIT_SESSION_ID || null
 /** Claude resizes anything larger anyway; sending less costs the agent less. */
 const MAX_IMAGE_WIDTH = 1568
 
@@ -152,7 +157,11 @@ const TOOLS: Tool[] = [
       required: ['message'],
     },
     async run(args) {
-      const { delivered } = await api('/api/notify', { message: args.message, source: process.cwd() })
+      const { delivered } = await api('/api/notify', {
+        message: args.message,
+        source: process.cwd(),
+        sessionId: SESSION_ID,
+      })
       return {
         content: [
           text(delivered > 0 ? `Delivered to ${delivered} connected phone(s).` : 'No phone is connected right now — the message was not shown.'),
@@ -185,6 +194,7 @@ const TOOLS: Tool[] = [
         options: args.options,
         timeoutSeconds: args.timeoutSeconds,
         source: process.cwd(),
+        sessionId: SESSION_ID,
       })
       if (result.timedOut) {
         return {

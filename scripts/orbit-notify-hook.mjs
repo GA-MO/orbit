@@ -59,6 +59,7 @@ const describe = () => {
         message: `Claude is asking: ${oneLine(first.question, 90)}${
           options.length ? ` — ${options.join(' / ')}` : ''
         }${more}`,
+        kind: 'waiting',
         quiet: true,
       }
     }
@@ -71,14 +72,18 @@ const describe = () => {
         elicitation_dialog: 'A tool is asking you something',
       }[input.notification_type]
       if (!waiting) return null
-      return { message: oneLine(input.message) || waiting, quiet: true }
+      return { message: oneLine(input.message) || waiting, kind: 'waiting', quiet: true }
     }
     case 'Stop': {
       /* Only for work started from the phone. At a desk the turn ending is
          visible on the screen the user is already facing. */
       if (process.env.ORBIT_SESSION !== '1') return null
       const summary = oneLine(input.last_assistant_message, 120)
-      return { message: summary ? `Finished: ${summary}` : 'Claude finished', quiet: true }
+      return {
+        message: summary ? `Finished: ${summary}` : 'Claude finished',
+        kind: 'done',
+        quiet: true,
+      }
     }
     default:
       return null
@@ -101,7 +106,15 @@ try {
   await fetch(`http://127.0.0.1:${PORT}/api/notify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ...notice, source: input.cwd ?? null }),
+    /* The session id is inherited from the PTY this agent was launched in, so
+       the message is filed against the right one even when two sessions share a
+       folder. Absent means Claude Code is being used at the desk, not through
+       Orbit — the folder is then the only clue, and may well match nothing. */
+    body: JSON.stringify({
+      ...notice,
+      source: input.cwd ?? null,
+      sessionId: process.env.ORBIT_SESSION_ID ?? null,
+    }),
   })
 } catch {
   // Orbit is not running: this is a plain Claude Code session, and that is fine.

@@ -25,7 +25,7 @@ const ESCAPE_SEQUENCE = /\x1b(\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|O[A-Za-z]|.)
 const CONTROL_CHAR = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g
 
 /** Orbit's server process often inherits NO_COLOR from the IDE — strip it for PTYs. */
-const ptyEnv = (): Record<string, string> => {
+const ptyEnv = (sessionId: string): Record<string, string> => {
   const env = { ...process.env } as Record<string, string>
   delete env.NO_COLOR
   delete env.NODE_DISABLE_COLORS
@@ -36,6 +36,11 @@ const ptyEnv = (): Record<string, string> => {
   /* Anything started in here inherits this, so a hook can tell "the user is
      driving me from their phone" from "the user is sitting right there". */
   env.ORBIT_SESSION = '1'
+  /* And *which* of them, so a message from an agent can be filed against the
+     session it came out of. The agent, its MCP servers and its hooks are all
+     descendants of this PTY, so they inherit it without being told. Matching on
+     the folder instead guesses wrong the moment two sessions share one. */
+  env.ORBIT_SESSION_ID = sessionId
   return env
 }
 
@@ -111,7 +116,7 @@ class PtySession implements Session {
       cols,
       rows,
       cwd,
-      env: ptyEnv(),
+      env: ptyEnv(this.id),
     })
 
     this.proc.onData((data) => {

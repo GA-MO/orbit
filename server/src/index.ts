@@ -11,9 +11,11 @@ import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
 import * as preview from './preview.js'
 import * as ports from './ports.js'
+import * as git from './git.js'
 import * as uploads from './uploads.js'
 import * as store from './store.js'
 import * as notify from './notify.js'
+import * as attention from './attention.js'
 import * as push from './push.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
@@ -30,6 +32,7 @@ type ClientMessage =
   | { type: 'approve'; id: string }
   | { type: 'deny'; id: string }
   | { type: 'answer'; id: string; choice: string }
+  | { type: 'viewing'; sessionId: string | null }
 
 type ServerMessage =
   | { type: 'ready'; sessionId: string; replay: string; readOnly?: boolean }
@@ -53,6 +56,23 @@ const readBody = (req: http.IncomingMessage) =>
     req.on('end', () => resolve(body))
     req.on('error', reject)
   })
+
+/**
+ * Which session a message from the Mac is about.
+ *
+ * The sender is a descendant of the PTY, so it usually knows: `ORBIT_SESSION_ID`
+ * is in its environment. The folder is the fallback for anything that predates
+ * it, and only where the answer is not a guess — two agents in one folder make
+ * it one, and filing the message against the wrong session is worse than
+ * filing it against none.
+ */
+const resolveSession = (sessionId?: string | null, source?: string | null): string | null => {
+  if (sessionId && (manager.get(sessionId) || manager.isDead(sessionId))) return sessionId
+  if (!source) return null
+  const cwd = path.resolve(source)
+  const live = manager.list().filter((s) => s.alive && s.cwd === cwd)
+  return live.length === 1 ? live[0].id : null
+}
 
 /** Restrict filesystem/session paths to the user's home directory. */
 const safePath = (p: string): string | null => {
@@ -162,7 +182,16 @@ async function handleAuthedApi(
     )
   }
 
-  if (route === 'GET /api/sessions') return json(res, 200, manager.list())
+  if (route === 'GET /api/sessions') {
+    const list = manager.list()
+    // A forgotten session cannot still be waiting for anything.
+    attention.keepOnly(list.map((s) => s.id))
+    return json(
+      res,
+      200,
+      list.map((s) => ({ ...s, attention: attention.get(s.id) })),
+    )
+  }
 
   if (route === 'POST /api/sessions') {
     let body: { provider?: string; cwd?: string; name?: string }
@@ -215,6 +244,13 @@ async function handleAuthedApi(
     session.name = name || null
     manager.persistNow()
     return json(res, 200, { ok: true, name: session.name })
+  }
+
+  /* Reading is what marks it read. The phone says so when the session is
+     actually on screen, which is the only moment that means anything. */
+  const attentionMatch = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/attention$/)
+  if (req.method === 'DELETE' && attentionMatch) {
+    return json(res, 200, { cleared: attention.clear(attentionMatch[1]) })
   }
 
   const restartMatch = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/restart$/)
@@ -351,10 +387,71 @@ async function handleAuthedApi(
     }
   }
 
+  /* ---- What the agent changed ----
+   *
+   * Everything here is addressed by folder rather than by session: the phone
+   * takes the folder from whichever session it is showing, and two sessions in
+   * one repository are looking at the same working tree anyway. Same home
+   * restriction as the folder browser — this reads and writes real files.
+   */
+  if (url.pathname.startsWith('/api/git/')) {
+    let cwd: string | null = null
+    let body: Record<string, any> = {}
+    if (req.method === 'GET') {
+      cwd = safePath(url.searchParams.get('cwd') ?? '')
+    } else {
+      try {
+        body = JSON.parse((await readBody(req)) || '{}')
+      } catch {
+        return json(res, 400, { error: 'invalid JSON' })
+      }
+      cwd = safePath(typeof body.cwd === 'string' ? body.cwd : '')
+    }
+    if (!cwd) return json(res, 400, { error: 'cwd must be inside the home directory' })
+    const stat = await fsp.stat(cwd).catch(() => null)
+    if (!stat?.isDirectory()) return json(res, 400, { error: 'cwd is not a directory' })
+
+    try {
+      if (route === 'GET /api/git/status') return json(res, 200, await git.status(cwd))
+
+      if (route === 'GET /api/git/diff') {
+        const file = url.searchParams.get('file') ?? ''
+        if (!file) return json(res, 400, { error: 'file is required' })
+        return json(res, 200, await git.diff(cwd, file, url.searchParams.get('staged') === '1'))
+      }
+
+      if (route === 'POST /api/git/stage') {
+        const files = Array.isArray(body.files) ? body.files.filter((f: unknown) => typeof f === 'string') : []
+        await git.stage(cwd, files, body.add !== false)
+        return json(res, 200, await git.status(cwd))
+      }
+
+      if (route === 'POST /api/git/commit') {
+        const made = await git.commit(cwd, String(body.message ?? ''))
+        return json(res, 201, { ...made, status: await git.status(cwd) })
+      }
+
+      if (route === 'POST /api/git/push') {
+        const said = await git.push(cwd)
+        return json(res, 200, { message: said, status: await git.status(cwd) })
+      }
+    } catch (err) {
+      // git's own words: "nothing is staged", "failed to push some refs", …
+      return json(res, 400, { error: (err as Error).message })
+    }
+    return json(res, 404, { error: 'not found' })
+  }
+
   // ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
 
   if (route === 'POST /api/notify') {
-    let body: { message?: string; source?: string; quiet?: boolean }
+    let body: {
+      message?: string
+      source?: string
+      sessionId?: string
+      kind?: string
+      quiet?: boolean
+    }
     try {
       body = JSON.parse((await readBody(req)) || '{}')
     } catch {
@@ -362,18 +459,26 @@ async function handleAuthedApi(
     }
     const message = (body.message ?? '').trim().slice(0, 300)
     if (!message) return json(res, 400, { error: 'message is required' })
-    /* `quiet` is for things the user can already see: an open Orbit is someone
-       watching the terminal, and a toast repeating what is on screen is noise.
-       Say it only if it would otherwise be missed. */
-    if (body.quiet && notify.clientCount() > 0) {
-      return json(res, 200, { delivered: 0, pushed: 0, dropped: true })
+
+    const sessionId = resolveSession(body.sessionId, body.source)
+    /* `quiet` is for things the user can already see, and what they can see is
+       one session — not "Orbit is open somewhere". Judging it by whether any
+       phone was connected is what made the other session's "Claude is waiting"
+       vanish while you were reading this one. */
+    const seen = sessionId ? notify.isViewing(sessionId) : notify.clientCount() > 0
+    if (body.quiet && seen) {
+      return json(res, 200, { delivered: 0, pushed: 0, dropped: true, sessionId })
     }
-    const { delivered, id } = notify.notify(message, body.source ?? null)
+    // Held against the session until someone reads it — a toast is three seconds.
+    if (sessionId && !seen) {
+      attention.raise(sessionId, body.kind === 'waiting' ? 'waiting' : 'done', message)
+    }
+    const { delivered, id } = notify.notify({ message, source: body.source ?? null, sessionId })
     // Nothing was listening: wake the phone instead, and it will also see the
     // notice itself when it next connects.
-    const pushed = delivered === 0 ? await push.send('Orbit', message) : 0
+    const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId) : 0
     if (pushed > 0) notify.markPushed(id)
-    return json(res, 200, { delivered, pushed })
+    return json(res, 200, { delivered, pushed, sessionId })
   }
 
   if (route === 'GET /api/push/key') return json(res, 200, { publicKey: push.publicKey() })
@@ -410,6 +515,7 @@ async function handleAuthedApi(
       detail?: string
       options?: unknown
       source?: string
+      sessionId?: string
       timeoutSeconds?: number
     }
     try {
@@ -423,17 +529,24 @@ async function handleAuthedApi(
       ? body.options.filter((o): o is string => typeof o === 'string' && !!o.trim()).map((o) => o.trim().slice(0, 40))
       : undefined
     const timeoutSeconds = Math.min(Math.max(body.timeoutSeconds ?? 120, 5), 600)
+    const sessionId = resolveSession(body.sessionId, body.source)
     /* A question is worth waking someone for — and unlike a notice it is still
        waiting when they arrive, so the push is a nudge rather than the content. */
-    if (notify.clientCount() === 0) await push.send('Orbit is asking', question)
+    if (notify.clientCount() === 0) await push.send('Orbit is asking', question, sessionId)
+    /* Marked as waiting for the whole time it is open. A question that nobody
+       answers times out over there and leaves nothing behind otherwise — and
+       "an agent gave up waiting for me" is worth finding out late. */
+    if (sessionId) attention.raise(sessionId, 'waiting', question)
     const result = await notify.ask({
       question,
       detail: body.detail?.slice(0, 2000) ?? null,
       options,
       source: body.source ?? null,
+      sessionId,
       timeoutMs: timeoutSeconds * 1000,
     })
-    return json(res, 200, { ...result, phonesConnected: notify.clientCount() })
+    if (sessionId && !result.timedOut) attention.clear(sessionId)
+    return json(res, 200, { ...result, phonesConnected: notify.clientCount(), sessionId })
   }
 
   if (route === 'GET /api/screenshots') return json(res, 200, await screenshot.list())
@@ -512,13 +625,20 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   /* Notices and questions are about the phone, not about one session — every
      open socket carries them, including the one showing an ended session. */
-  const dropClient = notify.addClient(send)
-  ws.on('close', dropClient)
+  const client = notify.addClient(send)
+  /* Assume the session it attached to is the one on screen, which is true the
+     moment the app opens on the terminal. The phone corrects it as soon as it
+     mounts, and whenever it leaves for another tab or the screen goes dark. */
+  client.setViewing(requestedId)
+  ws.on('close', client.drop)
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw.toString())
       if (msg?.type === 'answer' && typeof msg.id === 'string') {
         notify.answer(msg.id, typeof msg.choice === 'string' ? msg.choice : '')
+      }
+      if (msg?.type === 'viewing') {
+        client.setViewing(typeof msg.sessionId === 'string' ? msg.sessionId : null)
       }
     } catch {
       // malformed frames are ignored here and by the session handler below
