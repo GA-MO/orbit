@@ -127,6 +127,8 @@ HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
 
 - npm strips the execute bit from node-pty's prebuilt `spawn-helper`, which causes `posix_spawnp failed` at PTY spawn. The root `postinstall` script fixes the permission automatically after every install.
 - Session ids are stored in `localStorage`; a page reload reattaches to the same shell.
+- **Stop / clean:** `make stop` kills the server on `:3001` and Tailscale HTTPS (443). `make clean` prunes `~/.orbit/screenshots` and `uploads` (keeps newest 50 each; leaves auth and sessions alone). Published preview serves (8443+) are dropped when the server exits; the front door (443) is only cleared by `make stop` / `make phone-off`.
+- **Agent GUI browsers** (Chrome/Safari tabs an agent opens itself) are not Orbit's process and are not killed by stop/clean or Preview → “Close capture browser”. Prefer `orbit_capture` / headless Playwright for UI checks; session-scoped browser kill is deferred.
 
 ## Roadmap (from AGENTS.md)
 

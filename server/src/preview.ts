@@ -240,3 +240,26 @@ export async function stop(publicPort: number, orbitPort: number): Promise<void>
   if (isFrontDoor(mapping, orbitPort)) throw new Error('that is how you are reaching Orbit')
   await run(['serve', `--https=${publicPort}`, 'off'])
 }
+
+/**
+ * Drop every published preview on the way out. Leaves the front door (443 /
+ * Orbit's own port) alone — `make stop` / `make phone-off` owns that mapping,
+ * so a Ctrl+C restart without Tailscale does not surprise, and a phone still
+ * on the wire is not cut mid-request by the server that is answering it.
+ *
+ * Best-effort: missing CLI or a failed `off` must not block process exit.
+ */
+export async function stopAll(orbitPort: number): Promise<void> {
+  if (!(await findCli())) return
+  let found: Mapping[]
+  try {
+    found = await mappings()
+  } catch {
+    return
+  }
+  await Promise.all(
+    found
+      .filter((m) => !isFrontDoor(m, orbitPort))
+      .map((m) => run(['serve', `--https=${m.publicPort}`, 'off']).catch(() => {})),
+  )
+}

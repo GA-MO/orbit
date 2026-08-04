@@ -179,6 +179,12 @@ export const deleteScreenshot = (file: string) =>
     token never lands in a URL. */
 export const screenshotUrl = (file: string) => `/api/screenshots/${file}`
 
+/** Close Orbit's warm headless Chrome (captures only — not agent GUI browsers). */
+export const closeCaptureBrowser = async (): Promise<void> => {
+  const res = await authFetch('/api/resources/chrome/close', { method: 'POST' })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `close failed: ${res.status}`)
+}
+
 /** A dev server published over https on the tailnet, so the phone can frame it. */
 export interface Preview {
   port: number

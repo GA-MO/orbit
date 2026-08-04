@@ -340,6 +340,13 @@ async function handleAuthedApi(
 
   if (route === 'GET /api/presets') return json(res, 200, screenshot.PRESETS)
 
+  /* Force-cold the warm Playwright Chrome used for captures. Does not touch
+     GUI browsers an agent opened in a PTY — those are not Orbit's process. */
+  if (route === 'POST /api/resources/chrome/close') {
+    await screenshot.shutdown()
+    return json(res, 200, { ok: true })
+  }
+
   /* What is serving a page on this Mac right now, so the phone can offer it
      instead of asking someone to type a port on a touch keyboard. Costs one
      `lsof` and a short-lived socket per candidate, so it is asked on arrival
@@ -759,8 +766,9 @@ server.listen(PORT, () => {
 
 const shutdown = () => {
   manager.killAll()
-  // The warm Chrome would otherwise outlive the server that launched it.
-  screenshot.shutdown().finally(() => process.exit(0))
+  // Warm Chrome and published preview serves (8443+) would otherwise outlive
+  // the process. Front-door Tailscale (443) is left for `make stop` / phone-off.
+  Promise.all([screenshot.shutdown(), preview.stopAll(PORT)]).finally(() => process.exit(0))
   setTimeout(() => process.exit(0), 2000).unref()
 }
 

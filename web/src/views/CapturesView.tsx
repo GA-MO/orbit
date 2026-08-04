@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   PRESETS,
   captureScreenshot,
+  closeCaptureBrowser,
   deleteScreenshot,
   fetchDevPorts,
   fetchLiveness,
@@ -105,6 +106,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
   const [previews, setPreviews] = useState<Preview[] | null>(null)
   const [sharing, setSharing] = useState(false)
   const [framed, setFramed] = useState<Preview | null>(null)
+  const [closingChrome, setClosingChrome] = useState(false)
 
   /* Null until the first answer, and left null when tailscale is missing or
      logged out — there is no useful thing to say about a machine that cannot
@@ -246,6 +248,20 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
     setViewing((cur) => (cur?.file === file ? null : cur))
   }
 
+  const closeChrome = async () => {
+    if (closingChrome) return
+    setClosingChrome(true)
+    setError(null)
+    try {
+      await closeCaptureBrowser()
+      onToast('Capture browser closed')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setClosingChrome(false)
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* One line. The long version of this sat here and again in the empty
@@ -337,6 +353,16 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
             />
             Full page
           </label>
+          {/* Orbit keeps one headless Chrome warm between captures. This only
+              closes that process — not Safari/Chrome tabs an agent opened. */}
+          <button
+            type="button"
+            disabled={closingChrome}
+            onClick={closeChrome}
+            className="ml-auto min-h-11 shrink-0 px-1 text-[11px] text-faint transition-colors hover:text-mut disabled:opacity-40"
+          >
+            {closingChrome ? 'Closing…' : 'Close capture browser'}
+          </button>
         </div>
 
         {/* A dev server is http on a port only the Mac can see; published over
