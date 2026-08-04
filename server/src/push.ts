@@ -9,6 +9,13 @@
  *
  * Push only fires when the live channel found nobody — a phone with Orbit open
  * gets a toast and should not also get a system banner for the same event.
+ *
+ * A push is a message handed to Apple, not a delivery: it is queued for a phone
+ * that is off or out of range and handed over whenever it comes back. Everything
+ * Orbit says is about *now* — "Claude is waiting", "the long thing finished" —
+ * so every send says how long it stays true and what it supersedes. Without
+ * that, the queue is four weeks deep (web-push's default TTL) and a Mac that has
+ * been shut down all evening still lands a stack of banners on the phone.
  */
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -31,6 +38,37 @@ export interface Subscription {
   endpoint: string
   keys: { p256dh: string; auth: string }
 }
+
+/** How long this message is worth delivering, and what it makes obsolete. */
+export interface Shelf {
+  /**
+   * Seconds the push service may hold it for a phone it cannot reach. After
+   * that it is dropped undelivered, which is the right outcome: a banner that
+   * arrives tomorrow is not news, it is a puzzle.
+   */
+  ttlSeconds: number
+  /**
+   * Queued messages sharing a topic collapse to the most recent — the phone
+   * that was away for an hour gets the last "Claude is waiting", not six of
+   * them. Kept per kind so a question is never dropped by a notice: they are
+   * different waits. Must be ≤32 URL-safe characters.
+   */
+  topic: string
+}
+
+/**
+ * A notice is Orbit reporting on this moment; half an hour later the terminal
+ * it came from has almost certainly moved on. The in-app list (see `notify.ts`)
+ * keeps it around far longer for anyone catching up on purpose — expiring the
+ * push loses the interruption, not the message.
+ */
+export const NOTICE: Shelf = { ttlSeconds: 30 * 60, topic: 'orbit-notice' }
+
+/** A question outlives its own banner by nothing: it stops waiting on timeout. */
+export const question = (timeoutSeconds: number): Shelf => ({
+  ttlSeconds: timeoutSeconds,
+  topic: 'orbit-ask',
+})
 
 const readConfig = (): Record<string, unknown> => {
   try {
@@ -124,13 +162,15 @@ export async function send(
      rather than on whatever was last open — which, for a phone woken by this
      very notification, is almost never the session that sent it. */
   sessionId: string | null = null,
+  shelf: Shelf = NOTICE,
 ): Promise<number> {
   if (subscriptions.length === 0) return 0
   const payload = JSON.stringify({ title, body, sessionId })
+  const options = { TTL: Math.max(0, Math.round(shelf.ttlSeconds)), topic: shelf.topic }
 
   const deliver = async (subscription: Subscription): Promise<boolean> => {
     try {
-      await webpush.sendNotification(subscription, payload, { agent })
+      await webpush.sendNotification(subscription, payload, { ...options, agent })
       return true
     } catch (err) {
       const status = (err as { statusCode?: number }).statusCode
@@ -145,7 +185,7 @@ export async function send(
       }
       // Never got that far: retry once on IPv4 before giving up on the network.
       try {
-        await webpush.sendNotification(subscription, payload, { agent: ipv4Agent })
+        await webpush.sendNotification(subscription, payload, { ...options, agent: ipv4Agent })
         return true
       } catch (retry) {
         console.error('[orbit] push unreachable:', (retry as { code?: string }).code ?? retry)

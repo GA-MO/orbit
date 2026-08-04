@@ -483,7 +483,7 @@ async function handleAuthedApi(
     const { delivered, id } = notify.notify({ message, source: body.source ?? null, sessionId })
     // Nothing was listening: wake the phone instead, and it will also see the
     // notice itself when it next connects.
-    const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId) : 0
+    const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId, push.NOTICE) : 0
     if (pushed > 0) notify.markPushed(id)
     return json(res, 200, { delivered, pushed, sessionId })
   }
@@ -539,7 +539,9 @@ async function handleAuthedApi(
     const sessionId = resolveSession(body.sessionId, body.source)
     /* A question is worth waking someone for — and unlike a notice it is still
        waiting when they arrive, so the push is a nudge rather than the content. */
-    if (notify.clientCount() === 0) await push.send('Orbit is asking', question, sessionId)
+    if (notify.clientCount() === 0) {
+      await push.send('Orbit is asking', question, sessionId, push.question(timeoutSeconds))
+    }
     /* Marked as waiting for the whole time it is open. A question that nobody
        answers times out over there and leaves nothing behind otherwise — and
        "an agent gave up waiting for me" is worth finding out late. */
