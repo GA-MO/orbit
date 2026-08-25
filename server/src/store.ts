@@ -21,6 +21,12 @@ export interface PersistedSession {
   /** null while the session is running; set when it ends (or the server died). */
   endedAt: string | null
   exitCode: number | null
+  /**
+   * The agent's own name for the conversation held here, for providers that let
+   * Orbit choose one. Null for the rest, and for sessions persisted before this
+   * existed — those can still only reach their folder's newest conversation.
+   */
+  conversationId: string | null
 }
 
 /* Labels captured before the CSI fix kept the body of SGR mouse reports: the
@@ -35,6 +41,7 @@ export function load(): PersistedSession[] {
     return list.map((s: PersistedSession) => ({
       ...s,
       firstCommand: s.firstCommand?.replace(MOUSE_REPORT_RESIDUE, '').trim() || null,
+      conversationId: s.conversationId ?? null,
     }))
   } catch {
     return []

@@ -57,6 +57,8 @@ export interface Session {
   firstCommand: string | null
   cwd: string
   provider: Provider
+  /** The agent's name for the conversation held here, where it takes one. */
+  conversationId: string | null
   createdAt: Date
   alive: boolean
   exitCode: number | null
@@ -100,6 +102,8 @@ class PtySession implements Session {
     rows: number,
     /** Overrides the provider's launch command — used to resume a conversation. */
     command?: string | null,
+    /** The conversation this session holds, for agents that let Orbit name one. */
+    public conversationId: string | null = null,
   ) {
     // Agent CLIs launch through an interactive login shell so the user's PATH
     // applies; `exec` replaces the shell so exiting the agent ends the session.
@@ -227,6 +231,7 @@ const metaOf = (s: PtySession): PersistedSession => ({
   createdAt: s.createdAt.toISOString(),
   endedAt: s.alive ? null : new Date().toISOString(),
   exitCode: s.exitCode,
+  conversationId: s.conversationId,
 })
 
 export class PtyManager {
@@ -251,14 +256,32 @@ export class PtyManager {
       cols?: number
       rows?: number
       command?: string | null
+      /** Carried over by {@link restart} when reopening a pinned conversation. */
+      conversationId?: string | null
     } = {},
   ): Session {
+    const provider =
+      opts.provider ?? { id: 'shell', name: 'Shell', command: null, resumeCommand: null }
+
+    /* A conversation nobody named can only be found again as "the newest one in
+       this folder", which is a different thing that is usually the same thing —
+       until the day it is not. Naming it at launch is what makes an ended
+       session reachable as *itself*, however many have been opened since. */
+    const conversationId =
+      opts.conversationId ?? (provider.conversation ? randomUUID() : null)
+    const command =
+      opts.command ??
+      (conversationId && provider.conversation
+        ? provider.conversation.start(conversationId)
+        : undefined)
+
     const session = new PtySession(
       opts.cwd ?? os.homedir(),
-      opts.provider ?? { id: 'shell', name: 'Shell', command: null, resumeCommand: null },
+      provider,
       opts.cols ?? 80,
       opts.rows ?? 24,
-      opts.command,
+      command,
+      conversationId,
     )
     if (opts.name) session.name = opts.name
     session.onLabel = () => this.persist()
@@ -300,9 +323,13 @@ export class PtyManager {
 
   /**
    * Start again from an ended session: new PTY, same provider, folder, and name.
-   * With `resume`, the agent is asked to pick its last conversation in that
-   * folder back up instead of starting a fresh one — which only makes sense for
-   * the entry {@link list} marked resumable.
+   *
+   * With `resume`, the agent picks a conversation back up instead of starting a
+   * fresh one — *this* session's conversation where it was named at launch, and
+   * otherwise the newest one in the folder, which is all the older agents can
+   * be asked for. Either way only for an entry {@link list} marked resumable.
+   *
+   * Without `resume` a new conversation is minted, because ＋ means a new one.
    */
   restart(id: string, resume = false): Session | null {
     const meta = this.dead.get(id)
@@ -310,11 +337,15 @@ export class PtyManager {
     const provider = getProvider(meta.providerId)
     if (!provider) return null
     if (resume && !this.list().find((s) => s.id === id)?.resumable) return null
+
+    const pinned = resume && meta.conversationId && provider.conversation ? meta.conversationId : null
     return this.create({
       provider,
       cwd: meta.cwd,
       name: meta.name ?? undefined,
-      command: resume ? provider.resumeCommand : undefined,
+      command: resume ? (pinned ? provider.conversation!.resume(pinned) : provider.resumeCommand) : undefined,
+      // The reopened session *is* that conversation, so it can be reopened again.
+      conversationId: pinned ?? undefined,
     })
   }
 
@@ -331,28 +362,39 @@ export class PtyManager {
     this.persist()
   }
 
-  /* `claude --continue` (and `codex resume --last`) reopen the newest
-     conversation *in a folder* — they know nothing about which Orbit session
-     that was. So Resume can only be offered where those two meanings coincide:
-     on the most recently ended session of its folder and agent, and only while
-     nothing is still live there. Offering it on an older entry would promise a
-     conversation it cannot reach; offering it beside a running one would put a
-     second agent into the conversation that one is holding. */
+  /* Which ended sessions can be picked back up, and it turns on what the agent
+     can be asked for.
+
+     `claude --continue` and `codex resume --last` reopen the newest conversation
+     *in a folder* — they know nothing about which Orbit session that was. So for
+     those, Resume can only be offered where the two meanings coincide: the most
+     recently ended session of its folder and agent, and only while nothing is
+     still live there. Offering it on an older entry would promise a conversation
+     it cannot reach; offering it beside a running one would put a second agent
+     into the conversation that one is holding.
+
+     A session launched with a conversation of its own is not bound by any of
+     that: it asks for that conversation by name, so a folder's third-newest is
+     as reachable as its newest. Its claim is the conversation rather than the
+     folder — which still stops the same one being opened twice, and stops a
+     resumed-then-ended session offering the same conversation from two rows. */
   list(): SessionInfo[] {
     const active = [...this.active.values()].map((s) => ({ ...metaOf(s), alive: true }))
     const dead = [...this.dead.values()].sort((a, b) =>
       (b.endedAt ?? '').localeCompare(a.endedAt ?? ''),
     )
 
-    const conversation = (s: { cwd: string; providerId: string }) => `${s.providerId}\0${s.cwd}`
-    const taken = new Set(active.map(conversation))
+    const claim = (s: PersistedSession) =>
+      s.conversationId ? `c\0${s.conversationId}` : `${s.providerId}\0${s.cwd}`
+    const taken = new Set(active.map(claim))
 
     return [
       ...active.map((s) => ({ ...s, resumable: false })),
       ...dead.map((m) => {
-        const key = conversation(m)
-        const resumable = !!getProvider(m.providerId)?.resumeCommand && !taken.has(key)
-        // Whoever ended last owns the folder's conversation; the rest are history.
+        const key = claim(m)
+        const provider = getProvider(m.providerId)
+        const reachable = m.conversationId ? !!provider?.conversation : !!provider?.resumeCommand
+        const resumable = reachable && !taken.has(key)
         taken.add(key)
         return { ...m, alive: false, resumable }
       }),

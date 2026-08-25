@@ -21,7 +21,9 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 **Phase 3 complete** — persistent session management:
 
 - Session metadata + terminal history persisted to `~/.orbit/` (`sessions.json` + `scrollback/<id>.txt`, debounced writes, sync flush on shutdown)
-- Sessions survive server restarts as "Ended" entries: history opens read-only in the terminal, ↻ resumes the agent's conversation in that folder (`claude --continue`, `codex resume --last`). Those commands address a folder, not an Orbit session, so ↻ appears only on the most recently ended session of a folder+agent and only while nothing is live there — anywhere else it would either reopen a different conversation than the one tapped, or put a second agent into one already in use, ＋ starts a fresh session with the same provider/folder/name, ✕ forgets (deletes history)
+- Sessions survive server restarts as "Ended" entries. Tapping one opens its history read-only; **Resume** and **＋** (fresh session, same agent and folder) live in that view's header, and the row itself carries only ✕ (forget, deletes history). Both of those buttons start an agent, which costs tokens and takes a minute — a list you scroll with a thumb is the wrong place for them, and reading the history first is also the only way to tell two ended rows of one folder apart
+- **A session that named its own conversation is reachable as itself.** Where the agent lets Orbit choose the name, one is minted at launch (`claude --session-id <uuid>`) and ↻ asks for it back by name (`claude --resume <uuid>`) — so a folder's third-newest ended session reopens exactly the conversation that was tapped, however many have been opened since. What a row claims is then the conversation rather than the folder, which still stops one being opened twice and stops a resumed-then-ended session offering the same conversation from two rows
+- For agents that only offer "the newest conversation in this folder" (`codex resume --last`), the old rule still holds: ↻ appears on the most recently ended session of a folder+agent and only while nothing is live there — anywhere else it would either reopen a different conversation than the one tapped, or put a second agent into one already in use
 - A session id the phone remembers but the Mac no longer has is reported as gone, rather than silently opening a shell in the home directory under the old id
 - Ended sessions capped at 20 (oldest pruned)
 
@@ -112,12 +114,22 @@ Then open `http://<mac-ip>:3001` from your phone. That is enough for the termina
 
 On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; delete the file to rotate it).
 
-Smoke test (captures, previews, the Mac→phone channel, MCP, the approval hook, auth) — against a throwaway instance, never the running one:
+## Testing
 
 ```sh
-HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &
-HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
+make test          # both suites
+make test-smoke    # API / MCP / hooks only (no browser)
+make test-touch    # touch behaviour only (needs system Chrome)
+make test-changes  # the Changes tab only (needs system Chrome)
 ```
+
+`scripts/test.sh` builds, starts an Orbit of its own on `:3099` under a scratch `HOME`, runs the suites and takes it down again — so a run can neither be coloured by the last one nor reach the `~/.orbit` you actually use, and the server on `:3001` is never touched.
+
+- `scripts/smoke.mjs` — captures, previews, the Mac→phone channel, sessions, attention, git, auth, MCP, the approval hook
+- `scripts/touch-smoke.mjs` — tapping a link, holding to select, dragging to extend, copying out of the terminal (`ENGINE=webkit` for the engine iOS runs)
+- `scripts/changes-smoke.mjs` — the Changes tab in a real browser: two hunks shown as two, the words that changed marked where they changed, and one hunk staged without the other
+
+A check reports as **skip** rather than fail when the machine cannot answer it: the Mac screen capture without Screen Recording permission for whatever launched the server, and the agent-resume section when Claude Code is not on the server's PATH. The runner hands the throwaway server the login shell's real PATH, so an agent installed in `~/.local/bin` is found even under the scratch `HOME` that has no shell rc files of its own.
 
 **User guide (Thai, with screenshots)**: [docs/USER-GUIDE.md](docs/USER-GUIDE.md) — a full walkthrough of every feature, captured from a real end-to-end session.
 

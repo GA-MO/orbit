@@ -10,11 +10,26 @@ export interface Provider {
    * agents that keep one. Null means starting again is the only option.
    */
   resumeCommand: string | null
+  /**
+   * For agents that let the caller name a conversation: the launch command with
+   * that name pinned to it, and the command that reopens exactly that one.
+   * A folder's newest conversation is then no longer the only one reachable.
+   */
+  conversation?: { start(id: string): string; resume(id: string): string }
 }
 
 export const PROVIDERS: Provider[] = [
   { id: 'shell', name: 'Shell', command: null, resumeCommand: null },
-  { id: 'claude', name: 'Claude Code', command: 'claude', resumeCommand: 'claude --continue' },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    command: 'claude',
+    resumeCommand: 'claude --continue',
+    conversation: {
+      start: (id) => `claude --session-id ${id}`,
+      resume: (id) => `claude --resume ${id}`,
+    },
+  },
   { id: 'codex', name: 'Codex CLI', command: 'codex', resumeCommand: 'codex resume --last' },
   { id: 'gemini', name: 'Gemini CLI', command: 'gemini', resumeCommand: null },
 ]

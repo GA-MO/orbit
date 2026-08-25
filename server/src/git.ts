@@ -12,7 +12,7 @@
  * a folder or a branch with a space in it is not a command. The caller has
  * already checked that the folder is inside the home directory.
  */
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -276,6 +276,80 @@ export async function diff(cwd: string, file: string, staged: boolean): Promise<
     truncated,
     binary,
   }
+}
+
+/* `git apply` is the only one of these that has to be *given* something rather
+   than asked, so it is the only one that needs a stdin. Same shape as `run`:
+   arguments as an array, git's own words on failure. */
+const runWithInput = (cwd: string, args: string[], input: string): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const child = spawn('git', ['-C', cwd, ...args], {
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
+    })
+    let out = ''
+    let err = ''
+    const timer = setTimeout(() => child.kill(), TIMEOUT_MS)
+    child.stdout.on('data', (d) => (out += d))
+    child.stderr.on('data', (d) => (err += d))
+    child.on('error', (e) => {
+      clearTimeout(timer)
+      reject(new GitError(e.message))
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code === 0) return resolve(out)
+      const said = (err || out).trim().split('\n').slice(0, 4).join('\n')
+      reject(new GitError(said || `git ${args[0]} failed`))
+    })
+    child.stdin.end(input)
+  })
+
+/** A single `@@ … @@` block: its header line and the body that follows it. */
+const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/
+
+/**
+ * Move one hunk into the index, or take one back out of it.
+ *
+ * Staging a whole file is the wrong size of decision surprisingly often — an
+ * agent's edit and a stray console.log land in the same file, and until now
+ * the only way to separate them from a phone was not to commit at all.
+ *
+ * The patch is rebuilt here rather than trusted: the caller sends the body of
+ * the hunk it is looking at, and the header naming the file is written from the
+ * path that has already been checked. So a hunk can only ever be applied to the
+ * file it was read from. `git apply --cached` touches the index alone — the
+ * working tree is left exactly as it was, which is the whole point of staging
+ * half of it — and `--reverse` is the same move in the other direction.
+ *
+ * A hunk that no longer fits is refused by git in its own words ("patch does
+ * not apply"), which is the right answer: the file moved under the sheet while
+ * it was open, and applying it anywhere else would be a guess.
+ */
+export async function applyHunk(
+  cwd: string,
+  file: string,
+  hunk: string,
+  unstage: boolean,
+): Promise<void> {
+  const relative = safeRelative(file)
+  if (!relative) throw new GitError('that path is not inside the repository')
+  const lines = hunk.replace(/\n$/, '').split('\n')
+  if (!HUNK_HEADER.test(lines[0] ?? '')) throw new GitError('that is not a hunk')
+  /* Every other line is a context, an addition, a removal, or git's note that
+     the file does not end in a newline. Anything else would be a second hunk
+     header or a file header smuggled in behind the first line. */
+  for (const line of lines.slice(1)) {
+    if (!/^[ +\-\\]/.test(line) && line !== '') throw new GitError('that is not a hunk')
+  }
+  const root = (await run(cwd, ['rev-parse', '--show-toplevel'])).trim()
+  const patch = [
+    `diff --git a/${relative} b/${relative}`,
+    `--- a/${relative}`,
+    `+++ b/${relative}`,
+    ...lines,
+    '',
+  ].join('\n')
+  await runWithInput(root, ['apply', '--cached', ...(unstage ? ['--reverse'] : []), '-'], patch)
 }
 
 /** Stage or unstage a set of paths. Returns nothing useful; the caller refetches. */

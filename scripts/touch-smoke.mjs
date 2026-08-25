@@ -3,7 +3,8 @@
  * Touch behaviour the phone cannot be asked to prove twice: tapping a link,
  * holding to select, dragging to extend, and copying out of the terminal.
  *
- * Runs against a throwaway Orbit — never the one you are using:
+ * Runs against a throwaway Orbit — never the one you are using. `make
+ * test-touch` sets one up and takes it down again; by hand:
  *
  *   rm -rf /tmp/orbit-smoke && mkdir -p /tmp/orbit-smoke
  *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &

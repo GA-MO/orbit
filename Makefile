@@ -1,4 +1,5 @@
 .PHONY: help install dev build start stop clean \
+	test test-smoke test-touch test-changes \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
 
@@ -16,6 +17,7 @@ help: ## Show available targets
 	@echo "  Orbit — make targets"
 	@echo ""
 	@echo "  Phone:   make phone   →  make stop when done"
+	@echo "  Test:    make test    (throwaway server on :3099, never touches ~/.orbit)"
 	@echo "  Hygiene: make clean   (prune ~/.orbit caches; keeps auth/sessions)"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -48,6 +50,22 @@ stop: ## Stop Orbit on :3001 and Tailscale HTTPS (443)
 		echo "  Nothing listening on :$(PORT)"; \
 	fi
 	@$(MAKE) --no-print-directory phone-off
+
+# ── test ───────────────────────────────────────────────
+# Builds, starts an Orbit of its own (:3099, scratch HOME), runs the suites,
+# and takes it down again. The one you are using on :3001 is never touched.
+
+test: ## Run every suite against a throwaway server
+	@scripts/test.sh all
+
+test-smoke: ## API / MCP / hooks only (no browser)
+	@scripts/test.sh smoke
+
+test-touch: ## Touch behaviour only (needs system Chrome)
+	@scripts/test.sh touch
+
+test-changes: ## The Changes tab only (needs system Chrome)
+	@scripts/test.sh changes
 
 clean: ## Prune ~/.orbit screenshots & uploads (keep newest 50 each)
 	@for name in screenshots uploads; do \

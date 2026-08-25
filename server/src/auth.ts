@@ -52,16 +52,28 @@ export function sessionCookie(token: string, secure: boolean): string {
   return attrs.join('; ')
 }
 
+/**
+ * Constant-time string comparison, for anything a caller is allowed to guess at.
+ *
+ * `===` returns as soon as two bytes differ, so how long it took is a reading of
+ * how much of the guess was right — one byte at a time, which is a short walk
+ * from a token nobody knows to a token everybody does.
+ */
+export function matches(given: string, expected: string): boolean {
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
 export function hasSessionCookie(req: http.IncomingMessage, token: string): boolean {
   const header = req.headers.cookie
   if (!header) return false
-  const expected = Buffer.from(sessionValue(token))
+  const expected = sessionValue(token)
   for (const part of header.split(';')) {
     const eq = part.indexOf('=')
     if (eq === -1) continue
     if (part.slice(0, eq).trim() !== SESSION_COOKIE) continue
-    const value = Buffer.from(part.slice(eq + 1).trim())
-    return value.length === expected.length && timingSafeEqual(value, expected)
+    return matches(part.slice(eq + 1).trim(), expected)
   }
   return false
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  applyHunk,
   commitStaged,
   fetchGitDiff,
   fetchGitStatus,
@@ -10,6 +11,7 @@ import {
   type GitStatus,
   type SessionInfo,
 } from '../api'
+import { pair, type Span } from '../diff-words'
 import {
   Button,
   EmptyState,
@@ -66,18 +68,114 @@ const LINE_STYLE: Record<LineKind, string> = {
   context: 'text-mut',
 }
 
+/** The stronger wash the changed words themselves get, over the line's own. */
+const WORD_STYLE: Record<string, string> = {
+  add: 'bg-ok/30 text-fore rounded-[2px]',
+  del: 'bg-danger/30 text-fore rounded-[2px]',
+}
+
+interface Hunk {
+  header: string
+  lines: string[]
+  /** Exactly what goes to git if this one is staged on its own. */
+  patch: string
+}
+
+/* A patch as the sheet needs it: the file header dropped, and the body cut at
+   each `@@` so a hunk can be shown — and staged — as the unit it already is. */
+const parseHunks = (patch: string) => {
+  const meta: string[] = []
+  const hunks: Hunk[] = []
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) {
+      hunks.push({ header: line, lines: [], patch: '' })
+      continue
+    }
+    const current = hunks[hunks.length - 1]
+    if (!current) {
+      if (!NOISE.test(line)) meta.push(line)
+      continue
+    }
+    current.lines.push(line)
+  }
+  for (const hunk of hunks) {
+    while (hunk.lines.length && hunk.lines[hunk.lines.length - 1] === '') hunk.lines.pop()
+    hunk.patch = [hunk.header, ...hunk.lines].join('\n')
+  }
+  return { meta, hunks }
+}
+
+/* Where the word-level marks attach: a run of removed lines and the run of
+   added ones directly after it. `pair` decides whether they are versions of
+   each other at all — this only finds the runs and keeps the answer by line. */
+const markHunk = (lines: string[]): Map<number, Span[]> => {
+  const marks = new Map<number, Span[]>()
+  let i = 0
+  while (i < lines.length) {
+    if (!lines[i].startsWith('-')) {
+      i++
+      continue
+    }
+    let removedEnd = i
+    while (removedEnd < lines.length && lines[removedEnd].startsWith('-')) removedEnd++
+    let addedEnd = removedEnd
+    while (addedEnd < lines.length && lines[addedEnd].startsWith('+')) addedEnd++
+
+    const paired = pair(
+      lines.slice(i, removedEnd).map((l) => l.slice(1)),
+      lines.slice(removedEnd, addedEnd).map((l) => l.slice(1)),
+    )
+    if (paired) {
+      paired.removed.forEach((spans, k) => spans && marks.set(i + k, spans))
+      paired.added.forEach((spans, k) => spans && marks.set(removedEnd + k, spans))
+    }
+    i = addedEnd > i ? addedEnd : i + 1
+  }
+  return marks
+}
+
+const DiffLine = ({ line, kind, spans }: { line: string; kind: LineKind; spans?: Span[] }) => (
+  <div className={`px-3 ${LINE_STYLE[kind]}`}>
+    {spans ? (
+      <>
+        {line[0]}
+        {spans.map((span, i) => (
+          <span key={i} className={span.changed ? WORD_STYLE[kind] : undefined}>
+            {span.text}
+          </span>
+        ))}
+      </>
+    ) : (
+      line || ' '
+    )}
+  </div>
+)
+
 function DiffSheet({
   file,
+  staged,
+  /** Whether a hunk of this file can go into the index on its own — see below. */
+  splittable,
+  busy,
   loading,
   diff,
+  onApply,
   onClose,
 }: {
   file: string
+  staged: boolean
+  splittable: boolean
+  busy: boolean
   loading: boolean
   diff: GitDiff | null
+  onApply: (hunk: string) => void
   onClose: () => void
 }) {
-  const lines = (diff?.patch ?? '').split('\n').filter((l) => !NOISE.test(l))
+  const { meta, hunks } = parseHunks(diff?.patch ?? '')
+  /* A hunk of a truncated diff is a hunk that may have been cut in half, and
+     git would either refuse it or — worse — accept the half. */
+  const canStage = splittable && !diff?.truncated && hunks.length > 1
+
   return (
     <Sheet side="full" onClose={onClose} title={basename(file)}>
       {file !== basename(file) && (
@@ -94,11 +192,31 @@ function DiffSheet({
           {/* `w-max` so a long line scrolls sideways instead of wrapping: a
               wrapped diff on a narrow screen loses which column the + was in. */}
           <pre className="w-max min-w-full pb-6 font-mono text-[11.5px] leading-[1.55]">
-            {lines.map((line, i) => (
-              <div key={i} className={`px-3 ${LINE_STYLE[kindOf(line)]}`}>
-                {line || ' '}
-              </div>
+            {meta.map((line, i) => (
+              <DiffLine key={`m${i}`} line={line} kind={kindOf(line)} />
             ))}
+            {hunks.map((hunk, h) => {
+              const marks = markHunk(hunk.lines)
+              return (
+                <div key={h}>
+                  <div className={`flex items-center gap-2 px-3 ${LINE_STYLE.hunk}`}>
+                    <span className="min-w-0 flex-1 truncate">{hunk.header}</span>
+                    {canStage && (
+                      <button
+                        disabled={busy}
+                        onClick={() => onApply(hunk.patch)}
+                        className="sticky right-1 shrink-0 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-accent disabled:opacity-40"
+                      >
+                        {staged ? 'Unstage' : 'Stage'}
+                      </button>
+                    )}
+                  </div>
+                  {hunk.lines.map((line, i) => (
+                    <DiffLine key={i} line={line} kind={kindOf(line)} spans={marks.get(i)} />
+                  ))}
+                </div>
+              )
+            })}
           </pre>
           {diff?.truncated && (
             <div className="border-t border-line bg-raised px-4 py-3 text-xs text-mut">
@@ -116,7 +234,9 @@ export default function ChangesView({ active, session, onToast }: Props) {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [open, setOpen] = useState<{ file: string; staged: boolean } | null>(null)
+  const [open, setOpen] = useState<{ file: string; staged: boolean; splittable: boolean } | null>(
+    null,
+  )
   const [diff, setDiff] = useState<GitDiff | null>(null)
   const cwd = session?.cwd ?? null
 
@@ -145,6 +265,10 @@ export default function ChangesView({ active, session, onToast }: Props) {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [active, refresh])
 
+  /* Bumped after a hunk moves, because the diff on screen is now one hunk out
+     of date on this side — and the sheet stays open on what is left of it. */
+  const [diffNonce, setDiffNonce] = useState(0)
+
   useEffect(() => {
     if (!open || !cwd) return setDiff(null)
     let cancelled = false
@@ -155,7 +279,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
     return () => {
       cancelled = true
     }
-  }, [open, cwd, onToast])
+  }, [open, cwd, onToast, diffNonce])
 
   const run = async (key: string, work: () => Promise<GitStatus>) => {
     if (busy) return
@@ -171,6 +295,25 @@ export default function ChangesView({ active, session, onToast }: Props) {
 
   const setStaged = (files: string[], add: boolean) =>
     run(add ? `stage:${files[0]}` : `unstage:${files[0]}`, () => stageFiles(cwd!, files, add))
+
+  /* One hunk in or out. The sheet is left open on purpose — staging half of a
+     file is nearly always followed by staging another half of it, and closing
+     would send you back through the list to the row you were already on. */
+  const moveHunk = async (hunk: string) => {
+    if (!open || !cwd || busy) return
+    setBusy('hunk')
+    try {
+      const next = await applyHunk(cwd, open.file, hunk, open.staged)
+      setStatus(next)
+      setDiffNonce((n) => n + 1)
+      // Nothing left on this side of the file: the sheet has run out of subject.
+      if (!next.files.some((f) => f.path === open.file)) setOpen(null)
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'git could not apply that hunk')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const doCommit = async () => {
     if (!cwd || !message.trim()) return
@@ -218,7 +361,16 @@ export default function ChangesView({ active, session, onToast }: Props) {
     return (
       <div
         key={key}
-        onClick={() => setOpen({ file: f.path, staged: inIndex })}
+        onClick={() =>
+          setOpen({
+            file: f.path,
+            staged: inIndex,
+            /* Only a plain modification splits cleanly. A new, deleted or
+               renamed file is a whole-file decision by nature, and half an
+               untracked file in the index is a state nobody asked for. */
+            splittable: (inIndex ? f.staged : f.worktree) === 'M',
+          })
+        }
         className="flex cursor-pointer items-center gap-2.5 rounded-(--radius-card) border border-line-subtle bg-surface px-3 py-2.5 transition-colors hover:border-line"
       >
         <span className={`w-3 shrink-0 text-center font-mono text-sm ${letter.className}`}>
@@ -370,8 +522,12 @@ export default function ChangesView({ active, session, onToast }: Props) {
       {open && (
         <DiffSheet
           file={open.file}
+          staged={open.staged}
+          splittable={open.splittable}
+          busy={!!busy}
           loading={!diff}
           diff={diff}
+          onApply={moveHunk}
           onClose={() => setOpen(null)}
         />
       )}

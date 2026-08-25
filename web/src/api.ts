@@ -26,7 +26,9 @@ export interface SessionInfo {
   endedAt: string | null
   exitCode: number | null
   alive: boolean
-  /** This agent can pick its last conversation in the folder back up. */
+  /** The conversation this session holds, where the agent lets Orbit name one. */
+  conversationId: string | null
+  /** ↻ would reach the conversation this row is actually about. */
   resumable: boolean
   /** Unread word from this session — absent on the reply that creates one. */
   attention?: Attention | null
@@ -279,6 +281,13 @@ export const fetchGitDiff = (cwd: string, file: string, staged: boolean) =>
 /** Stage (`add`) or unstage a set of paths; answers with the status that follows. */
 export const stageFiles = (cwd: string, files: string[], add: boolean) =>
   post<GitStatus>('/api/git/stage', { cwd, files, add })
+
+/**
+ * Move one hunk into the index (`staged: false`) or take it back out
+ * (`staged: true`) — which side it came from is which direction it goes.
+ */
+export const applyHunk = (cwd: string, file: string, hunk: string, staged: boolean) =>
+  post<GitStatus>('/api/git/hunk', { cwd, file, hunk, staged })
 
 export const commitStaged = (cwd: string, message: string) =>
   post<{

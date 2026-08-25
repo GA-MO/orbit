@@ -6,7 +6,7 @@ import path from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { PtyManager } from './pty-manager.js'
 import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
-import { getToken, hasSessionCookie, isSecureRequest, sessionCookie } from './auth.js'
+import { getToken, hasSessionCookie, isSecureRequest, matches, sessionCookie } from './auth.js'
 import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
 import * as preview from './preview.js'
@@ -49,13 +49,35 @@ const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body))
 }
 
+/* Every JSON route reads its body through here, so the cap belongs here too.
+   Without one a request that never ends is a string that grows until the
+   process does — and the upload route, the only one that was ever expected to
+   carry weight, has always had a limit of its own. A megabyte is far more than
+   anything on this API sends: the largest is a commit message. */
+const BODY_LIMIT = 1024 * 1024
+
 const readBody = (req: http.IncomingMessage) =>
   new Promise<string>((resolve, reject) => {
     let body = ''
-    req.on('data', (chunk) => (body += chunk))
+    req.on('data', (chunk) => {
+      body += chunk
+      if (body.length > BODY_LIMIT) {
+        reject(new HttpError(413, `body exceeds ${BODY_LIMIT / 1024}KB limit`))
+        req.destroy()
+      }
+    })
     req.on('end', () => resolve(body))
     req.on('error', reject)
   })
+
+const readJson = async <T>(req: http.IncomingMessage): Promise<T> => {
+  const raw = await readBody(req)
+  try {
+    return JSON.parse(raw || '{}') as T
+  } catch {
+    throw bad('invalid JSON')
+  }
+}
 
 /**
  * Which session a message from the Mac is about.
@@ -87,13 +109,51 @@ const safePath = (p: string): string | null => {
  * and an <img src> — so it authorises reads and the socket, never a write.
  * SameSite=Strict is what makes that safe: no other origin can cause the
  * browser to send it in the first place. */
+/* Compared the way the cookie is, and for the same reason: `===` on a string
+   stops at the first byte that differs, and the time it took to stop is a
+   reading of how much of the guess was right. */
 const bearer = (req: http.IncomingMessage): boolean =>
-  req.headers.authorization === `Bearer ${TOKEN}`
+  matches(req.headers.authorization ?? '', `Bearer ${TOKEN}`)
 
 const authorized = (req: http.IncomingMessage): boolean => {
   if (bearer(req)) return true
   return req.method === 'GET' && hasSessionCookie(req, TOKEN)
 }
+
+/* ---- Slowing down a guess -------------------------------------------------
+ *
+ * A tailnet is not the open internet, but the token is the only thing between
+ * anyone already on it and every file under the home directory — and nothing
+ * stopped a client from trying tokens as fast as the loop could answer.
+ *
+ * This holds a rejection back rather than refusing to answer at all. A block
+ * would be a way to lock the owner out, since `tailscale serve` proxies every
+ * remote client from 127.0.0.1 and they all count as one address. A delay
+ * costs a guesser everything and the owner nothing: a phone that is logged in
+ * never fails, so it never waits.
+ */
+const FREE_ATTEMPTS = 10
+const FAILURE_FORGOTTEN_MS = 60_000
+const MAX_DELAY_MS = 2000
+
+const failures = new Map<string, { count: number; last: number }>()
+
+const rejectSlowly = (req: http.IncomingMessage): Promise<void> => {
+  const key = req.socket.remoteAddress ?? 'unknown'
+  const now = Date.now()
+  const seen = failures.get(key)
+  const count = seen && now - seen.last < FAILURE_FORGOTTEN_MS ? seen.count + 1 : 1
+  failures.set(key, { count, last: now })
+  if (failures.size > 64) {
+    for (const [k, v] of failures) if (now - v.last > FAILURE_FORGOTTEN_MS) failures.delete(k)
+  }
+  const over = count - FREE_ATTEMPTS
+  if (over <= 0) return Promise.resolve()
+  return new Promise((resolve) => setTimeout(resolve, Math.min(over * 250, MAX_DELAY_MS)))
+}
+
+const forgetFailures = (req: http.IncomingMessage) =>
+  failures.delete(req.socket.remoteAddress ?? 'unknown')
 
 // ---- Static serving of the built web app (production: single port) ----
 
@@ -146,465 +206,532 @@ async function serveStatic(url: URL, res: http.ServerResponse) {
 
 async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://localhost')
-  const route = `${req.method} ${url.pathname}`
 
-  if (route === 'GET /healthz') return json(res, 200, { ok: true })
+  if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true })
 
   if (url.pathname.startsWith('/api/')) {
-    if (!authorized(req)) return json(res, 401, { error: 'unauthorized' })
-    return handleAuthedApi(req, res, url, route)
+    if (!authorized(req)) {
+      await rejectSlowly(req)
+      return json(res, 401, { error: 'unauthorized' })
+    }
+    forgetFailures(req)
+    return handleAuthedApi(req, res, url)
   }
 
   // Anything else is the web app itself (public shell; all data sits behind the API).
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(url, res)
   json(res, 404, { error: 'not found' })
 }
+/* ---- Router -----------------------------------------------------------
+ *
+ * One table, not a chain of ifs. The chain worked, but its correctness lived
+ * in the order the branches happened to be written in: every literal path had
+ * to be tested before the pattern that could also match it, and a route added
+ * at the wrong line answered with the wrong handler — silently, since both
+ * branches are valid code.
+ *
+ * Here a pattern matches only a path with the same number of segments, so
+ * `/api/sessions` and `/api/sessions/:id` cannot collide however they are
+ * ordered. Registration order still decides between two patterns that could
+ * both match (`/api/previews/live` before `/api/previews/:port`), and those
+ * are written next to each other.
+ */
 
-async function handleAuthedApi(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  url: URL,
-  route: string,
-) {
-  /* The token check is also where a browser picks up its session cookie, so
-     every successful pairing — and every reload — renews it in one round trip. */
-  if (route === 'GET /api/auth/check') {
-    if (bearer(req)) res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
-    return json(res, 200, { ok: true })
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
   }
-
-  if (route === 'GET /api/providers') {
-    const available = await detectAvailability()
-    return json(
-      res,
-      200,
-      PROVIDERS.map((p) => ({ id: p.id, name: p.name, available: available[p.id] ?? false })),
-    )
-  }
-
-  if (route === 'GET /api/sessions') {
-    const list = manager.list()
-    // A forgotten session cannot still be waiting for anything.
-    attention.keepOnly(list.map((s) => s.id))
-    return json(
-      res,
-      200,
-      list.map((s) => ({ ...s, attention: attention.get(s.id) })),
-    )
-  }
-
-  if (route === 'POST /api/sessions') {
-    let body: { provider?: string; cwd?: string; name?: string }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-
-    const provider = getProvider(body.provider ?? 'shell')
-    if (!provider) return json(res, 400, { error: `unknown provider: ${body.provider}` })
-
-    let cwd = HOME
-    if (body.cwd) {
-      const safe = safePath(body.cwd)
-      if (!safe) return json(res, 400, { error: 'cwd must be inside the home directory' })
-      const stat = await fsp.stat(safe).catch(() => null)
-      if (!stat?.isDirectory()) return json(res, 400, { error: 'cwd is not a directory' })
-      cwd = safe
-    }
-
-    const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : ''
-    const session = manager.create({ provider, cwd, name: name || undefined })
-    const info = manager.list().find((s) => s.id === session.id)
-    return json(res, 201, info)
-  }
-
-  const sessionMatch = url.pathname.match(/^\/api\/sessions\/([\w-]+)$/)
-  if (req.method === 'DELETE' && sessionMatch) {
-    const id = sessionMatch[1]
-    const session = manager.get(id)
-    if (session) {
-      session.kill() // moves to the ended list, history kept
-      return json(res, 200, { ok: true })
-    }
-    if (manager.forget(id)) return json(res, 200, { ok: true }) // ended: remove + history
-    return json(res, 404, { error: 'not found' })
-  }
-
-  if (req.method === 'PATCH' && sessionMatch) {
-    const session = manager.get(sessionMatch[1])
-    if (!session) return json(res, 404, { error: 'not found' })
-    let body: { name?: string }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : ''
-    session.name = name || null
-    manager.persistNow()
-    return json(res, 200, { ok: true, name: session.name })
-  }
-
-  /* Reading is what marks it read. The phone says so when the session is
-     actually on screen, which is the only moment that means anything. */
-  const attentionMatch = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/attention$/)
-  if (req.method === 'DELETE' && attentionMatch) {
-    return json(res, 200, { cleared: attention.clear(attentionMatch[1]) })
-  }
-
-  const restartMatch = url.pathname.match(/^\/api\/sessions\/([\w-]+)\/restart$/)
-  if (req.method === 'POST' && restartMatch) {
-    let body: { resume?: boolean } = {}
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    const session = manager.restart(restartMatch[1], !!body.resume)
-    if (!session) {
-      return json(res, 404, {
-        error: body.resume
-          ? 'this agent cannot resume a conversation'
-          : 'not found or not restartable',
-      })
-    }
-    const info = manager.list().find((s) => s.id === session.id)
-    return json(res, 201, info)
-  }
-
-  if (route === 'POST /api/upload') {
-    const rawName = url.searchParams.get('name') ?? 'image.png'
-    const chunks: Buffer[] = []
-    let size = 0
-    try {
-      await new Promise<void>((resolve, reject) => {
-        req.on('data', (chunk: Buffer) => {
-          size += chunk.length
-          if (size > uploads.LIMIT) {
-            reject(new Error('too large'))
-            req.destroy()
-            return
-          }
-          chunks.push(chunk)
-        })
-        req.on('end', resolve)
-        req.on('error', reject)
-      })
-    } catch {
-      return json(res, 413, { error: `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit` })
-    }
-    if (size === 0) return json(res, 400, { error: 'empty upload' })
-    const file = await uploads.save(rawName, Buffer.concat(chunks))
-    return json(res, 201, { path: file })
-  }
-
-  if (route === 'POST /api/screenshot') {
-    let body: {
-      source?: string
-      url?: string
-      preset?: string
-      width?: number
-      height?: number
-      fullPage?: boolean
-      display?: number
-      label?: string
-    }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-
-    if (body.source === 'screen') {
-      try {
-        return json(res, 201, await screenshot.captureScreen({ display: body.display }))
-      } catch (err) {
-        return json(res, 502, { error: (err as Error).message })
-      }
-    }
-
-    if (!body.url || !/^https?:\/\//.test(body.url)) {
-      return json(res, 400, { error: 'url must start with http(s)://' })
-    }
-    if (body.preset !== undefined && !screenshot.isPreset(body.preset)) {
-      return json(res, 400, { error: `unknown preset: ${body.preset}` })
-    }
-    try {
-      const shot = await screenshot.capture(body.url, { ...body, preset: body.preset })
-      return json(res, 201, shot)
-    } catch (err) {
-      return json(res, 502, { error: `capture failed: ${(err as Error).message}` })
-    }
-  }
-
-  if (route === 'GET /api/presets') return json(res, 200, screenshot.PRESETS)
-
-  /* Force-cold the warm Playwright Chrome used for captures. Does not touch
-     GUI browsers an agent opened in a PTY — those are not Orbit's process. */
-  if (route === 'POST /api/resources/chrome/close') {
-    await screenshot.shutdown()
-    return json(res, 200, { ok: true })
-  }
-
-  /* What is serving a page on this Mac right now, so the phone can offer it
-     instead of asking someone to type a port on a touch keyboard. Costs one
-     `lsof` and a short-lived socket per candidate, so it is asked on arrival
-     and on waking — never polled. */
-  if (route === 'GET /api/ports') return json(res, 200, await ports.devServers(PORT))
-
-  // ---- Previews: a dev server, over https, on the tailnet ----
-
-  if (route === 'GET /api/previews') return json(res, 200, await preview.state(PORT))
-
-  /* The half worth polling. `ports` is a list because the phone already knows
-     which ones it is showing, and asking about those costs a TCP connect each —
-     no `tailscale` process, so a tab left open is not a process every few
-     seconds. Capped so one request cannot ask for a port scan. */
-  if (route === 'GET /api/previews/live') {
-    const ports = (url.searchParams.get('ports') ?? '')
-      .split(',')
-      .map(Number)
-      .filter(Boolean)
-      .slice(0, 32)
-    return json(res, 200, await preview.liveness(ports))
-  }
-
-  if (route === 'POST /api/previews') {
-    let body: { port?: number }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    try {
-      return json(res, 201, await preview.start(Number(body.port), PORT))
-    } catch (err) {
-      return json(res, 400, { error: (err as Error).message })
-    }
-  }
-
-  const previewMatch = url.pathname.match(/^\/api\/previews\/(\d+)$/)
-  if (req.method === 'DELETE' && previewMatch) {
-    try {
-      await preview.stop(Number(previewMatch[1]), PORT)
-      return json(res, 200, { ok: true })
-    } catch (err) {
-      return json(res, 400, { error: (err as Error).message })
-    }
-  }
-
-  /* ---- What the agent changed ----
-   *
-   * Everything here is addressed by folder rather than by session: the phone
-   * takes the folder from whichever session it is showing, and two sessions in
-   * one repository are looking at the same working tree anyway. Same home
-   * restriction as the folder browser — this reads and writes real files.
-   */
-  if (url.pathname.startsWith('/api/git/')) {
-    let cwd: string | null = null
-    let body: Record<string, any> = {}
-    if (req.method === 'GET') {
-      cwd = safePath(url.searchParams.get('cwd') ?? '')
-    } else {
-      try {
-        body = JSON.parse((await readBody(req)) || '{}')
-      } catch {
-        return json(res, 400, { error: 'invalid JSON' })
-      }
-      cwd = safePath(typeof body.cwd === 'string' ? body.cwd : '')
-    }
-    if (!cwd) return json(res, 400, { error: 'cwd must be inside the home directory' })
-    const stat = await fsp.stat(cwd).catch(() => null)
-    if (!stat?.isDirectory()) return json(res, 400, { error: 'cwd is not a directory' })
-
-    try {
-      if (route === 'GET /api/git/status') return json(res, 200, await git.status(cwd))
-
-      if (route === 'GET /api/git/diff') {
-        const file = url.searchParams.get('file') ?? ''
-        if (!file) return json(res, 400, { error: 'file is required' })
-        return json(res, 200, await git.diff(cwd, file, url.searchParams.get('staged') === '1'))
-      }
-
-      if (route === 'POST /api/git/stage') {
-        const files = Array.isArray(body.files) ? body.files.filter((f: unknown) => typeof f === 'string') : []
-        await git.stage(cwd, files, body.add !== false)
-        return json(res, 200, await git.status(cwd))
-      }
-
-      if (route === 'POST /api/git/commit') {
-        const made = await git.commit(cwd, String(body.message ?? ''))
-        return json(res, 201, { ...made, status: await git.status(cwd) })
-      }
-
-      if (route === 'POST /api/git/push') {
-        const said = await git.push(cwd)
-        return json(res, 200, { message: said, status: await git.status(cwd) })
-      }
-    } catch (err) {
-      // git's own words: "nothing is staged", "failed to push some refs", …
-      return json(res, 400, { error: (err as Error).message })
-    }
-    return json(res, 404, { error: 'not found' })
-  }
-
-  // ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
-
-  if (route === 'POST /api/notify') {
-    let body: {
-      message?: string
-      source?: string
-      sessionId?: string
-      kind?: string
-      quiet?: boolean
-    }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    const message = (body.message ?? '').trim().slice(0, 300)
-    if (!message) return json(res, 400, { error: 'message is required' })
-
-    const sessionId = resolveSession(body.sessionId, body.source)
-    /* `quiet` is for things the user can already see, and what they can see is
-       one session — not "Orbit is open somewhere". Judging it by whether any
-       phone was connected is what made the other session's "Claude is waiting"
-       vanish while you were reading this one. */
-    const seen = sessionId ? notify.isViewing(sessionId) : notify.clientCount() > 0
-    if (body.quiet && seen) {
-      return json(res, 200, { delivered: 0, pushed: 0, dropped: true, sessionId })
-    }
-    // Held against the session until someone reads it — a toast is three seconds.
-    if (sessionId && !seen) {
-      attention.raise(sessionId, body.kind === 'waiting' ? 'waiting' : 'done', message)
-    }
-    const { delivered, id } = notify.notify({ message, source: body.source ?? null, sessionId })
-    // Nothing was listening: wake the phone instead, and it will also see the
-    // notice itself when it next connects.
-    const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId, push.NOTICE) : 0
-    if (pushed > 0) notify.markPushed(id)
-    return json(res, 200, { delivered, pushed, sessionId })
-  }
-
-  if (route === 'GET /api/push/key') return json(res, 200, { publicKey: push.publicKey() })
-
-  if (route === 'POST /api/push/subscribe') {
-    let body: push.Subscription
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    try {
-      push.subscribe(body)
-    } catch (err) {
-      return json(res, 400, { error: (err as Error).message })
-    }
-    return json(res, 201, { devices: push.count() })
-  }
-
-  if (route === 'POST /api/push/unsubscribe') {
-    let body: { endpoint?: string }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    if (body.endpoint) push.unsubscribe(body.endpoint)
-    return json(res, 200, { devices: push.count() })
-  }
-
-  if (route === 'POST /api/ask') {
-    let body: {
-      question?: string
-      detail?: string
-      options?: unknown
-      source?: string
-      sessionId?: string
-      timeoutSeconds?: number
-    }
-    try {
-      body = JSON.parse((await readBody(req)) || '{}')
-    } catch {
-      return json(res, 400, { error: 'invalid JSON' })
-    }
-    const question = (body.question ?? '').trim().slice(0, 300)
-    if (!question) return json(res, 400, { error: 'question is required' })
-    const options = Array.isArray(body.options)
-      ? body.options.filter((o): o is string => typeof o === 'string' && !!o.trim()).map((o) => o.trim().slice(0, 40))
-      : undefined
-    const timeoutSeconds = Math.min(Math.max(body.timeoutSeconds ?? 120, 5), 600)
-    const sessionId = resolveSession(body.sessionId, body.source)
-    /* A question is worth waking someone for — and unlike a notice it is still
-       waiting when they arrive, so the push is a nudge rather than the content. */
-    if (notify.clientCount() === 0) {
-      await push.send('Orbit is asking', question, sessionId, push.question(timeoutSeconds))
-    }
-    /* Marked as waiting for the whole time it is open. A question that nobody
-       answers times out over there and leaves nothing behind otherwise — and
-       "an agent gave up waiting for me" is worth finding out late. */
-    if (sessionId) attention.raise(sessionId, 'waiting', question)
-    const result = await notify.ask({
-      question,
-      detail: body.detail?.slice(0, 2000) ?? null,
-      options,
-      source: body.source ?? null,
-      sessionId,
-      timeoutMs: timeoutSeconds * 1000,
-    })
-    if (sessionId && !result.timedOut) attention.clear(sessionId)
-    return json(res, 200, { ...result, phonesConnected: notify.clientCount(), sessionId })
-  }
-
-  if (route === 'GET /api/screenshots') return json(res, 200, await screenshot.list())
-
-  const shotMatch = url.pathname.match(/^\/api\/screenshots\/([\w.:-]+)$/)
-  if (shotMatch) {
-    const filePath = screenshot.filePathFor(shotMatch[1])
-    if (!filePath) return json(res, 404, { error: 'not found' })
-    if (req.method === 'DELETE') {
-      await screenshot.remove(shotMatch[1])
-      return json(res, 200, { ok: true })
-    }
-    const stat = await fsp.stat(filePath).catch(() => null)
-    if (!stat?.isFile()) return json(res, 404, { error: 'not found' })
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': stat.size })
-    fs.createReadStream(filePath).pipe(res)
-    return
-  }
-
-  if (route === 'GET /api/dirs') {
-    const requested = url.searchParams.get('path') ?? path.join(HOME, 'Development')
-    let dir = requested === '~' ? HOME : (safePath(requested) ?? HOME)
-    const stat = await fsp.stat(dir).catch(() => null)
-    if (!stat?.isDirectory()) dir = HOME
-
-    const isGit = (p: string) =>
-      fsp.access(path.join(p, '.git')).then(
-        () => true,
-        () => false,
-      )
-
-    const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])
-    const names = entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
-      .map((e) => e.name)
-      .sort((a, b) => a.localeCompare(b))
-    const dirs = await Promise.all(
-      names.map(async (name) => ({ name, git: await isGit(path.join(dir, name)) })),
-    )
-    return json(res, 200, {
-      path: dir,
-      parent: dir === HOME ? null : path.dirname(dir),
-      isRepo: await isGit(dir),
-      dirs,
-    })
-  }
-
-  json(res, 404, { error: 'not found' })
 }
+
+const bad = (message: string) => new HttpError(400, message)
+const notFound = () => new HttpError(404, 'not found')
+
+interface Ctx {
+  req: http.IncomingMessage
+  res: http.ServerResponse
+  url: URL
+  params: Record<string, string>
+  /** The request body as JSON. A malformed one is a 400 before the handler runs. */
+  body<T = Record<string, any>>(): Promise<T>
+}
+
+type Handler = (c: Ctx) => Promise<unknown> | unknown
+
+const routes: { method: string; segments: string[]; handler: Handler }[] = []
+
+const on = (spec: string, handler: Handler) => {
+  const [method, pathname] = spec.split(' ')
+  routes.push({ method, segments: pathname.split('/'), handler })
+}
+
+const match = (method: string, pathname: string) => {
+  const parts = pathname.split('/')
+  for (const r of routes) {
+    if (r.method !== method || r.segments.length !== parts.length) continue
+    const params: Record<string, string> = {}
+    let ok = true
+    for (let i = 0; i < parts.length; i++) {
+      const seg = r.segments[i]
+      if (!seg.startsWith(':')) {
+        if (seg !== parts[i]) {
+          ok = false
+          break
+        }
+        continue
+      }
+      if (!parts[i]) {
+        ok = false
+        break
+      }
+      params[seg.slice(1)] = decodeURIComponent(parts[i])
+    }
+    if (ok) return { handler: r.handler, params }
+  }
+  return null
+}
+
+async function handleAuthedApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
+  const hit = match(req.method ?? 'GET', url.pathname)
+  if (!hit) return json(res, 404, { error: 'not found' })
+  try {
+    await hit.handler({
+      req,
+      res,
+      url,
+      params: hit.params,
+      body: () => readJson(req),
+    })
+  } catch (err) {
+    if (err instanceof HttpError) return json(res, err.status, { error: err.message })
+    throw err
+  }
+}
+
+// ---- Routes ----
+
+/* The token check is also where a browser picks up its session cookie, so
+   every successful pairing — and every reload — renews it in one round trip. */
+on('GET /api/auth/check', ({ req, res }) => {
+  if (bearer(req)) res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
+  return json(res, 200, { ok: true })
+})
+
+on('GET /api/providers', async ({ res }) => {
+  const available = await detectAvailability()
+  return json(
+    res,
+    200,
+    PROVIDERS.map((p) => ({ id: p.id, name: p.name, available: available[p.id] ?? false })),
+  )
+})
+
+on('GET /api/sessions', ({ res }) => {
+  const list = manager.list()
+  // A forgotten session cannot still be waiting for anything.
+  attention.keepOnly(list.map((s) => s.id))
+  return json(
+    res,
+    200,
+    list.map((s) => ({ ...s, attention: attention.get(s.id) })),
+  )
+})
+
+on('POST /api/sessions', async ({ res, body }) => {
+  const b = await body<{ provider?: string; cwd?: string; name?: string }>()
+
+  const provider = getProvider(b.provider ?? 'shell')
+  if (!provider) throw bad(`unknown provider: ${b.provider}`)
+
+  let cwd = HOME
+  if (b.cwd) {
+    const safe = safePath(b.cwd)
+    if (!safe) throw bad('cwd must be inside the home directory')
+    const stat = await fsp.stat(safe).catch(() => null)
+    if (!stat?.isDirectory()) throw bad('cwd is not a directory')
+    cwd = safe
+  }
+
+  const name = typeof b.name === 'string' ? b.name.trim().slice(0, 60) : ''
+  const session = manager.create({ provider, cwd, name: name || undefined })
+  const info = manager.list().find((s) => s.id === session.id)
+  return json(res, 201, info)
+})
+
+on('DELETE /api/sessions/:id', ({ res, params }) => {
+  const session = manager.get(params.id)
+  if (session) {
+    session.kill() // moves to the ended list, history kept
+    return json(res, 200, { ok: true })
+  }
+  if (manager.forget(params.id)) return json(res, 200, { ok: true }) // ended: remove + history
+  throw notFound()
+})
+
+on('PATCH /api/sessions/:id', async ({ res, params, body }) => {
+  const session = manager.get(params.id)
+  if (!session) throw notFound()
+  const b = await body<{ name?: string }>()
+  const name = typeof b.name === 'string' ? b.name.trim().slice(0, 60) : ''
+  session.name = name || null
+  manager.persistNow()
+  return json(res, 200, { ok: true, name: session.name })
+})
+
+/* Reading is what marks it read. The phone says so when the session is
+   actually on screen, which is the only moment that means anything. */
+on('DELETE /api/sessions/:id/attention', ({ res, params }) =>
+  json(res, 200, { cleared: attention.clear(params.id) }),
+)
+
+on('POST /api/sessions/:id/restart', async ({ res, params, body }) => {
+  const b = await body<{ resume?: boolean }>()
+  const session = manager.restart(params.id, !!b.resume)
+  if (!session) {
+    throw new HttpError(
+      404,
+      b.resume ? 'this agent cannot resume a conversation' : 'not found or not restartable',
+    )
+  }
+  const info = manager.list().find((s) => s.id === session.id)
+  return json(res, 201, info)
+})
+
+on('POST /api/upload', async ({ req, res, url }) => {
+  const rawName = url.searchParams.get('name') ?? 'image.png'
+  const chunks: Buffer[] = []
+  let size = 0
+  try {
+    await new Promise<void>((resolve, reject) => {
+      req.on('data', (chunk: Buffer) => {
+        size += chunk.length
+        if (size > uploads.LIMIT) {
+          reject(new Error('too large'))
+          req.destroy()
+          return
+        }
+        chunks.push(chunk)
+      })
+      req.on('end', resolve)
+      req.on('error', reject)
+    })
+  } catch {
+    return json(res, 413, { error: `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit` })
+  }
+  if (size === 0) throw bad('empty upload')
+  const file = await uploads.save(rawName, Buffer.concat(chunks))
+  return json(res, 201, { path: file })
+})
+
+on('POST /api/screenshot', async ({ res, body }) => {
+  const b = await body<{
+    source?: string
+    url?: string
+    preset?: string
+    width?: number
+    height?: number
+    fullPage?: boolean
+    display?: number
+    label?: string
+  }>()
+
+  if (b.source === 'screen') {
+    try {
+      return json(res, 201, await screenshot.captureScreen({ display: b.display }))
+    } catch (err) {
+      throw new HttpError(502, (err as Error).message)
+    }
+  }
+
+  if (!b.url || !/^https?:\/\//.test(b.url)) throw bad('url must start with http(s)://')
+  if (b.preset !== undefined && !screenshot.isPreset(b.preset)) {
+    throw bad(`unknown preset: ${b.preset}`)
+  }
+  try {
+    return json(res, 201, await screenshot.capture(b.url, { ...b, preset: b.preset }))
+  } catch (err) {
+    throw new HttpError(502, `capture failed: ${(err as Error).message}`)
+  }
+})
+
+on('GET /api/presets', ({ res }) => json(res, 200, screenshot.PRESETS))
+
+/* Force-cold the warm Playwright Chrome used for captures. Does not touch
+   GUI browsers an agent opened in a PTY — those are not Orbit's process. */
+on('POST /api/resources/chrome/close', async ({ res }) => {
+  await screenshot.shutdown()
+  return json(res, 200, { ok: true })
+})
+
+/* What is serving a page on this Mac right now, so the phone can offer it
+   instead of asking someone to type a port on a touch keyboard. Costs one
+   `lsof` and a short-lived socket per candidate, so it is asked on arrival
+   and on waking — never polled. */
+on('GET /api/ports', async ({ res }) => json(res, 200, await ports.devServers(PORT)))
+
+// ---- Previews: a dev server, over https, on the tailnet ----
+
+on('GET /api/previews', async ({ res }) => json(res, 200, await preview.state(PORT)))
+
+/* The half worth polling. `ports` is a list because the phone already knows
+   which ones it is showing, and asking about those costs a TCP connect each —
+   no `tailscale` process, so a tab left open is not a process every few
+   seconds. Capped so one request cannot ask for a port scan.
+
+   Registered above `/api/previews/:port`, the only other route it could match. */
+on('GET /api/previews/live', async ({ res, url }) => {
+  const wanted = (url.searchParams.get('ports') ?? '')
+    .split(',')
+    .map(Number)
+    .filter(Boolean)
+    .slice(0, 32)
+  return json(res, 200, await preview.liveness(wanted))
+})
+
+on('POST /api/previews', async ({ res, body }) => {
+  const b = await body<{ port?: number }>()
+  try {
+    return json(res, 201, await preview.start(Number(b.port), PORT))
+  } catch (err) {
+    throw bad((err as Error).message)
+  }
+})
+
+on('DELETE /api/previews/:port', async ({ res, params }) => {
+  try {
+    await preview.stop(Number(params.port), PORT)
+    return json(res, 200, { ok: true })
+  } catch (err) {
+    throw bad((err as Error).message)
+  }
+})
+
+/* ---- What the agent changed ----
+ *
+ * Everything here is addressed by folder rather than by session: the phone
+ * takes the folder from whichever session it is showing, and two sessions in
+ * one repository are looking at the same working tree anyway. Same home
+ * restriction as the folder browser — this reads and writes real files.
+ */
+type RepoCtx = Ctx & { cwd: string; input: Record<string, any> }
+
+const inRepo =
+  (handler: (c: RepoCtx) => Promise<unknown> | unknown): Handler =>
+  async (c) => {
+    const input = c.req.method === 'GET' ? {} : await c.body()
+    const asked =
+      c.req.method === 'GET'
+        ? (c.url.searchParams.get('cwd') ?? '')
+        : typeof input.cwd === 'string'
+          ? input.cwd
+          : ''
+    const cwd = safePath(asked)
+    if (!cwd) throw bad('cwd must be inside the home directory')
+    const stat = await fsp.stat(cwd).catch(() => null)
+    if (!stat?.isDirectory()) throw bad('cwd is not a directory')
+    try {
+      return await handler({ ...c, cwd, input })
+    } catch (err) {
+      if (err instanceof HttpError) throw err
+      // git's own words: "nothing is staged", "failed to push some refs", …
+      throw bad((err as Error).message)
+    }
+  }
+
+on(
+  'GET /api/git/status',
+  inRepo(async ({ res, cwd }) => json(res, 200, await git.status(cwd))),
+)
+
+on(
+  'GET /api/git/diff',
+  inRepo(async ({ res, url, cwd }) => {
+    const file = url.searchParams.get('file') ?? ''
+    if (!file) throw bad('file is required')
+    return json(res, 200, await git.diff(cwd, file, url.searchParams.get('staged') === '1'))
+  }),
+)
+
+on(
+  'POST /api/git/stage',
+  inRepo(async ({ res, cwd, input }) => {
+    const files = Array.isArray(input.files)
+      ? input.files.filter((f: unknown) => typeof f === 'string')
+      : []
+    await git.stage(cwd, files, input.add !== false)
+    return json(res, 200, await git.status(cwd))
+  }),
+)
+
+/* One hunk rather than the whole file. The body of the hunk comes from the
+   phone; the header naming the file is written on this side from a path that
+   has already been checked, so a patch cannot reach a file the sheet was not
+   showing. */
+on(
+  'POST /api/git/hunk',
+  inRepo(async ({ res, cwd, input }) => {
+    const file = typeof input.file === 'string' ? input.file : ''
+    const hunk = typeof input.hunk === 'string' ? input.hunk : ''
+    if (!file) throw bad('file is required')
+    if (!hunk) throw bad('hunk is required')
+    await git.applyHunk(cwd, file, hunk, input.staged === true)
+    return json(res, 200, await git.status(cwd))
+  }),
+)
+
+on(
+  'POST /api/git/commit',
+  inRepo(async ({ res, cwd, input }) => {
+    const made = await git.commit(cwd, String(input.message ?? ''))
+    return json(res, 201, { ...made, status: await git.status(cwd) })
+  }),
+)
+
+on(
+  'POST /api/git/push',
+  inRepo(async ({ res, cwd }) => {
+    const said = await git.push(cwd)
+    return json(res, 200, { message: said, status: await git.status(cwd) })
+  }),
+)
+
+// ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
+
+on('POST /api/notify', async ({ res, body }) => {
+  const b = await body<{
+    message?: string
+    source?: string
+    sessionId?: string
+    kind?: string
+    quiet?: boolean
+  }>()
+  const message = (b.message ?? '').trim().slice(0, 300)
+  if (!message) throw bad('message is required')
+
+  const sessionId = resolveSession(b.sessionId, b.source)
+  /* `quiet` is for things the user can already see, and what they can see is
+     one session — not "Orbit is open somewhere". Judging it by whether any
+     phone was connected is what made the other session's "Claude is waiting"
+     vanish while you were reading this one. */
+  const seen = sessionId ? notify.isViewing(sessionId) : notify.clientCount() > 0
+  if (b.quiet && seen) {
+    return json(res, 200, { delivered: 0, pushed: 0, dropped: true, sessionId })
+  }
+  // Held against the session until someone reads it — a toast is three seconds.
+  if (sessionId && !seen) {
+    attention.raise(sessionId, b.kind === 'waiting' ? 'waiting' : 'done', message)
+  }
+  const { delivered, id } = notify.notify({ message, source: b.source ?? null, sessionId })
+  // Nothing was listening: wake the phone instead, and it will also see the
+  // notice itself when it next connects.
+  const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId, push.NOTICE) : 0
+  if (pushed > 0) notify.markPushed(id)
+  return json(res, 200, { delivered, pushed, sessionId })
+})
+
+on('GET /api/push/key', ({ res }) => json(res, 200, { publicKey: push.publicKey() }))
+
+on('POST /api/push/subscribe', async ({ res, body }) => {
+  const b = await body<push.Subscription>()
+  try {
+    push.subscribe(b)
+  } catch (err) {
+    throw bad((err as Error).message)
+  }
+  return json(res, 201, { devices: push.count() })
+})
+
+on('POST /api/push/unsubscribe', async ({ res, body }) => {
+  const b = await body<{ endpoint?: string }>()
+  if (b.endpoint) push.unsubscribe(b.endpoint)
+  return json(res, 200, { devices: push.count() })
+})
+
+on('POST /api/ask', async ({ res, body }) => {
+  const b = await body<{
+    question?: string
+    detail?: string
+    options?: unknown
+    source?: string
+    sessionId?: string
+    timeoutSeconds?: number
+  }>()
+  const question = (b.question ?? '').trim().slice(0, 300)
+  if (!question) throw bad('question is required')
+  const options = Array.isArray(b.options)
+    ? b.options
+        .filter((o): o is string => typeof o === 'string' && !!o.trim())
+        .map((o) => o.trim().slice(0, 40))
+    : undefined
+  const timeoutSeconds = Math.min(Math.max(b.timeoutSeconds ?? 120, 5), 600)
+  const sessionId = resolveSession(b.sessionId, b.source)
+  /* A question is worth waking someone for — and unlike a notice it is still
+     waiting when they arrive, so the push is a nudge rather than the content. */
+  if (notify.clientCount() === 0) {
+    await push.send('Orbit is asking', question, sessionId, push.question(timeoutSeconds))
+  }
+  /* Marked as waiting for the whole time it is open. A question that nobody
+     answers times out over there and leaves nothing behind otherwise — and
+     "an agent gave up waiting for me" is worth finding out late. */
+  if (sessionId) attention.raise(sessionId, 'waiting', question)
+  const result = await notify.ask({
+    question,
+    detail: b.detail?.slice(0, 2000) ?? null,
+    options,
+    source: b.source ?? null,
+    sessionId,
+    timeoutMs: timeoutSeconds * 1000,
+  })
+  if (sessionId && !result.timedOut) attention.clear(sessionId)
+  return json(res, 200, { ...result, phonesConnected: notify.clientCount(), sessionId })
+})
+
+on('GET /api/screenshots', async ({ res }) => json(res, 200, await screenshot.list()))
+
+on('GET /api/screenshots/:name', async ({ res, params }) => {
+  const filePath = screenshot.filePathFor(params.name)
+  if (!filePath) throw notFound()
+  const stat = await fsp.stat(filePath).catch(() => null)
+  if (!stat?.isFile()) throw notFound()
+  res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': stat.size })
+  fs.createReadStream(filePath).pipe(res)
+})
+
+on('DELETE /api/screenshots/:name', async ({ res, params }) => {
+  if (!screenshot.filePathFor(params.name)) throw notFound()
+  await screenshot.remove(params.name)
+  return json(res, 200, { ok: true })
+})
+
+on('GET /api/dirs', async ({ res, url }) => {
+  const requested = url.searchParams.get('path') ?? path.join(HOME, 'Development')
+  let dir = requested === '~' ? HOME : (safePath(requested) ?? HOME)
+  const stat = await fsp.stat(dir).catch(() => null)
+  if (!stat?.isDirectory()) dir = HOME
+
+  const isGit = (p: string) =>
+    fsp.access(path.join(p, '.git')).then(
+      () => true,
+      () => false,
+    )
+
+  const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])
+  const names = entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b))
+  const dirs = await Promise.all(
+    names.map(async (name) => ({ name, git: await isGit(path.join(dir, name)) })),
+  )
+  return json(res, 200, {
+    path: dir,
+    parent: dir === HOME ? null : path.dirname(dir),
+    isRepo: await isGit(dir),
+    dirs,
+  })
+})
 
 const server = http.createServer((req, res) => {
   handleApi(req, res).catch((err) => {
@@ -613,16 +740,33 @@ const server = http.createServer((req, res) => {
   })
 })
 
-const wss = new WebSocketServer({ server, path: '/ws' })
+/* `maxPayload` because a frame is a keystroke or a paste, and the default is
+   100MB of memory anyone who can open a socket may ask for. `perMessageDeflate`
+   because the first thing every reconnect carries is the scrollback replay —
+   up to 200KB of text, on a phone, every time the screen comes back on.
+   `threshold` keeps single keystrokes out of the compressor, where the frame
+   header would cost more than the byte saved. */
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  maxPayload: 1024 * 1024,
+  perMessageDeflate: {
+    threshold: 1024,
+    zlibDeflateOptions: { level: 3 },
+    concurrencyLimit: 4,
+  },
+})
 
 wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url ?? '/ws', 'http://localhost')
   // A browser cannot set a header here, so the cookie carries it; other clients
   // (the MCP server, scripts) send the token the normal way.
   if (!bearer(req) && !hasSessionCookie(req, TOKEN)) {
+    await rejectSlowly(req)
     ws.close(4001, 'unauthorized')
     return
   }
+  forgetFailures(req)
 
   const requestedId = url.searchParams.get('session')
   const cols = Number(url.searchParams.get('cols')) || 80

@@ -4,8 +4,12 @@
  * capture, the Mac→phone channel, the MCP server, and the approval hook.
  *
  * Runs against a *throwaway* Orbit server, because it creates and kills
- * sessions and writes captures. Start one on a spare port with its own data
- * directory, so the real ~/.orbit is never touched:
+ * sessions and writes captures. `make test-smoke` does the whole dance — build,
+ * a spare port, its own data directory, and taking the server down again:
+ *
+ *   make test-smoke
+ *
+ * By hand, if you want the server left running to poke at:
  *
  *   npm run build
  *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &
@@ -110,11 +114,21 @@ check(
 )
 
 const screen = await api('/api/screenshot', { source: 'screen' })
-check('mac screen capture', screen.status === 201, screen.body.error ?? `${screen.body.width}px`)
-console.log(
-  '       (a capture with no app windows in it means Screen Recording is not granted —',
-)
-console.log('        macOS reports no error for that, so no test can catch it)')
+/* macOS answers "could not create image from display" when the process that
+   started the server has no Screen Recording permission — which is the normal
+   state for a server launched from an editor, a CI job or an agent's shell.
+   That is the machine refusing, not the feature breaking, and failing the run
+   for it teaches everyone to ignore a red line. */
+if (/could not create image from display/i.test(screen.body.error ?? '')) {
+  console.log('  skip  mac screen capture — this process has no Screen Recording permission')
+  console.log('        (grant it to the app that launched the server to cover this one)')
+} else {
+  check('mac screen capture', screen.status === 201, screen.body.error ?? `${screen.body.width}px`)
+  console.log(
+    '       (a capture with no app windows in it means Screen Recording is not granted —',
+  )
+  console.log('        macOS reports no error for that, so no test can catch it)')
+}
 
 // ------------------------------------------------------------- dev servers
 
@@ -315,21 +329,122 @@ check(
   (await api(`/api/sessions/${shell.id}/restart`, { resume: true })).status === 404,
 )
 
-const agent = (await api('/api/sessions', { provider: 'claude', cwd: HOME, name: 'smoke' })).body
-if (agent.resumable) {
+/* Asked of the provider list, not of a session. A *live* session is never
+   resumable — `list()` says so by design, since resuming one would put a second
+   agent into the conversation it is holding — so gating this on the new
+   session's own `resumable` skipped it on every machine ever, and said "Claude
+   Code is not installed" while it was installed. */
+const started = [shell.id]
+const providers = (await api('/api/providers', null, 'GET')).body
+const claudeThere = providers.find?.((p) => p.id === 'claude')?.available === true
+if (!claudeThere) {
+  console.log('  skip  agent resume — Claude Code is not on this server\'s PATH')
+} else {
+  const agent = (await api('/api/sessions', { provider: 'claude', cwd: HOME, name: 'smoke' })).body
+  started.push(agent.id)
+  check('an agent session is launched holding a conversation of its own', !!agent.conversationId, agent.conversationId)
   await api(`/api/sessions/${agent.id}`, null, 'DELETE')
   await wait(400)
+  const ended = (await api('/api/sessions', null, 'GET')).body.find((s) => s.id === agent.id)
+  check('…and once it ends, that conversation is on offer', ended?.resumable === true, JSON.stringify(ended?.conversationId))
   const resumed = await api(`/api/sessions/${agent.id}/restart`, { resume: true })
   check('an agent session resumes', resumed.status === 201, resumed.body.error ?? resumed.body.id)
+  check(
+    '…as the same conversation, not a new one',
+    resumed.body.conversationId === agent.conversationId,
+    `${agent.conversationId} → ${resumed.body.conversationId}`,
+  )
   if (resumed.body.id) {
     await api(`/api/sessions/${resumed.body.id}`, null, 'DELETE')
     await wait(300)
     await api(`/api/sessions/${resumed.body.id}`, null, 'DELETE')
   }
-} else {
-  console.log('  skip  agent resume — Claude Code is not installed on this machine')
 }
-for (const id of [shell.id, agent.id]) await api(`/api/sessions/${id}`, null, 'DELETE')
+
+/* ---- a conversation of its own ----
+ *
+ * Which ended session Resume reaches is bookkeeping, and bookkeeping is exactly
+ * what a machine without the agent installed can still be held to. It runs in a
+ * child with a data directory of its own: a second PtyManager pointed at the
+ * same ~/.orbit would be two writers of one sessions.json.
+ *
+ * Every session here is killed the moment it exists — the point is the record
+ * left behind, and on a machine that *does* have Claude Code these would
+ * otherwise be real agents sitting in a scratch folder.
+ */
+const CONV_HOME = path.join(HOME, 'conversation-smoke')
+fs.mkdirSync(CONV_HOME, { recursive: true })
+const conv = await new Promise((resolve) => {
+  const child = spawn(
+    'node',
+    [
+      '--input-type=module',
+      '-e',
+      `
+      const { PtyManager } = await import(${JSON.stringify(path.join(REPO, 'server/dist/pty-manager.js'))})
+      const { getProvider } = await import(${JSON.stringify(path.join(REPO, 'server/dist/providers.js'))})
+      const claude = getProvider('claude')
+      const m = new PtyManager()
+      const folder = process.env.HOME
+      const end = (s) => { s.kill(); return new Promise((r) => setTimeout(r, 250)) }
+      const info = (id) => m.list().find((s) => s.id === id)
+
+      const first = m.create({ provider: claude, cwd: folder, name: 'first' })
+      await end(first)
+      const second = m.create({ provider: claude, cwd: folder, name: 'second' })
+      await end(second)
+
+      const out = {
+        named: !!info(first.id)?.conversationId,
+        distinct: info(first.id)?.conversationId !== info(second.id)?.conversationId,
+        olderResumable: info(first.id)?.resumable === true,
+        newerResumable: info(second.id)?.resumable === true,
+      }
+
+      const again = m.restart(first.id, true)
+      out.reopened = !!again
+      out.sameConversation = info(again?.id)?.conversationId === info(first.id)?.conversationId
+      out.notWhileLive = info(first.id)?.resumable === false
+      await end(again)
+      /* On the row that ended last, not the one it was opened from: one
+         conversation, offered by whichever session held it most recently. */
+      out.freeAgain = info(again.id)?.resumable === true
+      /* Both rows now name one conversation; only the newest should offer it. */
+      out.offeredOnce = [info(first.id), info(again.id)].filter((s) => s?.resumable).length === 1
+
+      const shell = m.create({ cwd: folder })
+      await end(shell)
+      out.shellUnnamed = info(shell.id)?.conversationId === null
+      m.killAll()
+      console.log(JSON.stringify(out))
+      process.exit(0)
+      `,
+    ],
+    { env: { ...process.env, HOME: CONV_HOME }, stdio: ['ignore', 'pipe', 'pipe'] },
+  )
+  let out = ''
+  child.stdout.on('data', (d) => (out += d))
+  child.on('close', () => {
+    try {
+      resolve(JSON.parse(out.trim().split('\n').pop()))
+    } catch {
+      resolve({ error: out.slice(0, 200) })
+    }
+  })
+})
+
+check('an agent session is launched holding a conversation it named', conv.named, conv.error)
+check('…a different one each time', conv.distinct)
+check('an older ended session is reachable, not just the folder-newest', conv.olderResumable)
+check('…and so is the newest', conv.newerResumable)
+check('resuming one reopens it', conv.reopened)
+check('…as the same conversation, so it can be reopened again', conv.sameConversation)
+check('…and nobody else may open it while that is running', conv.notWhileLive)
+check('…until it ends, when the row that held it last offers it again', conv.freeAgain)
+check('two rows naming one conversation offer it once', conv.offeredOnce)
+check('a shell has no conversation to name', conv.shellUnnamed)
+// Forget every session this section made, whichever branches it took.
+for (const id of started) await api(`/api/sessions/${id}`, null, 'DELETE')
 
 // ------------------------------------------------------------- attention
 
@@ -460,6 +575,61 @@ check(
   (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=..%2F..%2F.orbit%2Fconfig.json`, null, 'GET')).status === 400,
 )
 
+/* ---- one hunk at a time ----
+   A file with two changes far enough apart to be two hunks, which is the case
+   the whole feature exists for: the agent's edit and something else, in one
+   file, and only one of them ready to be committed. */
+const SPLIT = 'split.txt'
+fs.writeFileSync(path.join(REPO_DIR, SPLIT), Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n')
+git(['add', SPLIT])
+git(['commit', '-m', 'twenty lines'])
+const twoChanges = Array.from({ length: 20 }, (_, i) => `line ${i}`)
+twoChanges[1] = 'TOP CHANGE'
+twoChanges[18] = 'BOTTOM CHANGE'
+fs.writeFileSync(path.join(REPO_DIR, SPLIT), twoChanges.join('\n') + '\n')
+
+const splitDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=${SPLIT}`, null, 'GET')).body
+const hunks = splitDiff.patch.split('\n').reduce((acc, line) => {
+  if (line.startsWith('@@')) acc.push([line])
+  else if (acc.length && !/^(diff --git |index |--- |\+\+\+ )/.test(line) && line !== '') acc[acc.length - 1].push(line)
+  return acc
+}, [])
+check('two changes far apart are two hunks', hunks.length === 2, `${hunks.length}`)
+
+const afterFirst = (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: hunks[0].join('\n') })).body
+const splitRow = afterFirst.files?.find((f) => f.path === SPLIT)
+check('staging one hunk stages one hunk', splitRow?.staged === 'M' && splitRow?.worktree === 'M', JSON.stringify(splitRow))
+check(
+  '…the one that was asked for',
+  git(['diff', '--cached', '--', SPLIT]).includes('TOP CHANGE') &&
+    !git(['diff', '--cached', '--', SPLIT]).includes('BOTTOM CHANGE'),
+)
+check('…and leaves the other in the working tree', git(['diff', '--', SPLIT]).includes('BOTTOM CHANGE'))
+check('…without touching the file on disk', fs.readFileSync(path.join(REPO_DIR, SPLIT), 'utf8').includes('BOTTOM CHANGE'))
+
+const stagedHunks = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=${SPLIT}&staged=1`, null, 'GET')).body.patch
+  .split('\n')
+  .reduce((acc, line) => {
+    if (line.startsWith('@@')) acc.push([line])
+    else if (acc.length && !/^(diff --git |index |--- |\+\+\+ )/.test(line) && line !== '') acc[acc.length - 1].push(line)
+    return acc
+  }, [])
+await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: stagedHunks[0].join('\n'), staged: true })
+check('taking it back out empties the index again', !git(['diff', '--cached', '--', SPLIT]))
+check('…and the change is still in the working tree', git(['diff', '--', SPLIT]).includes('TOP CHANGE'))
+
+check(
+  'a hunk that no longer fits is refused, not forced',
+  (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,3 +1,3 @@\n-nothing like this\n+at all\n context' })).status === 400,
+)
+check(
+  'a patch cannot smuggle in a second file',
+  (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,1 +1,1 @@\ndiff --git a/kept.txt b/kept.txt\n-one\n+two' })).status === 400,
+)
+check('and something that is not a hunk at all is refused', (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: 'rm -rf /' })).status === 400)
+
+git(['checkout', '--', SPLIT])
+
 st = (await gitApi('stage', { cwd: REPO_DIR, files: ['kept.txt'], add: true })).body
 check('staging moves it to the index', st.files.find((f) => f.path === 'kept.txt')?.staged === 'M')
 const stagedDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=kept.txt&staged=1`, null, 'GET')).body
@@ -545,7 +715,13 @@ check('…and refuses a query token', queryWs.closed === 4001, `close ${queryWs.
 // -------------------------------------------------------------------- mcp
 
 section('mcp server')
-const mcp = spawn('node', [path.join(REPO, 'server/dist/mcp.js')], { env: process.env })
+/* With `ORBIT_SESSION_ID` set, the way the real thing runs: the MCP server is a
+   grandchild of the PTY and inherits the id of the session it belongs to. Its
+   own session, because the attention section forgets the ones it made. */
+const mcpSession = (await api('/api/sessions', { provider: 'shell', name: 'mcp' })).body
+const mcp = spawn('node', [path.join(REPO, 'server/dist/mcp.js')], {
+  env: { ...process.env, ORBIT_SESSION_ID: mcpSession.id },
+})
 let out = ''
 mcp.stdout.on('data', (d) => (out += d))
 const rpc = (msg) => mcp.stdin.write(`${JSON.stringify(msg)}\n`)
@@ -556,7 +732,16 @@ rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'orbit_captur
 await wait(8000)
 rpc({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'orbit_capture', arguments: { url: 'http://127.0.0.1:4321' } } })
 await wait(3000)
+/* The agent saying it has stopped, which it had no way to say before: every
+   message it sent counted as "done" and sat below any question in the list. */
+rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'orbit_notify', arguments: { message: 'finished the migration' } } })
+await wait(500)
+const afterDone = await attentionOf(mcpSession.id)
+rpc({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'orbit_notify', arguments: { message: 'which database?', kind: 'waiting' } } })
+await wait(500)
+const afterWaiting = await attentionOf(mcpSession.id)
 mcp.kill()
+await api(`/api/sessions/${mcpSession.id}`, null, 'DELETE')
 
 const replies = new Map(out.trim().split('\n').filter(Boolean).map((l) => {
   const m = JSON.parse(l)
@@ -568,6 +753,18 @@ check('four tools', replies.get(2)?.result?.tools?.length === 4,
 const image = replies.get(3)?.result?.content?.find((c) => c.type === 'image')
 check('a capture comes back as an image, not a path', !!image?.data, `${image?.data?.length ?? 0} base64 chars`)
 check('a failed capture is an error the agent can read', replies.get(4)?.result?.isError === true)
+const notifyTool = replies.get(2)?.result?.tools?.find((t) => t.name === 'orbit_notify')
+check(
+  'the agent can say which sort of message it is',
+  notifyTool?.inputSchema?.properties?.kind?.enum?.join(',') === 'done,waiting',
+)
+check('a message with no kind is only worth knowing', afterDone?.kind === 'done', JSON.stringify(afterDone))
+check('…and one it sends as waiting is filed as waiting', afterWaiting?.kind === 'waiting', JSON.stringify(afterWaiting))
+check(
+  '…which the tool says plainly, since nothing was connected to receive it',
+  replies.get(6)?.result?.content?.[0]?.text?.includes('held against this session'),
+  replies.get(6)?.result?.content?.[0]?.text,
+)
 
 // ------------------------------------------------------------------- hook
 

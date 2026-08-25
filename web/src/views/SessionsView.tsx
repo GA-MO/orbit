@@ -3,7 +3,6 @@ import {
   fetchSessions,
   killSession,
   renameSession,
-  restartSession,
   type Attention,
   type SessionInfo,
 } from '../api'
@@ -14,7 +13,6 @@ import {
   IconButton,
   IconEdit,
   IconPlus,
-  IconRestart,
   IconTrash,
   PROVIDER_GLYPH,
   basename,
@@ -56,15 +54,6 @@ export default function SessionsView({
     await new Promise((r) => setTimeout(r, 400))
     refresh()
     onToast(`${sessionLabel(s)} stopped — history kept in Ended`)
-  }
-
-  const startFresh = async (s: SessionInfo, resume = false) => {
-    try {
-      const fresh = await restartSession(s.id, resume)
-      onSelect(fresh.id)
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not start a new session')
-    }
   }
 
   const forget = async (s: SessionInfo) => {
@@ -187,40 +176,29 @@ export default function SessionsView({
               </IconButton>
             </>
           ) : (
-            <>
-              {s.resumable && (
-                <IconButton
-                  label="Resume this agent's conversation"
-                  className="hover:text-accent"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    startFresh(s, true)
-                  }}
-                >
-                  <IconRestart size={16} />
-                </IconButton>
-              )}
-              <IconButton
-                label="New session (same agent + folder)"
-                className="hover:text-accent"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startFresh(s)
-                }}
-              >
-                <IconPlus size={16} />
-              </IconButton>
-              <IconButton
-                label="Forget (delete history)"
-                className="hover:text-danger"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  forget(s)
-                }}
-              >
-                <IconTrash size={16} />
-              </IconButton>
-            </>
+            /* Resume and New are not here, though they used to be. They live
+               one tap away, in the header of the history this row opens — and
+               that is the tap that should come first. Both of them start an
+               agent, which costs tokens and takes a minute; putting them in a
+               list you scroll with a thumb made the expensive thing the easy
+               thing to hit by accident.
+
+               Reading first is also the only way to tell two rows apart. Now
+               that a session can be reopened as *itself* rather than as "the
+               newest one in this folder", a folder can hold several ended rows
+               that all offer Resume and all read `Claude Code · proj · ended
+               now`. Nothing on the row says which conversation is which. The
+               history does — it is the conversation. */
+            <IconButton
+              label="Forget (delete history)"
+              className="hover:text-danger"
+              onClick={(e) => {
+                e.stopPropagation()
+                forget(s)
+              }}
+            >
+              <IconTrash size={16} />
+            </IconButton>
           )}
         </span>
       </div>

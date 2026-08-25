@@ -7,7 +7,7 @@
  *
  *   orbit_capture   render a URL and *see* the picture (not a file path)
  *   orbit_screen    look at the Mac's screen — simulators, native apps, Xcode
- *   orbit_notify    say "done" to the phone
+ *   orbit_notify    say "done" — or "waiting for you" — to the phone
  *   orbit_ask       ask a question and wait for the tap
  *
  * Speaks JSON-RPC over stdio directly: the protocol surface an MCP server needs
@@ -153,19 +153,35 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         message: { type: 'string', description: 'One line, e.g. "Migration finished — 42 files changed".' },
+        /* Without this every message an agent sent counted as "done", so the
+           one thing worth interrupting someone for — work stopped, waiting on
+           them — was the one thing it could not say. The hook could; the agent
+           itself could not. */
+        kind: {
+          type: 'string',
+          enum: ['done', 'waiting'],
+          description:
+            'done (default) — worth knowing, nothing is held up. waiting — you have stopped and cannot go on until the user answers; the phone keeps this one until it is read and counts it as a session needing attention.',
+        },
       },
       required: ['message'],
     },
     async run(args) {
+      const kind = args.kind === 'waiting' ? 'waiting' : 'done'
       const { delivered } = await api('/api/notify', {
         message: args.message,
+        kind,
         source: process.cwd(),
         sessionId: SESSION_ID,
       })
+      /* A `waiting` message is kept against the session, so "nobody saw it" is
+         not the same answer it used to be — it is still going to be there. */
+      const missed =
+        kind === 'waiting'
+          ? 'No phone is connected right now — it is held against this session until someone reads it.'
+          : 'No phone is connected right now — the message was not shown.'
       return {
-        content: [
-          text(delivered > 0 ? `Delivered to ${delivered} connected phone(s).` : 'No phone is connected right now — the message was not shown.'),
-        ],
+        content: [text(delivered > 0 ? `Delivered to ${delivered} connected phone(s).` : missed)],
       }
     },
   },
