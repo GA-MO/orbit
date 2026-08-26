@@ -446,6 +446,98 @@ check('a shell has no conversation to name', conv.shellUnnamed)
 // Forget every session this section made, whichever branches it took.
 for (const id of started) await api(`/api/sessions/${id}`, null, 'DELETE')
 
+/* ---- conversations from a terminal on the Mac ----
+ *
+ * Nothing here started them, which is the point: the fixtures are transcripts
+ * written straight into `~/.claude/projects`, the way Claude Code leaves them
+ * behind. The isolated HOME this runs under means the only ones on disk are the
+ * ones written next.
+ */
+section('conversations from the Mac')
+
+const MAC_FOLDER = path.join(HOME, 'mac-smoke')
+fs.mkdirSync(MAC_FOLDER, { recursive: true })
+const transcript = (id, entries) => {
+  const dir = path.join(HOME, '.claude', 'projects', '-mac-smoke')
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, `${id}.jsonl`)
+  fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join('\n') + '\n')
+  return file
+}
+const at = (min) => new Date(Date.UTC(2026, 0, 1, 12, min)).toISOString()
+const said = (cwd, text, min) => ({
+  type: 'user',
+  cwd,
+  timestamp: at(min),
+  message: { role: 'user', content: text },
+})
+
+const MAC_ID = '11111111-1111-4111-8111-111111111111'
+const macFile = transcript(MAC_ID, [
+  { type: 'mode', mode: 'normal' },
+  said(MAC_FOLDER, 'fix the header on mobile', 0),
+  {
+    type: 'assistant',
+    timestamp: at(1),
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
+        { type: 'text', text: 'The header is fixed.' },
+      ],
+    },
+  },
+])
+
+/* Opened, closed, nothing said: no history to read and nothing to call the row. */
+transcript('22222222-2222-4222-8222-222222222222', [
+  { type: 'mode', mode: 'normal' },
+  { ...said(MAC_FOLDER, '<command-name>/clear</command-name>', 0) },
+  { ...said(MAC_FOLDER, 'a subagent said this', 0), isSidechain: true },
+])
+/* Outside the home directory, where the rest of Orbit refuses to work. */
+transcript('33333333-3333-4333-8333-333333333333', [said('/etc', 'poke around', 0)])
+/* A folder that has since been deleted cannot be resumed into. */
+transcript('44444444-4444-4444-8444-444444444444', [
+  said(path.join(HOME, 'gone-for-good'), 'in a folder that no longer exists', 0),
+])
+
+const listed = (await api('/api/sessions', null, 'GET')).body
+const mac = listed.find((s) => s.id === MAC_ID)
+check('a conversation from the Mac shows up on the phone', !!mac, mac?.cwd)
+check('…labelled with what was actually asked', mac?.firstCommand === 'fix the header on mobile', mac?.firstCommand)
+check('…as an ended Claude Code session in its own folder', mac?.alive === false && mac?.providerId === 'claude' && mac?.cwd === MAC_FOLDER)
+check('…marked as one Orbit does not own', mac?.external === true)
+check('…and reachable, because the transcript is named after the conversation', mac?.resumable === true && mac?.conversationId === MAC_ID)
+
+const seen = (id) => listed.some((s) => s.id === id)
+check('a transcript with nothing the user said is not a row', !seen('22222222-2222-4222-8222-222222222222'))
+check('…nor is one from outside the home directory', !seen('33333333-3333-4333-8333-333333333333'))
+check('…nor one whose folder is gone', !seen('44444444-4444-4444-8444-444444444444'))
+
+const macHistory = await new Promise((resolve) => {
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws?session=${MAC_ID}`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  })
+  ws.on('message', (m) => {
+    const msg = JSON.parse(m.toString())
+    if (msg.type === 'ready') {
+      ws.close()
+      resolve(msg)
+    }
+  })
+  ws.on('error', () => resolve(null))
+  setTimeout(() => resolve(null), 3000)
+})
+check('opening one replays the conversation, read-only', macHistory?.readOnly === true)
+check('…rebuilt from the transcript, since nothing drew it on Orbit\'s screen', macHistory?.replay?.includes('fix the header on mobile'))
+check('…with what the agent said back', macHistory?.replay?.includes('The header is fixed.'))
+check('…and one line for each tool it ran', macHistory?.replay?.includes('⚙ Bash · npm test'))
+
+const deleted = await api(`/api/sessions/${MAC_ID}`, null, 'DELETE')
+check('the phone may not delete a transcript that belongs to the Mac', deleted.status === 400, deleted.body.error)
+check('…and the file is still there', fs.existsSync(macFile))
+
 // ------------------------------------------------------------- attention
 
 section('attention (what a session is still waiting to tell you)')

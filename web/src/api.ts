@@ -30,6 +30,8 @@ export interface SessionInfo {
   conversationId: string | null
   /** ↻ would reach the conversation this row is actually about. */
   resumable: boolean
+  /** Ran in a terminal on the Mac — Orbit reads its transcript and owns nothing. */
+  external: boolean
   /** Unread word from this session — absent on the reply that creates one. */
   attention?: Attention | null
 }

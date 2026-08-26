@@ -4,6 +4,7 @@ import * as pty from 'node-pty'
 import type { Provider } from './providers.js'
 import { getProvider } from './providers.js'
 import * as store from './store.js'
+import * as transcripts from './transcripts.js'
 import type { PersistedSession } from './store.js'
 
 const SCROLLBACK_LIMIT = 200_000 // chars kept for replay on reconnect
@@ -48,6 +49,8 @@ export interface SessionInfo extends PersistedSession {
   alive: boolean
   /** Whether this session's agent can pick its last conversation back up. */
   resumable: boolean
+  /** A conversation from the Mac's own terminal — Orbit reads it, owns nothing. */
+  external: boolean
 }
 
 export interface Session {
@@ -237,6 +240,8 @@ const metaOf = (s: PtySession): PersistedSession => ({
 export class PtyManager {
   private active = new Map<string, PtySession>()
   private dead = new Map<string, PersistedSession>()
+  /** Conversations run from a terminal on the Mac. Read-only, never persisted. */
+  private external = new Map<string, PersistedSession>()
 
   constructor() {
     // Sessions that were alive when the server last stopped ended with it.
@@ -314,10 +319,34 @@ export class PtyManager {
   }
 
   isDead(id: string): boolean {
-    return this.dead.has(id)
+    return this.dead.has(id) || this.external.has(id)
+  }
+
+  /** True for a conversation Orbit did not start and must not delete. */
+  isExternal(id: string): boolean {
+    return this.external.has(id)
+  }
+
+  /**
+   * Pick up the conversations run from a terminal on the Mac.
+   *
+   * The ones Orbit started are dropped: their transcript is the same file, and
+   * a conversation offered from two rows is one that can be opened twice.
+   */
+  async discover(): Promise<void> {
+    const mine = new Set<string>()
+    for (const s of [...this.active.values(), ...this.dead.values()]) {
+      mine.add(s.id)
+      if (s.conversationId) mine.add(s.conversationId)
+    }
+    const rows = await transcripts.discover()
+    this.external = new Map(rows.filter((r) => !mine.has(r.id)).map((r) => [r.id, r]))
   }
 
   deadScrollback(id: string): Promise<string> {
+    /* Nothing drew this one on Orbit's screen, so there are no bytes to replay
+       — the conversation is rebuilt from the transcript instead. */
+    if (this.external.has(id)) return transcripts.render(id)
     return store.readScrollback(id)
   }
 
@@ -332,7 +361,7 @@ export class PtyManager {
    * Without `resume` a new conversation is minted, because ＋ means a new one.
    */
   restart(id: string, resume = false): Session | null {
-    const meta = this.dead.get(id)
+    const meta = this.dead.get(id) ?? this.external.get(id)
     if (!meta) return null
     const provider = getProvider(meta.providerId)
     if (!provider) return null
@@ -349,7 +378,10 @@ export class PtyManager {
     })
   }
 
-  /** Remove an ended session and its history. Active sessions must be killed instead. */
+  /**
+   * Remove an ended session and its history. Active sessions must be killed
+   * instead, and a conversation from the Mac is not Orbit's to delete.
+   */
   forget(id: string): boolean {
     if (!this.dead.delete(id)) return false
     store.deleteScrollback(id)
@@ -380,7 +412,9 @@ export class PtyManager {
      resumed-then-ended session offering the same conversation from two rows. */
   list(): SessionInfo[] {
     const active = [...this.active.values()].map((s) => ({ ...metaOf(s), alive: true }))
-    const dead = [...this.dead.values()].sort((a, b) =>
+    /* Ended is ended, wherever the session ran. Interleaving the two by when
+       they were last touched is the order a reader is looking for. */
+    const dead = [...this.dead.values(), ...this.external.values()].sort((a, b) =>
       (b.endedAt ?? '').localeCompare(a.endedAt ?? ''),
     )
 
@@ -389,14 +423,14 @@ export class PtyManager {
     const taken = new Set(active.map(claim))
 
     return [
-      ...active.map((s) => ({ ...s, resumable: false })),
+      ...active.map((s) => ({ ...s, resumable: false, external: false })),
       ...dead.map((m) => {
         const key = claim(m)
         const provider = getProvider(m.providerId)
         const reachable = m.conversationId ? !!provider?.conversation : !!provider?.resumeCommand
         const resumable = reachable && !taken.has(key)
         taken.add(key)
-        return { ...m, alive: false, resumable }
+        return { ...m, alive: false, resumable, external: this.external.has(m.id) }
       }),
     ]
   }

@@ -328,7 +328,11 @@ on('GET /api/providers', async ({ res }) => {
   )
 })
 
-on('GET /api/sessions', ({ res }) => {
+on('GET /api/sessions', async ({ res }) => {
+  /* Conversations run from a terminal on the Mac are found by looking, not by
+     being told — so the list is where the looking happens. A scan that fails
+     costs those rows, never the sessions Orbit does own. */
+  await manager.discover().catch((err) => console.error('[orbit] transcript scan failed:', err))
   const list = manager.list()
   // A forgotten session cannot still be waiting for anything.
   attention.keepOnly(list.map((s) => s.id))
@@ -365,6 +369,11 @@ on('DELETE /api/sessions/:id', ({ res, params }) => {
   if (session) {
     session.kill() // moves to the ended list, history kept
     return json(res, 200, { ok: true })
+  }
+  /* Its transcript belongs to Claude Code on the Mac. Orbit reads that file and
+     writes nothing to it — deleting one from a phone is not a tap to offer. */
+  if (manager.isExternal(params.id)) {
+    throw bad('this conversation belongs to the Mac — Orbit only reads it')
   }
   if (manager.forget(params.id)) return json(res, 200, { ok: true }) // ended: remove + history
   throw notFound()
@@ -801,12 +810,18 @@ wss.on('connection', async (ws: WebSocket, req) => {
   // Ended session: replay its history read-only, no PTY behind it.
   if (requestedId && !manager.get(requestedId) && manager.isDead(requestedId)) {
     const history = await manager.deadScrollback(requestedId)
+    /* One of these ran on the Mac and was never Orbit's to end. Saying it
+       "ended" would claim something about a conversation the user may simply
+       have walked away from. */
+    const footer = manager.isExternal(requestedId)
+      ? 'end of transcript — read-only'
+      : 'session ended — read-only'
     send({
       type: 'ready',
       sessionId: requestedId,
       readOnly: true,
       // Just the fact — the client owns the affordance (New lives in the header).
-      replay: history + '\r\n\x1b[90m[session ended — read-only]\x1b[0m\r\n',
+      replay: history + `\r\n\x1b[90m[${footer}]\x1b[0m\r\n`,
     })
     return
   }

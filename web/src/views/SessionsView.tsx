@@ -128,7 +128,14 @@ export default function SessionsView({
             <span className="block truncate text-xs text-faint">
               {label === s.providerName ? '' : `${s.providerName} · `}
               {basename(s.cwd)} ·{' '}
-              {s.alive ? timeAgo(s.createdAt) : `ended ${s.endedAt ? timeAgo(s.endedAt) : '?'}`}
+              {/* Nothing here ended a conversation that ran on the Mac — the
+                  user may still have it open at the desk. All the transcript
+                  knows is when it was last written to. */}
+              {s.external
+                ? `on the Mac · ${s.endedAt ? timeAgo(s.endedAt) : '?'}`
+                : s.alive
+                  ? timeAgo(s.createdAt)
+                  : `ended ${s.endedAt ? timeAgo(s.endedAt) : '?'}`}
             </span>
             {/* The last thing it said, still unread. Two lines: a question
                 truncated at 40 characters is a question you have to open the
@@ -189,16 +196,22 @@ export default function SessionsView({
                that all offer Resume and all read `Claude Code · proj · ended
                now`. Nothing on the row says which conversation is which. The
                history does — it is the conversation. */
-            <IconButton
-              label="Forget (delete history)"
-              className="hover:text-danger"
-              onClick={(e) => {
-                e.stopPropagation()
-                forget(s)
-              }}
-            >
-              <IconTrash size={16} />
-            </IconButton>
+            /* No ✕ on a conversation from the Mac: the history behind it is
+               Claude Code's own transcript, which Orbit reads and never
+               writes. A delete here would throw away the record of a session
+               the user ran at their desk, from a list they were scrolling. */
+            !s.external && (
+              <IconButton
+                label="Forget (delete history)"
+                className="hover:text-danger"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  forget(s)
+                }}
+              >
+                <IconTrash size={16} />
+              </IconButton>
+            )
           )}
         </span>
       </div>
