@@ -39,18 +39,39 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 const sessionValue = (token: string) =>
   createHash('sha256').update(`orbit-session:${token}`).digest('hex')
 
-export function sessionCookie(token: string, secure: boolean): string {
+const cookie = (value: string, maxAge: number, secure: boolean): string => {
   const attrs = [
-    `${SESSION_COOKIE}=${sessionValue(token)}`,
+    `${SESSION_COOKIE}=${value}`,
     'Path=/',
     'HttpOnly',
     // Nothing cross-site should ever make the browser send this.
     'SameSite=Strict',
-    `Max-Age=${COOKIE_MAX_AGE}`,
+    `Max-Age=${maxAge}`,
   ]
   if (secure) attrs.push('Secure')
   return attrs.join('; ')
 }
+
+export const sessionCookie = (token: string, secure: boolean): string =>
+  cookie(sessionValue(token), COOKIE_MAX_AGE, secure)
+
+/**
+ * The same cookie, already dead — how a phone signs out.
+ *
+ * `HttpOnly` is the point of the cookie and also why the browser cannot end its
+ * own session: script can neither read nor delete it, so dropping the token
+ * from `localStorage` would leave a phone that still passes the WebSocket
+ * handshake and still loads every screenshot by `<img src>`. Only the server
+ * can retract it, and only by sending the identical cookie back — name, `Path`
+ * and `Secure` all have to match, or the browser stores a second one beside the
+ * live one and changes nothing.
+ *
+ * Note what this is not: the token is untouched, so this un-pairs a phone
+ * rather than revoking anything. Rotating the token would sign out every other
+ * device too and, worse here, costs a server restart — which kills whatever
+ * agent is running. A phone that is actually lost still wants that rotation.
+ */
+export const expiredSessionCookie = (secure: boolean): string => cookie('', 0, secure)
 
 /**
  * Constant-time string comparison, for anything a caller is allowed to guess at.

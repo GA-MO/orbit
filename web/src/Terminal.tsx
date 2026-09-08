@@ -57,6 +57,21 @@ export interface AskRequest {
   sessionId: string | null
 }
 
+/**
+ * A page the agent on the Mac has published over the tailnet and wants looked
+ * at. The Mac has already done the work of turning a port into a URL the phone
+ * can reach; all that arrives here is where to point.
+ */
+export interface PreviewRequest {
+  id: string
+  /** Full https URL, path and all. */
+  url: string
+  /** The dev server's port on the Mac — what the page is called on this side. */
+  port: number
+  source: string | null
+  sessionId: string | null
+}
+
 const RECONNECT_DELAY_MS = 1500
 /** Press-and-hold before the terminal starts selecting instead of scrolling. */
 const LONG_PRESS_MS = 420
@@ -106,6 +121,12 @@ interface Props {
     meta?: { sessionId?: string | null; alreadyPushed?: boolean },
   ) => void
   onAsk: (request: AskRequest) => void
+  /**
+   * The agent wants a page on the screen. Handed up rather than framed here:
+   * the terminal is one tab of four, and "go and look at this" cannot only
+   * work while the terminal happens to be the tab in front.
+   */
+  onPreview: (request: PreviewRequest) => void
   /** Hand a file on the Mac to the prompt — a capture taken from a framed page. */
   onInsertPath?: (path: string) => void
   onToast?: (message: string) => void
@@ -184,6 +205,7 @@ export default function Terminal({
   onApproval,
   onNotice,
   onAsk,
+  onPreview,
   onInsertPath,
   onToast,
   handleRef,
@@ -280,6 +302,7 @@ export default function Terminal({
     onApproval,
     onNotice,
     onAsk,
+    onPreview,
   })
   callbacksRef.current = {
     onStatus,
@@ -291,6 +314,7 @@ export default function Terminal({
     onApproval,
     onNotice,
     onAsk,
+    onPreview,
   }
 
   useEffect(() => {
@@ -441,6 +465,15 @@ export default function Terminal({
               question: msg.question,
               detail: msg.detail ?? null,
               options: msg.options ?? [],
+              source: msg.source ?? null,
+              sessionId: msg.sessionId ?? null,
+            })
+            break
+          case 'preview':
+            callbacksRef.current.onPreview({
+              id: msg.id,
+              url: msg.url,
+              port: msg.port,
               source: msg.source ?? null,
               sessionId: msg.sessionId ?? null,
             })

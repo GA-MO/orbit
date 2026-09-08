@@ -49,6 +49,46 @@ export async function registerPush(): Promise<boolean> {
   }
 }
 
+/**
+ * This browser's push endpoint, if it has one — the id the Mac knows it by.
+ *
+ * The server stores a flat list of endpoints and cannot tell which of them is
+ * the phone making a request, so un-pairing has to say. Read separately from
+ * {@link dropPush} on purpose: the endpoint is handed to the server first and
+ * only cancelled here once that succeeded, so a failed un-pair leaves a phone
+ * that still gets its notifications rather than one silently cut off from them.
+ */
+export async function pushEndpoint(): Promise<string | null> {
+  try {
+    const registration = await navigator.serviceWorker?.ready
+    const subscription = await registration?.pushManager.getSubscription()
+    return subscription?.endpoint ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Cancel this browser's subscription with the push service.
+ *
+ * Dropping the server's copy is not enough on its own: the subscription belongs
+ * to the browser, survives the app being closed and would be handed straight
+ * back the next time anything called `registerPush` — including the very next
+ * pairing, which is fine, but also a stale one nobody asked for. Cancelling
+ * both ends means a phone that has been signed out is a phone Apple has nothing
+ * to deliver to.
+ */
+export async function dropPush(): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker?.ready
+    const subscription = await registration?.pushManager.getSubscription()
+    await subscription?.unsubscribe()
+  } catch {
+    // The server has already forgotten the endpoint; a push to it now 410s and
+    // is pruned there. Failing here is not worth stopping the sign-out for.
+  }
+}
+
 /** VAPID keys travel as base64url; PushManager wants the raw bytes. */
 function decodeKey(base64url: string): ArrayBuffer {
   const padded = base64url

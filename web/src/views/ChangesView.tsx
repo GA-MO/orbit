@@ -22,6 +22,7 @@ import {
   OrbitMark,
   Sheet,
   basename,
+  useArrival,
 } from '../components/ui'
 
 interface Props {
@@ -172,6 +173,17 @@ function DiffSheet({
   onClose: () => void
 }) {
   const { meta, hunks } = parseHunks(diff?.patch ?? '')
+  /* Hunks arrive; lines do not. A hunk is a unit the reader is choosing
+     between, so a short sequence down the file helps them count. Two hundred
+     lines staggering in individually is not that — it is a file that takes a
+     second and a half to become readable, and the reader is already scrolling
+     by the time the bottom of it shows up.
+
+     Keyed by header rather than by position because staging one hunk refetches
+     the diff, which tears the body down and builds it again: without this the
+     six hunks you did not touch would replay their entrance every time you
+     moved one. */
+  const arriveHunk = useArrival(hunks.map((h) => h.header))
   /* A hunk of a truncated diff is a hunk that may have been cut in half, and
      git would either refuse it or — worse — accept the half. */
   const canStage = splittable && !diff?.truncated && hunks.length > 1
@@ -182,7 +194,7 @@ function DiffSheet({
         <div className="shrink-0 truncate px-5 pb-2 font-mono text-[11px] text-faint">{file}</div>
       )}
       {loading ? (
-        <div className="flex flex-1 items-center justify-center">
+        <div className="fade-in flex flex-1 items-center justify-center">
           <OrbitMark size={34} />
         </div>
       ) : diff?.binary ? (
@@ -191,14 +203,15 @@ function DiffSheet({
         <div className="min-h-0 flex-1 overflow-auto">
           {/* `w-max` so a long line scrolls sideways instead of wrapping: a
               wrapped diff on a narrow screen loses which column the + was in. */}
-          <pre className="w-max min-w-full pb-6 font-mono text-[11.5px] leading-[1.55]">
+          <pre className="fade-in w-max min-w-full pb-6 font-mono text-[11.5px] leading-[1.55]">
             {meta.map((line, i) => (
               <DiffLine key={`m${i}`} line={line} kind={kindOf(line)} />
             ))}
             {hunks.map((hunk, h) => {
               const marks = markHunk(hunk.lines)
+              const enter = arriveHunk(hunk.header)
               return (
-                <div key={h}>
+                <div key={h} style={enter.style} className={enter.className}>
                   <div className={`flex items-center gap-2 px-3 ${LINE_STYLE.hunk}`}>
                     <span className="min-w-0 flex-1 truncate">{hunk.header}</span>
                     {canStage && (
@@ -355,6 +368,16 @@ export default function ChangesView({ active, session, onToast }: Props) {
   const canPush =
     !!status?.repo && status.hasRemote && (status.ahead > 0 || (!status.upstream && !!status.head))
 
+  /* One sequence for the whole list rather than three, so the eye follows the
+     screen down instead of restarting at each heading. Changes re-reads after
+     every git action and on every return to the tab; `useArrival` is what keeps
+     those re-reads from replaying the arrival of rows that never left. */
+  const arrive = useArrival([
+    ...(staged.length > 0 ? ['h:Staged', ...staged.map((f) => `i:${f.path}`)] : []),
+    ...(changed.length > 0 ? ['h:Changed', ...changed.map((f) => `w:${f.path}`)] : []),
+    ...(untracked.length > 0 ? ['h:Untracked', ...untracked.map((f) => `w:${f.path}`)] : []),
+  ])
+
   const row = (f: FileChange, inIndex: boolean) => {
     const letter = LETTER[inIndex ? f.staged : f.worktree] ?? { label: '·', className: 'text-mut' }
     const key = `${inIndex ? 'i' : 'w'}:${f.path}`
@@ -371,7 +394,8 @@ export default function ChangesView({ active, session, onToast }: Props) {
             splittable: (inIndex ? f.staged : f.worktree) === 'M',
           })
         }
-        className="flex cursor-pointer items-center gap-2.5 rounded-(--radius-card) border border-line-subtle bg-surface px-3 py-2.5 transition-colors hover:border-line"
+        style={arrive(key).style}
+        className={`${arrive(key).className} flex cursor-pointer items-center gap-2.5 rounded-(--radius-card) border border-line-subtle bg-surface px-3 py-2.5 transition-colors hover:border-line`}
       >
         <span className={`w-3 shrink-0 text-center font-mono text-sm ${letter.className}`}>
           {letter.label}
@@ -414,7 +438,10 @@ export default function ChangesView({ active, session, onToast }: Props) {
   const group = (title: string, files: FileChange[], inIndex: boolean) =>
     files.length > 0 && (
       <div className="space-y-2">
-        <div className="flex items-center justify-between pt-1">
+        <div
+          style={arrive(`h:${title}`).style}
+          className={`${arrive(`h:${title}`).className} flex items-center justify-between pt-1`}
+        >
           <span className="text-xs font-semibold tracking-widest text-faint uppercase">
             {title} · {files.length}
           </span>
@@ -483,7 +510,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
       {/* Only once there is something to commit: an empty box above a clean
           repository is a form asking to be filled in for no reason. */}
       {status?.repo && (staged.length > 0 || canPush) && (
-        <div className="shrink-0 space-y-2 border-t border-line-subtle bg-surface px-4 py-2.5">
+        <div className="rise-in shrink-0 space-y-2 border-t border-line-subtle bg-surface px-4 py-2.5">
           {staged.length > 0 && (
             <textarea
               rows={2}

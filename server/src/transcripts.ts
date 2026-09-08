@@ -10,7 +10,9 @@
  *
  * Everything here is read-only. These files belong to Claude Code, not to
  * Orbit: they are never written, never pruned, and never counted against
- * Orbit's own cap on ended sessions.
+ * Orbit's own cap on ended sessions. A row the phone has hidden is no exception
+ * — hiding is a set of ids Orbit keeps for itself, and the scan below skips
+ * them on the way past. Nothing on the disk knows it happened.
  */
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -22,10 +24,30 @@ import type { PersistedSession } from './store.js'
 const HOME = os.homedir()
 const PROJECTS_DIR = path.join(HOME, '.claude', 'projects')
 
+/* What this list is for is finding the conversation you were in an hour ago, in
+   a project you are working in this week. It is not an archive, and the machine
+   it runs on makes that difference enormous: there are hundreds of transcripts
+   under `~/.claude/projects` and most of them were touched in the last week, so
+   any window wide enough to feel like an archive is a window that buries the one
+   session Orbit started itself under other conversations the user has already
+   left. Ten rows is about what a thumb passes in one flick, and it is the number
+   the tab can spend on conversations Orbit does not own.
+
+   Twenty-five candidates is what it takes to fill ten of them: the tests below
+   throw a transcript away for having nothing the user typed, for living outside
+   the home directory, for a folder that has since been deleted, for already
+   being one of Orbit's own sessions, or for having been hidden by hand, and
+   fifteen rejections is generous room for all of that. The cost of the smaller
+   window is that a conversation you left three hundred transcripts ago cannot be
+   reached from the phone at all — it is still on the disk, and still `claude
+   --resume`-able at the desk where it happened. What it buys is that a cold scan
+   parses the head of twenty-five files instead of sixty, and these run to tens of
+   megabytes each. The stat of every transcript on the disk is untouched by this;
+   that pass is cheap and is what makes "newest first" true. */
 /** Transcripts opened per scan, newest first — behind those lie years of them. */
-const SCAN_LIMIT = 60
-/** How many reach the phone. Orbit's own ended list is capped at 20 too. */
-const KEEP = 20
+const SCAN_LIMIT = 25
+/** How many reach the phone — one thumb-flick of conversations Orbit does not own. */
+const KEEP = 10
 /** Head read looking for the folder and the opening prompt; line 5, in practice. */
 const HEAD_BYTES = 256 * 1024
 const LABEL_MAX = 80
@@ -136,21 +158,50 @@ async function candidates(): Promise<Candidate[]> {
   return found.sort((a, b) => b.mtimeMs - a.mtimeMs)
 }
 
+export interface Scan {
+  /** The rows worth showing, newest first, at most {@link KEEP} of them. */
+  rows: PersistedSession[]
+  /** How many rows this scan would have offered had they not been hidden. */
+  hidden: number
+  /**
+   * Which of the ids handed in as hidden still have a transcript on the disk,
+   * or null when the scan found no transcripts at all — an empty projects
+   * directory and an unreadable one look the same from here, and concluding
+   * "every hidden conversation is gone" from a read that failed would throw the
+   * list away.
+   */
+  present: Set<string> | null
+}
+
 /**
  * Conversations on the Mac, as ended sessions.
  *
  * The caller filters out the ones Orbit started itself — those already have a
  * row, and a conversation offered from two of them is one that can be opened
  * twice.
+ *
+ * Ids in `hidden` are stepped over rather than counted, so hiding a row lets
+ * the next one up into the space it left instead of shortening the list. The
+ * caller is told how many went past that way, because a list that quietly drops
+ * rows is a list the user cannot tell from a broken scan.
  */
-export async function discover(): Promise<PersistedSession[]> {
+export async function discover(hidden: ReadonlySet<string> = new Set()): Promise<Scan> {
   const found = await candidates()
   files.clear()
   for (const c of found) files.set(c.id, c.file)
 
+  /* Answered from every transcript on the disk rather than the scan window,
+     because an id that has merely fallen out of the window is not gone. */
+  const present = found.length ? new Set([...hidden].filter((id) => files.has(id))) : null
+
   const rows: PersistedSession[] = []
+  let skipped = 0
   for (const c of found.slice(0, SCAN_LIMIT)) {
     if (rows.length >= KEEP) break
+    if (hidden.has(c.id)) {
+      skipped++
+      continue
+    }
     const head = await readHead(c.file, `${c.file}:${c.mtimeMs}:${c.size}`)
     /* A transcript with nothing the user said is a session that was opened and
        closed. There is no history to read and nothing to call the row. */
@@ -180,7 +231,7 @@ export async function discover(): Promise<PersistedSession[]> {
     })
   }
 
-  return rows
+  return { rows, hidden: skipped, present }
 }
 
 const clock = (iso: string | undefined): string => {

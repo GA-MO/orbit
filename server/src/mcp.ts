@@ -8,6 +8,7 @@
  *   orbit_capture   render a URL and *see* the picture (not a file path)
  *   orbit_screen    look at the Mac's screen — simulators, native apps, Xcode
  *   orbit_notify    say "done" — or "waiting for you" — to the phone
+ *   orbit_preview   open the running app on their phone, on a route you choose
  *   orbit_ask       ask a question and wait for the tap
  *
  * Speaks JSON-RPC over stdio directly: the protocol surface an MCP server needs
@@ -183,6 +184,42 @@ const TOOLS: Tool[] = [
       return {
         content: [text(delivered > 0 ? `Delivered to ${delivered} connected phone(s).` : missed)],
       }
+    },
+  },
+  {
+    name: 'orbit_preview',
+    description:
+      "Open a running dev server on the user's phone, on a route you choose. Use it when they asked to see something, or when you changed a page and want them to look at it rather than at a screenshot. Needs a dev server already running on that port; Orbit publishes it over the tailnet and the phone opens it in a frame over the terminal, so they do not lose the session. Prefer orbit_capture when you want to check the work yourself.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        port: { type: 'number', description: "The dev server's port on the Mac, e.g. 5173." },
+        /* The whole reason this tool exists: a published preview lands on `/`,
+           and the route worth showing is the one just changed. Asking the user
+           to type it on a phone keyboard is the problem the port chips in the
+           Preview tab were invented to remove. */
+        path: {
+          type: 'string',
+          description: 'Route to land on, e.g. /settings or /orders?status=open. Defaults to /.',
+        },
+      },
+      required: ['port'],
+    },
+    async run(args) {
+      const opened = await api('/api/preview', {
+        port: args.port,
+        path: args.path,
+        source: process.cwd(),
+        sessionId: SESSION_ID,
+      })
+      /* Say plainly that nobody saw it. The frame cannot be opened after the
+         fact, so what the user gets instead is a notice naming the port and
+         path — worth telling the agent, which may want to mention it. */
+      const reached =
+        opened.delivered > 0
+          ? `Opened on ${opened.delivered} connected phone(s).`
+          : 'No phone is connected right now — a notice was left saying where to look, but nobody has seen the page.'
+      return { content: [text(`${opened.url} — ${reached}`)] }
     },
   },
   {

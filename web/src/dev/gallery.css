@@ -1,0 +1,75 @@
+/* ---------------------------------------------------------------------------
+   The gallery's own scaffolding. Nothing here describes a component; it only
+   undoes the two assumptions the app makes about the document it lives in, so
+   that the real components can be shown side by side without being edited.
+--------------------------------------------------------------------------- */
+
+/* styles.css nails the document to the viewport and forbids it scrolling —
+   correct for an installed web app, fatal for a page whose entire purpose is
+   to be one long scroll. Undone here rather than made conditional over there,
+   because the app must not grow a branch for the benefit of a dev page. */
+html,
+body,
+#root {
+  height: auto;
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+/* A stand-in for the app's viewport.
+
+   Everything that floats in Orbit — sheets, both modals — is `position: fixed`
+   through `.app-fill`, which in a plain document means "cover the browser
+   window". One sheet would therefore blot out the whole gallery and the other
+   twelve sections beneath it. A transform makes an element the containing
+   block for fixed descendants, so each of these frames catches its own
+   overlay and holds it at phone size. That is why the frame is transformed
+   despite not moving: `translateZ(0)` is the cheapest way to say it.
+
+   The alternative was an iframe per section, which would have been a truer
+   viewport but would also have meant a stylesheet load and a React root each,
+   and screenshotting the page would have raced a dozen of them. */
+.screen {
+  position: relative;
+  transform: translateZ(0);
+  overflow: hidden;
+}
+
+/* The sky the app sits in. styles.css paints this on `html`, and a frame is not
+   the document root, so it has to be restated rather than inherited — but the
+   two accent washes are mixed out of the live tokens instead of copied as
+   literals. A hardcoded rgb() here would have gone stale the first time anyone
+   moved the palette, and a gallery showing last week's sky under this week's
+   components is worse than one with no sky at all. */
+.ground-dark {
+  background:
+    radial-gradient(
+      115% 65% at 50% -8%,
+      color-mix(in srgb, var(--color-accent-strong) 11%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      85% 45% at 50% 106%,
+      color-mix(in srgb, var(--color-glow) 5%, transparent),
+      transparent 68%
+    ),
+    var(--color-ink);
+}
+
+/* Orbit ships no light palette — the tokens above are dark, full stop. So this
+   is not a light theme; it is the same components dropped on a pale ground to
+   expose what they were relying on the ground for. Anything that vanishes here
+   is a component drawing with transparency where it thinks it has ink beneath. */
+.ground-light {
+  background: #eef0f4;
+  color-scheme: light;
+}
+
+/* The touch targets are invisible by design — `hit-y` and `hit-xy` grow the
+   tappable box without moving a pixel of layout — which also means nobody has
+   ever seen one. Drawn here so the 44px claim can be checked by eye. */
+.show-hits .hit-y::after,
+.show-hits .hit-xy::after {
+  outline: 1px dashed rgb(240 180 92 / 0.55);
+  border-radius: 4px;
+}

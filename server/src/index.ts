@@ -6,7 +6,14 @@ import path from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { PtyManager } from './pty-manager.js'
 import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
-import { getToken, hasSessionCookie, isSecureRequest, matches, sessionCookie } from './auth.js'
+import {
+  expiredSessionCookie,
+  getToken,
+  hasSessionCookie,
+  isSecureRequest,
+  matches,
+  sessionCookie,
+} from './auth.js'
 import { screen } from './approval.js'
 import * as screenshot from './screenshot.js'
 import * as preview from './preview.js'
@@ -17,6 +24,7 @@ import * as store from './store.js'
 import * as notify from './notify.js'
 import * as attention from './attention.js'
 import * as push from './push.js'
+import { banner, plainBanner } from './banner.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
@@ -43,6 +51,7 @@ type ServerMessage =
   | { type: 'gone'; sessionId: string }
   | notify.Notice
   | notify.Ask
+  | notify.PreviewOpen
 
 const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -319,6 +328,25 @@ on('GET /api/auth/check', ({ req, res }) => {
   return json(res, 200, { ok: true })
 })
 
+/* Unpairing this phone, which is more than forgetting the token it typed.
+   Two things outlive `localStorage` and both are handed back here: the session
+   cookie, which no script can delete (see `expiredSessionCookie`), and the push
+   subscription, which is registered against the *browser* and would otherwise
+   keep waking a phone that can no longer open the app to see why. The endpoint
+   comes from the client because that is the only side that knows which of the
+   registered devices is this one — the server sees a list of opaque URLs with
+   nothing on them that says "the phone asking".
+
+   A Bearer token is required, like every other write: the cookie alone must not
+   be able to unpair, or a request the browser was tricked into sending could
+   log the owner out. */
+on('POST /api/auth/unpair', async ({ req, res, body }) => {
+  const b = await body<{ endpoint?: string }>()
+  if (typeof b.endpoint === 'string' && b.endpoint) push.unsubscribe(b.endpoint)
+  res.setHeader('Set-Cookie', expiredSessionCookie(isSecureRequest(req)))
+  return json(res, 200, { ok: true, devices: push.count() })
+})
+
 on('GET /api/providers', async ({ res }) => {
   const available = await detectAvailability()
   return json(
@@ -376,6 +404,30 @@ on('DELETE /api/sessions/:id', ({ res, params }) => {
     throw bad('this conversation belongs to the Mac — Orbit only reads it')
   }
   if (manager.forget(params.id)) return json(res, 200, { ok: true }) // ended: remove + history
+  throw notFound()
+})
+
+/* Hiding, which is what the ✕ on a conversation from the Mac would have been
+   if Orbit were allowed to delete one. It is not: that transcript is Claude
+   Code's file, and the DELETE above says so. So the phone keeps its own list of
+   rows it does not want to see, in `~/.orbit/hidden.json`, and the file stays
+   exactly where it was — a hidden conversation is still resumable at the desk,
+   and still comes back if it is un-hidden.
+
+   Both of these are literal paths that could be read as `/api/sessions/:id`,
+   which is why neither is a DELETE: the router picks between two patterns of
+   the same shape by registration order, and a rule that lives in the order
+   lines happen to be written is the exact thing the table replaced. A GET and
+   a POST collide with nothing. */
+on('GET /api/sessions/hidden', ({ res }) => json(res, 200, { hidden: manager.hiddenCount() }))
+
+on('POST /api/sessions/unhide', ({ res }) => json(res, 200, { unhidden: manager.unhideAll() }))
+
+on('POST /api/sessions/:id/hide', ({ res, params }) => {
+  if (manager.hide(params.id)) return json(res, 200, { ok: true })
+  /* Either it is not a row the phone was just shown, or it is one of Orbit's
+     own — which has a real ✕ and a real delete, and must not quietly acquire a
+     second, weaker one that leaves the history on disk. */
   throw notFound()
 })
 
@@ -468,7 +520,13 @@ on('POST /api/screenshot', async ({ res, body }) => {
 on('GET /api/presets', ({ res }) => json(res, 200, screenshot.PRESETS))
 
 /* Force-cold the warm Playwright Chrome used for captures. Does not touch
-   GUI browsers an agent opened in a PTY — those are not Orbit's process. */
+   GUI browsers an agent opened in a PTY — those are not Orbit's process.
+
+   No longer offered on the phone: the button was faint text in the middle of a
+   settings row, was read as closing the frame or the agent's own tabs, and
+   saved a process that `screenshot.ts` already closes itself after a minute
+   idle. Kept as a route because a wedged Chrome is worth one curl, and nothing
+   reaches this by accident. */
 on('POST /api/resources/chrome/close', async ({ res }) => {
   await screenshot.shutdown()
   return json(res, 200, { ok: true })
@@ -515,6 +573,83 @@ on('DELETE /api/previews/:port', async ({ res, params }) => {
   } catch (err) {
     throw bad((err as Error).message)
   }
+})
+
+/**
+ * The agent saying "go and look at this yourself".
+ *
+ * `orbit_capture` lets it look at the picture and `orbit_notify` lets it say
+ * done; this is the third thing, which neither could do — hand the running app
+ * to the person holding the phone, already on the route in question, without
+ * them tapping through the Preview tab and then typing a path.
+ */
+on('POST /api/preview', async ({ res, body }) => {
+  const b = await body<{ port?: number; path?: string; source?: string; sessionId?: string }>()
+  const port = Number(b.port)
+  /* Ahead of the probe below, not because `preview.start` does not check the
+     same thing a moment later, but because a socket opened on `NaN` — which is
+     what an agent that forgot the argument sends — fails with the wrong words
+     entirely. */
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw bad('port must be 1–65535')
+
+  /* The one place a port reaches the tailnet without anybody looking at it.
+     From the phone, publishing is a deliberate tap on a chip the Mac already
+     filtered down to things that answer HTTP; here the agent names the number
+     itself, and `orbit_preview(5432)` would put Postgres on the tailnet — read
+     only by the tailnet, and only until Orbit exits, but published by a
+     mistake rather than by a decision. So ask the port the same question the
+     chip list asks, before `tailscale serve` is touched at all: a refusal that
+     published nothing is one the agent can simply act on.
+
+     This is where the agent's path deliberately parts company with the
+     phone's. `preview.start` publishes a port with nothing on it yet, because
+     a person tapping a chip is often a second ahead of the dev server and the
+     row says so — the human reads "nothing there yet" and waits. The agent has
+     no such row: it hands the URL straight to a frame on someone's phone, and
+     a blank frame is indistinguishable from a broken app. It is also the one
+     that can fix it, having just been told which port it forgot to start. */
+  if (!(await ports.speaksHttp(port))) {
+    throw bad(
+      `nothing is answering HTTP on ${port} — start the dev server first, or, if that ` +
+        'port is a database or some other service, it is not something the phone can open',
+    )
+  }
+
+  let published: preview.Preview
+  try {
+    published = await preview.start(port, PORT)
+  } catch (err) {
+    // Same treatment as POST /api/previews: tailscale's own words, verbatim.
+    throw bad((err as Error).message)
+  }
+  let url: string
+  try {
+    url = preview.previewUrl(published.url, b.path)
+  } catch (err) {
+    // A plain Error from preview.ts; the 400 is this route's to give.
+    throw bad((err as Error).message)
+  }
+  const sessionId = resolveSession(b.sessionId, b.source)
+  const { delivered } = notify.openPreview({
+    url,
+    port: published.port,
+    source: b.source ?? null,
+    sessionId,
+  })
+  /* Nobody was there. A frame cannot be opened retroactively — and would show
+     the wrong thing if it could, an hour of work later — so what is kept is a
+     notice saying which port and path were meant, through the same missed
+     queue and push that carry a notice nobody was there for. The user opens it
+     themselves, on the route the agent named. */
+  let pushed = 0
+  if (delivered === 0) {
+    const { pathname, search } = new URL(url)
+    const message = `Wanted to show you port ${published.port} at ${pathname}${search} — open it from the Preview tab.`
+    const notice = notify.notify({ message, source: b.source ?? null, sessionId })
+    pushed = await push.send('Orbit', message, sessionId, push.NOTICE)
+    if (pushed > 0) notify.markPushed(notice.id)
+  }
+  return json(res, 200, { url, port: published.port, delivered, pushed, sessionId })
 })
 
 /* ---- What the agent changed ----
@@ -909,9 +1044,27 @@ wss.on('connection', async (ws: WebSocket, req) => {
   })
 })
 
-server.listen(PORT, () => {
-  console.log(`[orbit] server listening on http://localhost:${PORT} (ws: /ws)`)
-  console.log(`[orbit] access token: ${TOKEN}`)
+server.listen(PORT, async () => {
+  /* The banner's first line is the phone's address, and only `tailscale` knows
+     it. That answer costs a process and, on a machine whose network is still
+     coming up, can take the CLI's full timeout to arrive — so it is raced, and
+     a lookup that has not answered within a moment is simply not waited for.
+     The banner then leads with the local URL instead, which is the honest
+     answer when nothing can confirm the other one. Startup is not blocked
+     either way: the server is already listening by the time this runs.
+
+     Piped into a log file or handed to a service manager the whole block is
+     noise, and `plainBanner` keeps the `[orbit] access token:` line the docs
+     point at. */
+  const tailnetUrl = await Promise.race([
+    preview
+      .state(PORT)
+      .then((s) => (s.host ? `https://${s.host}` : null))
+      .catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500).unref()),
+  ])
+  const facts = { port: PORT, token: TOKEN, tailnetUrl }
+  console.log(process.stdout.isTTY ? banner(facts) : plainBanner(facts))
 
   const known = new Set(manager.list().map((s) => s.id))
   Promise.all([

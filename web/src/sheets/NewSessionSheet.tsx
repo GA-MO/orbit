@@ -3,6 +3,7 @@ import {
   createSession,
   fetchDirs,
   fetchProviders,
+  RECENTS_KEY,
   type DirListing,
   type ProviderInfo,
 } from '../api'
@@ -17,10 +18,10 @@ import {
   Sheet,
   basename,
   shortPath,
+  useArrival,
   PROVIDER_GLYPH,
 } from '../components/ui'
 
-const RECENTS_KEY = 'orbit.recentDirs'
 const RECENTS_MAX = 5
 
 const loadRecents = (): string[] => {
@@ -94,6 +95,18 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
   const depth = listing ? shortPath(listing.path).split('/').filter(Boolean).length - 1 : 0
   const broadFolder = provider !== 'shell' && listing !== null && depth <= 1 && !listing.isRepo
 
+  /* Everything in this sheet turns up after a request, inside a panel that has
+     already finished rising — so without this the sheet slides open empty and
+     then three blocks of content snap into it at once. The folder list is
+     keyed by full path rather than by name: walking into a different folder is
+     new content and should read as arriving, while filtering the one you are
+     in is the same folders being hidden and shown, which should not. */
+  const arrive = useArrival([
+    ...providers.map((p) => `p:${p.id}`),
+    ...recents.map((r) => `r:${r}`),
+    ...(listing ? visibleDirs.map((d) => `d:${listing.path}/${d.name}`) : []),
+  ])
+
   return (
     <Sheet title="New session" onClose={onClose}>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pt-2 pb-4">
@@ -104,7 +117,8 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
               key={p.id}
               disabled={!p.available}
               onClick={() => setProvider(p.id)}
-              className={`flex items-center gap-3 rounded-(--radius-card) border px-3.5 py-3 text-left transition-colors disabled:opacity-35 ${
+              style={arrive(`p:${p.id}`).style}
+              className={`${arrive(`p:${p.id}`).className} flex items-center gap-3 rounded-(--radius-card) border px-3.5 py-3 text-left transition-colors disabled:opacity-35 ${
                 p.id === provider
                   ? 'border-accent bg-accent/10'
                   : 'border-line bg-raised hover:border-faint'
@@ -144,7 +158,8 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
                   key={p}
                   disabled={busy}
                   onClick={() => start(p)}
-                  className="flex items-center gap-3 rounded-(--radius-field) px-3 py-2.5 text-left transition-colors hover:bg-raised active:bg-overlay disabled:opacity-40"
+                  style={arrive(`r:${p}`).style}
+                  className={`${arrive(`r:${p}`).className} flex items-center gap-3 rounded-(--radius-field) px-3 py-2.5 text-left transition-colors hover:bg-raised active:bg-overlay disabled:opacity-40`}
                 >
                   <IconFolder size={17} className="shrink-0 text-accent" />
                   <span className="min-w-0">
@@ -161,7 +176,7 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
 
         {/* Folder browser */}
         {listing && (
-          <div className="flex shrink-0 flex-col overflow-hidden rounded-(--radius-card) border border-line">
+          <div className="fade-in flex shrink-0 flex-col overflow-hidden rounded-(--radius-card) border border-line">
             <div className="flex items-center gap-1 border-b border-line bg-ink px-2 py-1.5">
               <IconButton
                 label="Parent folder"
@@ -197,7 +212,8 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
                 <button
                   key={d.name}
                   onClick={() => browse(`${listing.path}/${d.name}`)}
-                  className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-raised"
+                  style={arrive(`d:${listing.path}/${d.name}`).style}
+                  className={`${arrive(`d:${listing.path}/${d.name}`).className} flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-raised`}
                 >
                   <IconFolder size={15} className="shrink-0 text-faint" />
                   <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{d.name}</span>
@@ -213,9 +229,9 @@ export default function NewSessionSheet({ onCreated, onClose }: Props) {
           </div>
         )}
 
-        {error && <div className="text-sm text-danger">{error}</div>}
+        {error && <div className="fade-in text-sm text-danger">{error}</div>}
         {broadFolder && (
-          <div className="rounded-(--radius-field) bg-live/10 px-3.5 py-2.5 text-[13px] leading-snug text-live">
+          <div className="rise-in rounded-(--radius-field) bg-live/10 px-3.5 py-2.5 text-[13px] leading-snug text-live">
             Broad folder — {providerName} works best inside a specific project
           </div>
         )}

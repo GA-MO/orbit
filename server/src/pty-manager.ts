@@ -242,6 +242,23 @@ export class PtyManager {
   private dead = new Map<string, PersistedSession>()
   /** Conversations run from a terminal on the Mac. Read-only, never persisted. */
   private external = new Map<string, PersistedSession>()
+  /* The ✕ the user wants on a conversation from the Mac cannot be a delete: that
+     file is Claude Code's record of an afternoon at the desk, and `forget` below
+     refuses external rows for exactly that reason. Hiding is the honest version
+     of the same tap. Orbit writes down that this phone does not want to see that
+     id again and drops it on the way out of every scan; the transcript stays
+     where it is, and `claude --resume` at the desk still finds it. Ids rather
+     than files is the whole point — nothing here can lose a conversation.
+
+     Only conversations from the Mac can be hidden. Orbit's own ended sessions
+     already have a ✕ that means what it says, and a second, quieter way to make
+     a row disappear would leave the user with two ways to lose a session and no
+     way to tell which one they used. {@link hide} enforces that at the door, and
+     {@link discover} enforces it again by sweeping any id Orbit has since
+     claimed as a session of its own. */
+  private hidden = new Set(store.loadHidden())
+  /** How many rows the last scan held back — see {@link hiddenCount}. */
+  private hiddenInScan = 0
 
   constructor() {
     // Sessions that were alive when the server last stopped ended with it.
@@ -339,8 +356,88 @@ export class PtyManager {
       mine.add(s.id)
       if (s.conversationId) mine.add(s.conversationId)
     }
-    const rows = await transcripts.discover()
-    this.external = new Map(rows.filter((r) => !mine.has(r.id)).map((r) => [r.id, r]))
+    /* A hidden id that Orbit has since claimed is no longer a conversation from
+       the Mac, so it is not offered to the scan and is swept below. */
+    const scan = await transcripts.discover(
+      new Set([...this.hidden].filter((id) => !mine.has(id))),
+    )
+    this.external = new Map(scan.rows.filter((r) => !mine.has(r.id)).map((r) => [r.id, r]))
+    this.hiddenInScan = scan.hidden
+    if (scan.present) this.sweepHidden(scan.present)
+  }
+
+  /**
+   * Ask for a conversation from the Mac to stop appearing in the list.
+   *
+   * External only, and deliberately checked against the rows the last scan
+   * produced rather than against anything on the disk: what the phone can hide
+   * is what the phone was just shown. Returns whether anything changed, so a
+   * route can answer 404 for an id that is not one of these — an ended session
+   * of Orbit's own included, which has a real {@link forget} instead.
+   */
+  hide(id: string): boolean {
+    if (!this.external.has(id) || this.hidden.has(id)) return false
+    this.hidden.add(id)
+    this.external.delete(id)
+    this.hiddenInScan++
+    store.saveHidden([...this.hidden])
+    return true
+  }
+
+  /**
+   * Put one back. Not gated on the row existing, because a hidden row is by
+   * definition not in the list — the id is all the caller has.
+   */
+  unhide(id: string): boolean {
+    if (!this.hidden.delete(id)) return false
+    store.saveHidden([...this.hidden])
+    return true
+  }
+
+  /**
+   * Put all of them back, which is the only undo the phone can offer.
+   *
+   * Hiding one row is a tap; finding that one row again afterwards is not,
+   * because a hidden row is by definition not on screen and there is nothing
+   * left to aim at. So the way back is all-or-nothing, hung off the count in
+   * the group header — the alternative, a second list of hidden conversations
+   * to un-hide one at a time, is a screen built entirely out of things the user
+   * has already said they do not want to look at.
+   */
+  unhideAll(): number {
+    const count = this.hidden.size
+    if (count === 0) return 0
+    this.hidden.clear()
+    store.saveHidden([])
+    /* The rows come back on the next scan, not now: they were dropped from
+       `external` when they were hidden, and only `discover` reads the disk. */
+    return count
+  }
+
+  /**
+   * How many rows the list is not showing, for the collapsed group that says so.
+   *
+   * Counted from the scan rather than from the size of the hidden list, because
+   * those are different questions: the list remembers ids for as long as their
+   * transcripts exist, while this is how many of them the phone would be looking
+   * at right now. One that has aged out of the scan window is not being held
+   * back from anything, and counting it would put a number on a group that can
+   * never be shown.
+   */
+  hiddenCount(): number {
+    return this.hiddenInScan
+  }
+
+  /* An id whose transcript Claude Code has since pruned — it drops them at
+     thirty days — can never come back, so remembering it is dead weight that
+     only grows. It is swept here rather than on a timer because this is the one
+     place that already knows what is on the disk: the scan stats every
+     transcript anyway, so the answer is free, and a scan that read nothing at
+     all declines to answer rather than guessing the disk is empty. */
+  private sweepHidden(present: Set<string>) {
+    if (present.size === this.hidden.size) return
+    this.hidden = present
+    store.saveHidden([...this.hidden])
   }
 
   deadScrollback(id: string): Promise<string> {
@@ -358,7 +455,22 @@ export class PtyManager {
    * otherwise the newest one in the folder, which is all the older agents can
    * be asked for. Either way only for an entry {@link list} marked resumable.
    *
-   * Without `resume` a new conversation is minted, because ＋ means a new one.
+   * Without `resume` a new conversation is minted, because ＋ means a new one,
+   * and the session it came from stays where it was.
+   *
+   * A resume, though, takes the old row's place rather than standing beside it.
+   * That is already what a conversation from the Mac's own terminal does, since
+   * {@link discover} drops any transcript some session has claimed — resuming
+   * one there has always meant the Orbit row replaces it. Leaving Orbit's own
+   * sessions behind made the list say something else: five resumes left six
+   * rows for one conversation, five of them dead ends holding a fragment of the
+   * scrollback each, and all six spending the room {@link prune} keeps for
+   * sessions worth going back to. The price is that terminal history: the
+   * conversation itself is whole, because it lives with the agent and comes
+   * back with it, but what was on Orbit's screen before now starts at the
+   * resume. Carrying the old buffer into the new one was the alternative, and
+   * a scrollback stitched from two runs of the agent reads worse than one that
+   * plainly begins where the user picked it up.
    */
   restart(id: string, resume = false): Session | null {
     const meta = this.dead.get(id) ?? this.external.get(id)
@@ -368,7 +480,7 @@ export class PtyManager {
     if (resume && !this.list().find((s) => s.id === id)?.resumable) return null
 
     const pinned = resume && meta.conversationId && provider.conversation ? meta.conversationId : null
-    return this.create({
+    const session = this.create({
       provider,
       cwd: meta.cwd,
       name: meta.name ?? undefined,
@@ -376,6 +488,13 @@ export class PtyManager {
       // The reopened session *is* that conversation, so it can be reopened again.
       conversationId: pinned ?? undefined,
     })
+    /* Only once there is something to replace it with — a launch that failed
+       would otherwise cost the row and its history as well. `forget` refuses an
+       external row by only ever deleting from `this.dead`, which is what should
+       happen: that file is Claude Code's, and `discover` already drops the row
+       now that this session claims the conversation. */
+    if (resume) this.forget(id)
+    return session
   }
 
   /**

@@ -28,6 +28,31 @@ export interface Notice {
   at?: string
 }
 
+/**
+ * "Go and look at this yourself" — the frame the phone should open, chosen by
+ * the agent rather than by the person tapping through the Preview tab.
+ *
+ * It carries a whole URL because the path is the point: a published preview
+ * always lands on `/`, and the route the agent just changed is the one worth
+ * showing. Typing it on a phone keyboard is the problem the port chips were
+ * invented to remove, so the path travels with the message instead.
+ *
+ * Unlike a notice this one is worthless late — a frame opened onto work that
+ * has moved on is a confusing picture, not a stale one — so nothing here is
+ * ever held for a phone that turns up afterwards. The route falls back to a
+ * notice instead, which reads perfectly well an hour later.
+ */
+export interface PreviewOpen {
+  type: 'preview'
+  id: string
+  /** Full https URL including the path, e.g. https://mb.tailnet.ts.net:8443/settings */
+  url: string
+  /** The dev server's port on the Mac, for labelling. */
+  port: number
+  source: string | null
+  sessionId?: string | null
+}
+
 export interface Ask {
   type: 'ask'
   id: string
@@ -38,7 +63,7 @@ export interface Ask {
   sessionId?: string | null
 }
 
-type Send = (msg: Notice | Ask) => void
+type Send = (msg: Notice | Ask | PreviewOpen) => void
 
 /** One connected phone, and which session it currently has on screen. */
 interface Client {
@@ -91,7 +116,7 @@ export const clientCount = () => clients.size
 export const isViewing = (sessionId: string): boolean =>
   [...clients].some((c) => c.viewing === sessionId)
 
-const broadcast = (msg: Notice | Ask) => {
+const broadcast = (msg: Notice | Ask | PreviewOpen) => {
   for (const { send } of clients) {
     try {
       send(msg)
@@ -120,6 +145,33 @@ export function notify(opts: {
   missed.push({ ...notice, missed: true, at: new Date().toISOString() })
   if (missed.length > MISSED_KEPT) missed.shift()
   return { delivered: 0, id: notice.id }
+}
+
+/**
+ * Put a preview in front of whoever is holding the phone.
+ *
+ * Returns how many phones took it so the caller can decide what silence
+ * means. It cannot decide that here: sending nowhere is not a failure worth
+ * throwing over, and the honest consolation prize — a notice saying which
+ * port and path the agent wanted shown — belongs to the layer that knows
+ * about push and the missed queue.
+ */
+export function openPreview(opts: {
+  url: string
+  port: number
+  source?: string | null
+  sessionId?: string | null
+}): { delivered: number; id: string } {
+  const message: PreviewOpen = {
+    type: 'preview',
+    id: nextId(),
+    url: opts.url,
+    port: opts.port,
+    source: opts.source ?? null,
+    sessionId: opts.sessionId ?? null,
+  }
+  broadcast(message)
+  return { delivered: clients.size, id: message.id }
 }
 
 /* A notice nobody was there for goes out over push *and* waits here to be read

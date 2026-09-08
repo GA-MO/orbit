@@ -401,16 +401,27 @@ const conv = await new Promise((resolve) => {
         newerResumable: info(second.id)?.resumable === true,
       }
 
+      const conversation = info(first.id)?.conversationId
+      const rowsFor = (c) => m.list().filter((s) => s.conversationId === c)
+
       const again = m.restart(first.id, true)
       out.reopened = !!again
-      out.sameConversation = info(again?.id)?.conversationId === info(first.id)?.conversationId
-      out.notWhileLive = info(first.id)?.resumable === false
+      out.sameConversation = info(again?.id)?.conversationId === conversation
+      /* The resumed session takes the old row's place instead of standing
+         beside it, so the conversation is one row, not two. */
+      out.oldRowGone = info(first.id) === undefined
+      out.oneRow = rowsFor(conversation).length === 1
+      out.notWhileLive = rowsFor(conversation).every((s) => s.resumable === false)
       await end(again)
-      /* On the row that ended last, not the one it was opened from: one
-         conversation, offered by whichever session held it most recently. */
       out.freeAgain = info(again.id)?.resumable === true
-      /* Both rows now name one conversation; only the newest should offer it. */
-      out.offeredOnce = [info(first.id), info(again.id)].filter((s) => s?.resumable).length === 1
+      out.offeredOnce = rowsFor(conversation).filter((s) => s.resumable).length === 1
+
+      /* ＋ is not a resume: it mints a conversation of its own, and the session
+         it was opened from is still there to go back to. */
+      const fresh = m.restart(second.id, false)
+      await end(fresh)
+      out.plusKeepsOld = !!info(second.id)
+      out.plusIsNew = !!fresh && info(fresh.id)?.conversationId !== info(second.id)?.conversationId
 
       const shell = m.create({ cwd: folder })
       await end(shell)
@@ -441,7 +452,11 @@ check('resuming one reopens it', conv.reopened)
 check('…as the same conversation, so it can be reopened again', conv.sameConversation)
 check('…and nobody else may open it while that is running', conv.notWhileLive)
 check('…until it ends, when the row that held it last offers it again', conv.freeAgain)
-check('two rows naming one conversation offer it once', conv.offeredOnce)
+check('resuming replaces the row it came from rather than adding one', conv.oldRowGone)
+check('…so one conversation is one row, however often it is picked back up', conv.oneRow)
+check('one conversation is offered once', conv.offeredOnce)
+check('＋ leaves the session it was opened from where it was', conv.plusKeepsOld)
+check('…and starts a conversation of its own', conv.plusIsNew)
 check('a shell has no conversation to name', conv.shellUnnamed)
 // Forget every session this section made, whichever branches it took.
 for (const id of started) await api(`/api/sessions/${id}`, null, 'DELETE')
@@ -537,6 +552,16 @@ check('…and one line for each tool it ran', macHistory?.replay?.includes('⚙ 
 const deleted = await api(`/api/sessions/${MAC_ID}`, null, 'DELETE')
 check('the phone may not delete a transcript that belongs to the Mac', deleted.status === 400, deleted.body.error)
 check('…and the file is still there', fs.existsSync(macFile))
+
+/* The disk holds hundreds of these on a machine that is used, nearly all of
+   them touched in the last week, so what keeps the tab about *Orbit's* sessions
+   is the cap rather than any age cutoff. Twelve fresh transcripts, all valid,
+   all newer than the fixtures above: ten of them reach the phone. */
+for (let i = 0; i < 12; i++) {
+  transcript(`${String(i).padStart(2, '0')}555555-5555-4555-8555-555555555555`, [said(MAC_FOLDER, `one of many ${i}`, i)])
+}
+const capped = (await api('/api/sessions', null, 'GET')).body.filter((s) => s.external)
+check('the list stays about a thumb-flick long however many are on disk', capped.length === 10, `${capped.length} rows`)
 
 // ------------------------------------------------------------- attention
 
@@ -804,6 +829,40 @@ check('…and refuses no credential', bare.closed === 4001, `close ${bare.closed
 const queryWs = await socket(`${wsUrl}?token=${TOKEN}`, {})
 check('…and refuses a query token', queryWs.closed === 4001, `close ${queryWs.closed}`)
 
+/* Signing out. The browser is the one that acts on an expiring cookie, so what
+   is provable from here is that the server sends one that says to — matching
+   name and path, or the browser keeps the live cookie and stores this beside
+   it — and that its replacement value opens nothing. */
+const fakeEndpoint = `https://web.push.apple.com/smoke-${Date.now()}`
+const subscribed = await api('/api/push/subscribe', {
+  endpoint: fakeEndpoint,
+  keys: { p256dh: 'x'.repeat(87), auth: 'y'.repeat(22) },
+})
+check('a phone can register for push', subscribed.status === 201, `${subscribed.body.devices} device(s)`)
+check(
+  'the cookie alone cannot unpair',
+  (await fetch(`${BASE}/api/auth/unpair`, withCookie({ method: 'POST', body: '{}' }))).status === 401,
+)
+const unpaired = await fetch(`${BASE}/api/auth/unpair`, {
+  method: 'POST',
+  headers: H,
+  body: JSON.stringify({ endpoint: fakeEndpoint }),
+})
+const goodbye = unpaired.headers.get('set-cookie') ?? ''
+check('unpairing expires the session cookie', goodbye.includes('Max-Age=0'), goodbye)
+check('…the same cookie, or the browser would keep the live one', goodbye.startsWith('orbit_session=') && goodbye.includes('Path=/'))
+check(
+  '…and what it replaces it with opens nothing',
+  (await fetch(`${BASE}/api/sessions`, { headers: { cookie: 'orbit_session=' } })).status === 401,
+)
+check(
+  '…and this phone stops being pushed to',
+  (await unpaired.json()).devices === subscribed.body.devices - 1,
+)
+/* The token is untouched on purpose — unpairing a phone is not rotating the
+   credential, which would sign out every device and cost a server restart. */
+check('…while the token still works', (await fetch(`${BASE}/api/auth/check`, { headers: H })).status === 200)
+
 // -------------------------------------------------------------------- mcp
 
 section('mcp server')
@@ -840,8 +899,12 @@ const replies = new Map(out.trim().split('\n').filter(Boolean).map((l) => {
   return [m.id, m]
 }))
 check('initialize', !!replies.get(1)?.result?.serverInfo)
-check('four tools', replies.get(2)?.result?.tools?.length === 4,
-  replies.get(2)?.result?.tools?.map((t) => t.name).join(', '))
+/* By name rather than by count: a count says "5" when a tool was renamed to
+   nothing anybody calls, and has to be edited every time one is added — which
+   is how it came to be wrong about orbit_preview. */
+const toolNames = replies.get(2)?.result?.tools?.map((t) => t.name) ?? []
+const expected = ['orbit_capture', 'orbit_screen', 'orbit_notify', 'orbit_preview', 'orbit_ask']
+check('every tool the agent is told about', expected.every((n) => toolNames.includes(n)), toolNames.join(', '))
 const image = replies.get(3)?.result?.content?.find((c) => c.type === 'image')
 check('a capture comes back as an image, not a path', !!image?.data, `${image?.data?.length ?? 0} base64 chars`)
 check('a failed capture is an error the agent can read', replies.get(4)?.result?.isError === true)

@@ -6,6 +6,7 @@ import path from 'node:path'
 const DATA_DIR = path.join(os.homedir(), '.orbit')
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json')
 const SCROLLBACK_DIR = path.join(DATA_DIR, 'scrollback')
+const HIDDEN_FILE = path.join(DATA_DIR, 'hidden.json')
 
 fs.mkdirSync(SCROLLBACK_DIR, { recursive: true })
 
@@ -93,4 +94,36 @@ export async function sweepOrphanScrollback(knownIds: Set<string>): Promise<numb
     removed++
   }
   return removed
+}
+
+/**
+ * Transcripts the phone has asked not to see again.
+ *
+ * These are ids, never files. A conversation held at the Mac's own desk is
+ * Claude Code's record of it, so the only thing Orbit is allowed to remember is
+ * that this phone does not want the row — the transcript stays exactly where it
+ * was. Kept in its own file rather than folded into `sessions.json` because
+ * that file is rewritten from the live session maps on every change, and an id
+ * with no session behind it has nowhere to live in there.
+ *
+ * Read with the same tolerance as the sessions: a file that was never written
+ * and a file that got truncated both mean nothing is hidden, which is a state
+ * the user can put right by hiding the row again — a crash on startup is not.
+ */
+export function loadHidden(): string[] {
+  try {
+    const list = JSON.parse(fs.readFileSync(HIDDEN_FILE, 'utf8'))
+    if (!Array.isArray(list)) return []
+    return list.filter((id): id is string => typeof id === 'string')
+  } catch {
+    return []
+  }
+}
+
+export function saveHidden(ids: string[]): void {
+  try {
+    fs.writeFileSync(HIDDEN_FILE, JSON.stringify(ids, null, 2))
+  } catch (err) {
+    console.error('[orbit] failed to persist hidden conversations:', err)
+  }
 }

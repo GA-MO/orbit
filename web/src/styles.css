@@ -1,45 +1,344 @@
-@import '@fontsource-variable/space-grotesk';
-@import 'tailwindcss';
+@import "@fontsource-variable/space-grotesk";
+@import "tailwindcss";
+
+/* The states gallery is a development surface: it spells classes no shipped
+   view uses, and every one of them was landing in the production stylesheet.
+   Tailwind scans sources, so the fix is to un-scan this one. */
+@source not './dev';
 
 /* ---------------------------------------------------------------------------
-   Orbit design tokens — deep-space graphite base, indigo→cyan orbital accent,
-   amber reserved exclusively for "live" state.
+   Orbit design tokens — titanium chassis, glass surfaces, one lit control.
+
+   The greys are warm-neutral (hue ~38, saturation under 10%), not the blue-grey
+   they were: a blue-grey chassis reads as "dark UI", a titanium grey reads as a
+   machined object. That has not moved and should not.
+
+   ---- The colour rule ----
+
+   There are exactly two hues in this app, and both of them are facts the Mac is
+   telling you: --color-danger (destruction) and --color-live (something is
+   running). Everything else is black, white, grey and silver.
+
+   That cost the periwinkle accent, which was the largest patch of colour Orbit
+   drew and appeared on a nav tab, a hunk header, a rename field, a folder icon
+   and a selection overlay — none of which are events. --color-accent is now a
+   near-white silver, and --color-accent-strong the near-white it fills with, so
+   every one of those call sites neutralised without being edited. --color-ok
+   went with them: in a diff the thing worth colouring is the deletion, so
+   removed lines stay red and added lines are simply the bright ones.
+
+   Which leaves the question the accent was answering: how does "this session is
+   waiting for you" still shout? It shouts louder. A waiting row is drawn with
+   `border-accent/60` — now a 60%-white hairline against the --color-line rims
+   (about 22% white) every other row wears, which is a ~3x jump in edge
+   brightness on a near-black field; the unread badge in the tab bar is
+   `bg-accent-strong`, now the brightest pixel on the screen, near-white with
+   ink on it. Alive and waiting still occupy different channels, which was the
+   point of keeping them separable: alive is *volume* (an interior wash and a
+   soft bounce from below, .alive, no border at all), waiting is *edge*. Both at
+   once is a lit row inside a white rim, and nothing else in the app looks like
+   that.
+
+   ---- Depth ----
+
+   Depth is made of light and of layering, not of drop shadows. No button in
+   this file casts one — the button family is rim, face and weight, and the one
+   exception is written where it lives (.pill-key). Cards keep a tight
+   occlusion (--shadow-lift), because a card is a sheet of material lying on
+   another one and that is what the underside of one looks like.
+
+   ---- Glass ----
+
+   Surfaces are frosted material, not painted panels: a translucent face over a
+   blurred backdrop, with a hairline rim. .glass is the face; .glass-blur adds
+   the sampling. They are separate on purpose, because the expensive half is the
+   sampling and most layers do not need their own — a sheet panel sits on a
+   scrim that has already blurred the screen, so the panel only has to be
+   translucent to read as glass, and costs nothing.
+
+   Where glass is forbidden, and this is load-bearing: anything permanently
+   composited over the xterm canvas. backdrop-filter is re-sampled every time
+   what is behind it repaints, and the terminal repaints on every byte an agent
+   prints, so a blurred bar there is a full-screen blur at the agent's output
+   rate. The bottom tab bar and the terminal header are opaque and take their
+   depth from rims and tone. .pill carries no backdrop-filter for the same
+   reason — `outline` and `ghost` buttons live in the terminal header.
+
+   Controls are the only lit objects. Surfaces are quiet.
 --------------------------------------------------------------------------- */
 @theme {
-  --color-ink: #0a0c10;
-  --color-surface: #12151a;
-  --color-raised: #181d26;
-  --color-overlay: #1e2430;
-  --color-line: #242b38;
-  --color-line-subtle: #1a202b;
-  --color-fore: #e9ecf2;
-  --color-mut: #8b94a8;
-  --color-faint: #566078;
-  --color-accent: #93a5fd;
-  --color-accent-strong: #6c7ff2;
-  --color-glow: #55d6f5;
+  --color-ink: #0d0c0a;
+  --color-surface: #171614;
+  --color-raised: #211f1c;
+  --color-overlay: #2c2a26;
+  --color-line: #3a3731;
+  --color-line-subtle: #272421;
+  --color-fore: #f5f3f0;
+  --color-mut: #a6a096;
+  --color-faint: #736d64;
+  /* Signals. Two of these are hues and mean something; the rest are silver.
+     accent is the bright neutral — text, rims, washes. accent-strong is the
+     near-white it *fills* with, and anything filled with it takes ink for a
+     label (see the rule at the end of the button block). */
+  --color-accent: #e4e6e9;
+  --color-accent-strong: #f4f5f6;
+  --color-glow: #c8cbd0;
   --color-live: #f0b45c;
-  --color-ok: #58d68b;
-  --color-danger: #f3737b;
+  --color-ok: #d3d6da;
+  --color-danger: #e8636b;
 
-  --font-display: 'Space Grotesk Variable', system-ui, sans-serif;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-mono: ui-monospace, Menlo, Monaco, 'SF Mono', monospace;
+  --font-display: "Space Grotesk Variable", system-ui, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, Monaco, "SF Mono", monospace;
 
   --radius-card: 14px;
   --radius-field: 10px;
+  --radius-sheet: 24px;
+}
+
+/* Not in @theme: these are recipes, not a scale, and nothing should be able to
+   spell `bg-glass-tint` by accident. */
+:root {
+  /* Edge light — the top-of-object highlight that does the lifting. */
+  --edge-lit: rgb(255 255 255 / 0.07);
+  --edge-lit-strong: rgb(255 255 255 / 0.14);
+  /* Occlusion. Tight and dark, not a wide grey haze. Cards only: no button in
+     this file casts an outer shadow except the primary's contact shadow. */
+  --shadow-lift: 0 1px 1px rgb(0 0 0 / 0.4), 0 8px 20px -12px rgb(0 0 0 / 0.7);
+  --shadow-sheet: 0 -20px 50px -18px rgb(0 0 0 / 0.85);
+
+  /* ---- The rim system ----------------------------------------------------
+
+     Every object in this app is lit from the same place. A border draws an
+     even line all the way round, which is what a rectangle looks like in a
+     diagram and not what a rounded object looks like under a light: a real
+     edge is bright where it turns into the source, dies where it turns away,
+     and picks up a weaker bounce on the far side.
+
+     So the rim is not a border. It is a 1px pseudo-element filled with one
+     diagonal gradient and masked down to its own frame — two identical mask
+     layers, one clipped to content-box and one to border-box, composited so
+     the middle is subtracted and only the ring survives. Nothing animates; the
+     apparent travel of light around the edge is the gradient, at 140deg, held
+     constant on every pill, card and panel. That single shared angle is most
+     of the reason a screen of these reads as one lit scene rather than as a
+     set of outlined boxes. */
+  --rim-grad: linear-gradient(
+    140deg,
+    rgb(255 255 255 / 0.48) 0%,
+    rgb(255 255 255 / 0.06) 38%,
+    rgb(255 255 255 / 0) 60%,
+    rgb(255 255 255 / 0.26) 100%
+  );
+  --rim-grad-danger: linear-gradient(
+    140deg,
+    rgb(255 148 154 / 0.72) 0%,
+    rgb(255 148 154 / 0.12) 38%,
+    rgb(255 148 154 / 0) 60%,
+    rgb(255 148 154 / 0.4) 100%
+  );
+  /* Rim strength is rank. A quiet control is dimmer, a card dimmer still. */
+  --rim-op: 0.55;
+  --rim-op-hover: 0.85;
+
+  /* Faces. Translucent white over whatever is behind, never a grey fill: a
+     grey fill is a painted panel and reads as one the moment it sits over
+     anything. 5% is the reference's own number and it holds up — over the app
+     field it lands at #1f1e1c, over a busy mid-grey at #3d3c3b. */
+  --face: rgb(255 255 255 / 0.05);
+  --face-hover: rgb(255 255 255 / 0.09);
+  --face-active: rgb(0 0 0 / 0.24);
+  --face-danger: rgb(232 99 107 / 0.1);
+  --face-danger-hover: rgb(232 99 107 / 0.16);
+  --danger-ink: #ff9096;
+
+  /* ---- Chosen ----
+     Silver, and light where everything else is dark. This is the app's one
+     inversion and it belongs to exactly one idea: "this is the one that is
+     selected". See .seg-on. */
+  --metal-bright: linear-gradient(
+    180deg,
+    #fdfdfd 0%,
+    #e6e4e0 38%,
+    #c3bfb8 72%,
+    #979187 100%
+  );
+  --metal-bright-active: linear-gradient(
+    180deg,
+    #cfcdc9 0%,
+    #bdbab5 38%,
+    #a6a29b 72%,
+    #85807a 100%
+  );
+
+  /* ---- The primary's face ----
+     A pearl, and the only object in the app that carries both light and
+     colour. Horizontal, not vertical: this is iridescence across a face —
+     cool grey, warm cream, cool blue at the far edge — rather than light
+     falling down one. Its warmth and coolness are a property of this one
+     control and must not leak into a token, a rim, or anything else. */
+  --pearl: linear-gradient(
+    90deg,
+    #bcc0ca -1.05%,
+    #feeae1 41.74%,
+    #c0cef2 102.46%
+  );
+  --pearl-hover: linear-gradient(
+    90deg,
+    #cbcfd8 -1.05%,
+    #fff4ee 41.74%,
+    #cfdaf7 102.46%
+  );
+  --pearl-active: linear-gradient(
+    90deg,
+    #9ca0aa -1.05%,
+    #d9c8c0 41.74%,
+    #a0aecf 102.46%
+  );
+
+  /* ---- Grain ----
+     What separates a light field from a CSS gradient is that a real one is
+     made of particles. This is 180px of fractal noise, desaturated, generated
+     once by the SVG filter and tiled — about 400 bytes, no network request,
+     and it rasterises a single small tile rather than a full-screen texture.
+     It is painted only on <html>, which every opaque surface covers.
+
+     The opacity is the whole difficulty. Fractal noise averages mid-grey at
+     half alpha, so it is not just texture — it is a veil, and every point of
+     opacity lifts the black of the entire app. The first attempt ran it at
+     0.34 and turned a near-black field into a flat #2b2b2b with the shaped
+     light invisible underneath it. At 0.085 the particles are still there at
+     reading distance and the blacks stay black, which is the only setting that
+     lets the light above be the thing you notice. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.085'/%3E%3C/svg%3E");
+
+  /* Motion. One curve for things arriving, one for things settling in place.
+     The arrival curve is deliberately long-tailed: a sheet should decelerate
+     into position rather than stop dead. */
+  --ease-arrive: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-settle: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-tap: 110ms;
+  --dur-state: 180ms;
+  --dur-arrive: 380ms;
 }
 
 html,
 body,
 #root {
   height: 100%;
-  background: var(--color-ink);
-  color: var(--color-fore);
-  font-family: var(--font-sans);
   overscroll-behavior: none;
   overflow: hidden;
+}
+
+html {
+  /* ---- The light field: the one ambient gesture in the app ----
+
+     What this is meant to be is a broad, soft source raking across a dark
+     curved surface — bright where the surface turns into the light, falling to
+     black where it turns away. Two blue washes used to do this job. They were
+     the largest patch of accent Orbit drew, they tinted every screen the app
+     has, and they meant nothing, so they are white now: colour in this app is
+     reserved for what the Mac is telling you.
+
+     Three ingredients, in paint order:
+
+     1. A wide, shallow ellipse hung off the top-left corner — the source. It
+        is deliberately off-axis, because a highlight centred on the viewport
+        reads as a vignette rather than as light coming from somewhere.
+     2. A second, tighter ellipse to its right at half the strength. Two
+        overlapping fall-offs at different scales is what gives the field a
+        *shape*; one alone is a gradient and looks like one.
+     3. A black ellipse rising from the bottom, which is the part that sells
+        it: the field has to reach true black at the far edge, not merely get
+        dim, or the whole thing floats.
+
+     Then the grain over all of it. Fine noise is the difference between light
+     and a CSS gradient — it breaks the banding that 8-bit near-black gradients
+     always show, and it is the texture the eye reads as a real surface.
+
+     The cost: this is painted once, on <html>, at a size that never changes,
+     and it never animates. Every opaque surface in the app — nav, headers,
+     rows, sheets, and above all the terminal's canvas — covers it completely,
+     so it composites on exactly the screens that do not repaint and is
+     occluded on the one that does. Nothing translucent, nothing moving, and
+     nothing at all over xterm. */
+  background-color: var(--color-ink);
+  background-image:
+    var(--grain),
+    radial-gradient(
+      120% 62% at 8% -14%,
+      rgb(255 255 255 / 0.16),
+      transparent 60%
+    ),
+    radial-gradient(
+      58% 40% at 72% 6%,
+      rgb(255 255 255 / 0.08),
+      transparent 64%
+    ),
+    radial-gradient(150% 80% at 44% 118%, rgb(0 0 0 / 0.7), transparent 60%);
+  background-size:
+    180px 180px,
+    auto,
+    auto,
+    auto;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+}
+
+body,
+#root {
+  background: transparent;
+}
+
+body {
+  color: var(--color-fore);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* Safari's grey flash on tap is the single most un-native thing a web app
+     does; every control below answers a press itself. */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Selection is chrome, not signal: it says which glyphs you dragged over, and
+   it says it perfectly well in white. Tinting it accent spent the app's one
+   meaningful colour on a gesture that is already unambiguous. */
+::selection {
+  background: rgb(255 255 255 / 0.22);
+  color: var(--color-fore);
+}
+
+/* ---- Focus: one ring, and it is allowed to be coloured ----
+
+   There used to be two. This rule drew an accent outline at 2px offset, and
+   Field drew its own accent border plus a 3px accent box-shadow underneath it,
+   so a focused input wore two concentric blue rings with a gap between them —
+   which is the shape every design system on earth uses for "this field is
+   wrong". Field's ring is gone; this one is the only one, everywhere.
+
+   It is pure white, and that is the point: in an app whose brightest rim is
+   55% white and whose brightest label is #f5f3f0, a 100% white ring is the one
+   thing on screen that nothing else can be mistaken for. Focus is not
+   decoration — it answers "where am I?" — and it no longer needs a hue to be
+   the loudest edge in the frame.
+
+   Still `outline`, not `box-shadow`: every control here carries a box-shadow
+   already — the inset hairline that lifts it — and a focus ring drawn as a
+   shadow would replace it, flattening the button at the exact moment you are
+   looking at it. Outlines follow border-radius everywhere that matters, so a
+   pill gets a pill-shaped ring, and the 2px offset leaves a dark gap that
+   keeps it legible against a bright face as well as a dark one. */
+:where(
+  a,
+  button,
+  [role="tab"],
+  input,
+  textarea,
+  select,
+  [tabindex]
+):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }
 
 /* The whole visible area, and nothing outside it. Fixed rather than 100dvh in
@@ -58,36 +357,788 @@ body,
   height: var(--app-height, 100%);
 }
 
+/* ---- The rim, applied ------------------------------------------------------
+
+   One rule, every lit object. `border-radius: inherit` means the host decides
+   the shape and the rim follows it, so a pill gets a pill-shaped ring and a
+   sheet gets a ring rounded only at the top. Both mask spellings are here on
+   purpose: iOS Safari still needs the -webkit- one, and this is a phone app. */
+
+.rim,
+.pill,
+.pill-danger,
+.seg,
+.seg-on,
+.pill-on,
+.glass,
+.lift {
+  position: relative;
+}
+
+.rim::before,
+.pill::before,
+.pill-danger::before,
+.seg::before,
+.seg-on::before,
+.pill-on::before,
+.glass::before,
+.lift::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  opacity: var(--rim-op);
+  pointer-events: none;
+  background: var(--rim-grad);
+  -webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  -webkit-mask-clip: content-box, border-box;
+  mask-clip: content-box, border-box;
+  -webkit-mask-origin: content-box, border-box;
+  mask-origin: content-box, border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  transition: opacity var(--dur-state) var(--ease-settle);
+}
+
+/* ---- Glass ----------------------------------------------------------------
+
+   .glass is the *material*: a translucent face, the top edge catching light,
+   and the rim above. .glass-blur is the *cost*: the backdrop sampling that
+   turns whatever is behind into frost rather than a ghost of itself.
+
+   They are two classes because most layers only need the first. A sheet panel
+   sits on a scrim that has already blurred the entire screen, so the panel is
+   frosted for free simply by being translucent — adding its own filter would
+   have WebKit re-sampling two full-screen layers over a canvas that never
+   stops repainting. Blur area is what you pay for; spend it on small things
+   and on the one full-screen layer that has to have it.
+
+   Never .glass-blur over the terminal's canvas. See the header. */
+
+.glass {
+  background-color: rgb(28 26 24 / 0.84);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.1);
+}
+
+.glass-blur {
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* The scrim is the app's one full-screen blur, and it earns it: it is what
+   tells you the session is still running behind the sheet, and it exists for
+   a few hundred milliseconds at a time. */
+.scrim {
+  background: rgb(8 7 6 / 0.55);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  animation: scrim-in var(--dur-state) var(--ease-settle) both;
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .scrim {
+    background: rgb(8 7 6 / 0.86);
+  }
+  .glass {
+    background-color: var(--color-surface);
+  }
+  .lift {
+    background-color: var(--color-raised);
+  }
+}
+
+/* ---- Elevation: a card is a sheet of material lying on another one --------
+
+   .lift is frosted too, and it is the reason this class is worth redefining
+   rather than hunting call sites: it is already on the toast, the alert
+   dialogs and the populated preview rows, so all of them became glass at once.
+   The background-color here deliberately outranks the `bg-surface` / `bg-ink`
+   utilities those call sites also spell — this stylesheet is unlayered and
+   Tailwind's utilities are not, so a plain class here wins. That is the same
+   lever the accent token pulled, one level down.
+
+   0.76 rather than 0.5: these sit over a *populated* list and over the
+   terminal, and a face you can read the words through is not glass, it is a
+   smudge. The blur is what makes the remaining quarter legible.
+
+   14px of blur and not 20: the toast is the one .lift that can appear over
+   xterm, transiently. It is a 44px strip, not a screen, and the cheaper radius
+   keeps that honest. */
+
+.lift {
+  background-color: rgb(30 28 26 / 0.76);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 0.1),
+    var(--shadow-lift);
+  --rim-op: 0.4;
+}
+
+/* Kept for the tokens page. It is the same material with its edge turned
+   further into the light. */
+.key-lit {
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.24);
+}
+
+/* ---- The pill: one shape, three materials ---------------------------------
+
+   Every button in Orbit is a fully rounded pill with the same rim. What
+   separates them is the face.
+
+   `outline` and `ghost` are translucent: 5% white over whatever is behind,
+   which over the app field lands at #1f1e1c and over the terminal header at
+   #22211f. Translucent and not a grey fill, because a grey fill is a painted
+   panel and looks like one the moment it sits over anything. They carry no
+   backdrop-filter, and that is not an oversight — these two variants are the
+   Resume/New buttons in the terminal header and the Copy/Line buttons in the
+   selection toolbar, both of which live permanently over xterm's canvas.
+
+   `primary` is a pearl. It is the only filled object in the app, the only one
+   that carries colour that is not danger or live, and the only button with an
+   outer shadow — 22px of blur pulled back by 14px of spread, which is a
+   contact shadow under a bright object and not a halo. See .pill-key.
+
+   `danger` keeps its hue and stays dark, which is right: destruction should
+   look like a warning, not like the thing you are being invited to press. */
+
+.pill {
+  border: none;
+  background-color: var(--face);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.08);
+}
+
+.pill:hover:not(:disabled) {
+  background-color: var(--face-hover);
+}
+
+.pill:hover:not(:disabled)::before {
+  opacity: var(--rim-op-hover);
+}
+
+/* Pressed, the face goes *darker than its surroundings* rather than dimmer —
+   a translucent panel pushed into the chassis, with the top edge cut off. */
+.pill:active:not(:disabled) {
+  background-color: var(--face-active);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+/* Disabled is a real state with a real look, not 40% of the enabled one.
+   Opacity was the bug: `ghost` and `outline` at 0.4 landed --color-mut at
+   about 2.2:1 on the chassis, which on a phone outdoors is nothing at all. So
+   a dead control is *recessed* — and recessed is the specific word. The first
+   attempt here filled it with --color-raised, which is a flat #211f1c, and on
+   a screen where an enabled control is 5% white over near-black that made the
+   disabled pill the brightest button in the row: the old bug with its sign
+   flipped. So it goes the other way. The face is black at 22%, a hole rather
+   than an object, with the top edge cut and the rim all but out; the label
+   steps down to --color-faint, 3.5:1 on the chassis — unmistakably inert,
+   still readable outdoors.
+
+   The primary needs this most. Dimming a pearl to 40% leaves the brightest
+   thing on the screen still the brightest, only muddier; taking the pearl away
+   entirely is the only honest way to say a bright object is not pressable. */
+.pill:disabled {
+  background-image: none;
+  background-color: rgb(0 0 0 / 0.22);
+  color: var(--color-faint);
+  box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.3);
+}
+
+.pill:disabled::before {
+  opacity: 0.1;
+}
+
+.pill-quiet:disabled {
+  color: var(--color-faint);
+}
+
+/* ---- The key --------------------------------------------------------------
+
+   With no bead, no fill-versus-outline convention and no halo, this is the one
+   object that has to say "press me" on its own. It says it by being the only
+   lit thing on a black screen. Four cues, and they are all material:
+
+     1. It is the only filled face in the app. Everything else is a translucent
+        window onto the chassis; this is an object sitting on it.
+     2. The face is iridescent along its length rather than shaded down its
+        height, so it does not read as another gradient button — it reads as
+        the one piece of pearl in a room of brushed grey.
+     3. Its label is ink on light while every other label is light on dark: the
+        polarity inverts, which the eye finds before it finds anything else.
+     4. A single 1px white hairline along the top edge, and one small warm
+        contact shadow beneath, which is what puts it *on* the surface rather
+        than in it.
+
+   No rim pseudo-element: the diagonal white rim exists to describe an edge on
+   a dark face, and on a face this bright it would be invisible at the top and
+   dirty at the bottom. The inset hairline is its edge. */
+
+.pill-key {
+  background-image: var(--pearl);
+  color: var(--color-ink);
+  box-shadow:
+    inset 0 1px #ffffff73,
+    0 6px 22px -14px #ffa58299;
+}
+
+.pill-key::before {
+  content: none;
+}
+
+.pill-key:hover:not(:disabled) {
+  background-image: var(--pearl-hover);
+}
+
+/* Pressed: the same pearl walked down the ramp, plus an inner shadow at the
+   top. A bright object pressed into a surface loses its own highlight and
+   catches the shadow of the edge it has gone under. The contact shadow goes
+   with it — the object is no longer standing off the surface. */
+.pill-key:active:not(:disabled) {
+  background-image: var(--pearl-active);
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.32);
+}
+
+/* Destruction. A translucent face like its quiet siblings, a red rim, a red
+   label — louder in a colourless chassis than the solid red fill it replaces
+   ever was in a chassis full of blue, and still unmistakably not the pearl. */
+.pill-danger {
+  border: none;
+  background-color: var(--face-danger);
+  color: var(--danger-ink);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 0.08);
+  --rim-grad: var(--rim-grad-danger);
+  --rim-op: 0.7;
+  --rim-op-hover: 1;
+}
+
+.pill-danger:hover:not(:disabled) {
+  background-color: var(--face-danger-hover);
+}
+
+.pill-danger:hover:not(:disabled)::before {
+  opacity: var(--rim-op-hover);
+}
+
+.pill-danger:active:not(:disabled) {
+  background-color: rgb(0 0 0 / 0.24);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+/* A quiet control: no face at all. A screen where every button is machined has
+   no key on it, so `ghost` gets the pill's shape and none of its material. */
+.pill-quiet {
+  border: none;
+  color: var(--color-mut);
+}
+
+.pill-quiet:hover:not(:disabled) {
+  background-color: var(--face);
+  color: var(--color-fore);
+}
+
+.pill-quiet:active:not(:disabled) {
+  background-color: var(--face-active);
+}
+
+/* ---- Segmented -------------------------------------------------------------
+
+   A segmented control is two objects and it needs to look like two: a track
+   that says "these are the choices", and a chip inside it that says "this is
+   the one". Drop the track and what is left is a bright button with some loose
+   words beside it, which is a button and a caption, not a control with
+   positions — the unselected labels stop belonging to anything. This was got
+   wrong once by making the track so quiet it disappeared; it is a full pill
+   now, and it is meant to be seen.
+
+   The track is the same glass as everything else — a 5% white face, the 140deg
+   masked rim — with one addition: a shallow dark inset along the top. That is
+   not a decoration, it is the physical claim the control is making. A track
+   holds something, so it is a *recess*, and the chip that sits in it is the
+   only thing here standing proud. The rim runs a little brighter than a pill's
+   for the same reason: this edge has to be found, not merely felt.
+
+   Full radius on both, chip inset by 4px, which is what makes the chip read as
+   sitting *in* the track rather than being clipped by it.
+
+   The 390px fix is untouched and must stay: `max-w-full` on the track over
+   `min-w-0` children means Unstaged / Staged / Untracked / Conflicted keep
+   their natural widths until the control meets the edge of the phone and only
+   then give ground, longest first, truncating rather than spilling. The extra
+   2px of track padding is the whole cost of the container, and truncation —
+   not the screen edge — is still what decides where a label ends. */
+
+.seg {
+  /* Darker than whatever it sits on, not lighter. `--face` is the 5% white
+     every pill wears, and five percent of white on a near-black chassis is a
+     difference from nothing — the shadows below already described a groove
+     while the fill insisted it was another raised pane, so the control lost
+     its container and read as one bright chip beside a few loose words. A
+     recess is the only thing that says "these are the choices" before the chip
+     says "this is the one". */
+  background-color: rgb(0 0 0 / 0.32);
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.35),
+    inset 0 -1px 0 rgb(255 255 255 / 0.06);
+  --rim-op: 0.75;
+}
+
+/* ---- Chosen is an inversion, not a brighter grey --------------------------
+
+   This was got wrong once and the correction is the useful part. The first
+   version of this state was a brighter translucent face — 16% white instead of
+   5% — with the rim turned up to full. Next to its unselected siblings, in a
+   row, it was legible. On its own, as the TogglePill in the capture sheet, it
+   was not: two states that differ only in *degree* are not two states. A few
+   percent of white on a near-black ground is invisible at arm's length,
+   invisible outdoors, and invisible to anyone who did not see the other state
+   a second earlier to compare it with.
+
+   So chosen differs in kind. It is silver with ink on it, against dark glass —
+   the polarity flips, which is the one thing the eye cannot fail to notice,
+   and it is the same inversion the primary button uses for the same reason.
+   That makes "selected" one visual idea across the whole app rather than a
+   per-control invention: a segmented chip and a standalone toggle look the
+   same when they are on, because they mean the same thing.
+
+   No rim. The masked white rim describes an edge on a dark face; on a face
+   this bright it is invisible along the top and dirty along the bottom. The
+   inset hairline top and bottom is this object's edge — it sits *in* the
+   track rather than on it. */
+.seg-on,
+.pill-on {
+  /* The same pearl as the primary, not a silver of its own.
+
+     They were different materials on the argument that the key should be the
+     one iridescent object in the app. But the two states mean the same thing —
+     *this is the one* — and saying it twice in two materials makes the app
+     look like it has two ideas of chosen rather than one. Bright-with-ink is
+     now a single claim wherever it appears: the button you press to commit,
+     the tab you are on, the option that is on.
+
+     It stops short of being the primary: no contact shadow, and the rim is
+     suppressed the same way, so the key is still the only thing that lifts off
+     the chassis. Material is shared; elevation is not. */
+  background-image: var(--pearl);
+  color: var(--color-ink);
+  /* Four stops, not three, and the last one is a full rung darker than the
+     silver this used to be. A chip is 28px tall: a three-stop ramp compressed
+     into 28px averages out into a flat pale patch, which next to the pearl
+     primary reads as a disabled control rather than as a material. The extra
+     stop keeps a short bright half and a long dark fall-off at this size, and
+     the hairlines top and bottom give it a machined edge — bright where it
+     turns into the light, dark where it turns under. */
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    inset 0 -1px 0 rgb(0 0 0 / 0.42),
+    0 1px 0 rgb(255 255 255 / 0.05);
+}
+
+.seg-on::before,
+.pill-on::before {
+  content: none;
+}
+
+.seg-on:active,
+.pill-on:active {
+  background-image: var(--pearl-active);
+}
+
+/* Anything *filled* with --color-accent-strong is now filled with near-white,
+   so the `text-white` those call sites spell — right when the fill was a
+   mid-blue — would be white on white. The token change neutralised the colour;
+   this makes the polarity follow it, in the same place, without editing a
+   badge in App.tsx, a shift-lock in TerminalKeys.tsx or a chip in a toast.
+   `class~=` and not a partial match, deliberately: `bg-accent-strong/25` is
+   the terminal's selection overlay, which is a wash and has no label. */
+[class~="bg-accent-strong"] {
+  color: var(--color-ink);
+}
+
+/* ---- .alive: the row with something running in it -------------------------
+
+   Named for what it means. This is the only surface in the app allowed a light
+   treatment of its own, and it is spent on the single question the Sessions
+   tab exists to answer: which of these is running right now. It should be the
+   best-looking object on the screen, and that is not vanity — it is the row
+   you came to the tab to find.
+
+   ---- Alive and waiting are different facts, and they stack ----
+
+   A session can be running *and* blocked on you, and that row is the most
+   important one in the app, so the two must not be drawn in the same channel
+   or the more urgent one disappears into the other.
+
+   They are concentric. Waiting is the row's *own border*: the static
+   `border-accent/60` hairline SessionsView draws, 60% white against the
+   ~22%-white rims every other row wears, on the outermost edge. Alive is a
+   light travelling *just inside* that border, plus the volume of the face it
+   encloses. A row that is both is a bright still frame with a light running
+   around the inside of it, and there is nothing else in the app that looks
+   remotely like that. Neither state can hide the other, because one of them
+   never moves and the other never stops.
+
+   ---- The amber dot is gone ----
+
+   It used to pulse on this row and it was the only place --color-live
+   appeared in the Sessions list. With the edge saying "running", the dot was a
+   second and weaker voice saying the same thing, on a slower breath, out of
+   phase — two rhythms on one card. So the row now says it once. The trade is
+   worth naming: liveness in this list is no longer carried by a hue at all,
+   which means it survives a colourblind reader, a screen at 20% brightness and
+   a phone in sunlight, none of which a 10px amber dot does. --color-live still
+   means what it meant everywhere else — a connecting terminal, a modified file.
+
+   ---- The face ----
+
+   Translucent, like everything lifted: 5% white over whatever is behind, which
+   outranks the `bg-surface` the row also spells. Then a wash from 22% across
+   and above the top edge — the same corner the 140deg rims are lit from — and
+   a bounce off the bottom, 60px of blur pulled back by 52px, cool (~H=205)
+   against a chassis at H=38. Both are much tighter than the first attempt: a
+   140px bounce with -60px of spread filled the whole row with flat grey, which
+   does not read as a lit card, it reads as a selected one. What you should see
+   is an object catching light, with the row's own words still the brightest
+   thing on it. */
+
+.alive {
+  background-color: rgb(255 255 255 / 0.05);
+  background-image: radial-gradient(
+    120% 140% at 22% -10%,
+    rgb(214 222 232 / 0.13) 0%,
+    rgb(214 222 232 / 0.03) 44%,
+    transparent 72%
+  );
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 0.18),
+    inset 0 -40px 60px -52px rgb(150 170 180 / 0.55);
+}
+
+/* ---- .live-edge: the light going round ------------------------------------
+
+   MARKUP. This needs one element, and it is worth the element:
+
+     {s.alive && <span className="live-edge" aria-hidden />}
+
+   as the first child of the row in SessionsView, with the row already
+   `relative` (it is not — add `relative` to the row's class list). The amber
+   dot span next to the provider glyph comes out at the same time.
+
+   Two pseudo-elements are not enough to do this without it. The rotating plane
+   has to sit *below* the row's text and the ring mask has to sit above the
+   plane, and ::after paints above the content while ::before paints below it,
+   so there is no ordering of the two that gives you both. One span, which owns
+   its own ::before, does.
+
+   ---- Why it is built this way ----
+
+   The obvious implementation is `@property --angle` with an animated
+   `conic-gradient`, and it is the wrong one: the gradient is painted across
+   the whole box and only then masked down to a 1px ring, so every frame
+   repaints a card-sized area — times however many sessions are live, for as
+   long as they are live, on a phone.
+
+   Nothing here repaints. The conic gradient is painted once, into a square
+   plane that is `transform: rotate()`d and nothing else, which is a layer the
+   compositor turns. The plane is 106% of the row's width and square, because
+   the smallest square that covers a rectangle at every rotation is one whose
+   side is the rectangle's diagonal, and for a row this wide and this short the
+   diagonal is barely more than the width — a 410px layer for a 390px row
+   rather than the 585px one a lazier `150%` would have allocated.
+
+   The ring itself is the same masked-frame trick every rim in this app uses —
+   1px of padding, two mask layers clipped to content-box and border-box,
+   composited to subtract the middle — and it is on the *wrapper*, which never
+   moves. Masking the plane instead would have rotated the mask with it and
+   drawn a spinning frame rather than a light going round a still one. Both
+   spellings of the composite, because iOS Safari still wants -webkit-.
+
+   Under the moving arc, the wrapper's own background is the app's static
+   140deg rim, so this edge is lit from the same corner as every other object
+   even when the light is elsewhere — and it is what remains when the animation
+   is switched off.
+
+   8s a lap. The arc is always somewhere on the ring, so the row is
+   continuously alive rather than blinking, and one revolution every eight
+   seconds is slow enough that your eye reads it as breathing rather than as
+   progress. A session that is merely running is not making progress you can
+   watch, and a light that races says it is. */
+
+.live-edge {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: calc(var(--radius-card) - 1px);
+  padding: 1px;
+  background: var(--rim-grad);
+  -webkit-mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  -webkit-mask-clip: content-box, border-box;
+  mask-clip: content-box, border-box;
+  -webkit-mask-origin: content-box, border-box;
+  mask-origin: content-box, border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.live-edge::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 106%;
+  aspect-ratio: 1;
+  margin: -53% 0 0 -53%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 58%,
+    rgb(255 255 255 / 0.28) 82%,
+    rgb(255 255 255 / 0.95) 94%,
+    transparent 100%
+  );
+  animation: live-edge-lap 8s linear infinite;
+}
+
+@keyframes live-edge-lap {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Sheets ---- */
+
+/* The panel is .glass without .glass-blur: it is translucent, and the scrim
+   underneath it has already blurred the screen, so it is frosted material at
+   no sampling cost of its own. The rim comes with .glass and follows the
+   panel's radius — lit at the top-left corner, like everything else. */
+.sheet-panel {
+  animation: sheet-rise var(--dur-arrive) var(--ease-arrive) both;
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 0.1),
+    var(--shadow-sheet);
+  /* Its own layer for the duration of the rise: the transform then moves a
+     finished texture instead of relaying out a list under it. */
+  will-change: transform;
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translate3d(0, 100%, 0);
+  }
+}
+
+/* Two smaller arrivals, for things a view puts on screen itself: a toast or a
+   pill that comes up from the bottom, and a centred alert that comes forward.
+   Both are transform + opacity only, so neither touches layout. */
+.rise-in {
+  animation: rise-in var(--dur-state) var(--ease-arrive) both;
+}
+
+.pop-in {
+  animation: pop-in var(--dur-state) var(--ease-arrive) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* ---- Arrival: how a list gets onto the screen ----
+
+   Every list in this app polls. Sessions re-read on tab activation, Changes
+   re-reads after each git action, liveness comes round every ten seconds. So
+   the interesting part of an entrance here is not the curve, it is *when it is
+   allowed to run at all*: a row that replays its arrival on every poll is the
+   thing that makes an app feel cheap, and it is why the first visual pass left
+   lists alone entirely.
+
+   The answer is split between here and `useArrival` in components/ui.tsx. CSS
+   runs an animation once per DOM element, when it is inserted; React reuses a
+   keyed row across a poll, so an unchanged row never sees this again. That
+   alone is an argument, not a guarantee — the hook is the guarantee, because it
+   only hands `.arrive` to an id it has never committed before. A poll returning
+   the same twenty rows produces twenty elements carrying no animation class at
+   all, so even a remount forced by something else upstream cannot make them
+   move.
+
+   The stagger is a per-item delay the view sets from the item's position,
+   capped hard: past the ninth row the sequence has already said what it has to
+   say, and the twentieth arriving a full second late is not elegance, it is a
+   list that will not load. 28ms is short enough that the tail reads as one
+   gesture rather than as rows queueing.
+
+   No `will-change` here, deliberately. A sheet is one promoted layer for a few
+   hundred milliseconds; a list would be forty of them, and forty compositor
+   layers on a phone costs more than the animation is worth. */
+
+.arrive {
+  animation: rise-in var(--dur-state) var(--ease-arrive) both;
+  animation-delay: calc(min(var(--arrive-i, 0), 8) * 28ms);
+}
+
+/* For a block that appears on its own rather than as one of a run — an empty
+   state resolving, a diff body replacing its spinner. It only fades: the thing
+   it replaced was in the same place, so sliding it would say something moved
+   when nothing did. */
+.fade-in {
+  animation: fade-in var(--dur-state) var(--ease-settle) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---- Press. Every tappable thing answers the finger. ---- */
+
+.press {
+  transition:
+    transform var(--dur-tap) var(--ease-settle),
+    background-color var(--dur-state) var(--ease-settle),
+    border-color var(--dur-state) var(--ease-settle),
+    color var(--dur-state) var(--ease-settle),
+    box-shadow var(--dur-state) var(--ease-settle),
+    opacity var(--dur-state) var(--ease-settle);
+}
+
+.press:active:not(:disabled) {
+  transform: scale(0.955);
+}
+
+/* ---- Touch targets ----
+
+   A control may look 28px and must still take a 44px thumb. These grow the
+   *hit* area without moving a single pixel of layout, which is why the fix
+   can live in the primitives instead of in every view.
+
+   .hit-y is for controls that sit in a horizontal row: it guarantees the
+   height and leaves the width alone, so a row of them can't steal each
+   other's taps. .hit-xy also pads the sides by 4px — half a typical gap. */
+
+.hit-y,
+.hit-xy {
+  position: relative;
+}
+
+.hit-y::after,
+.hit-xy::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
+.hit-y::after {
+  left: 0;
+  right: 0;
+}
+
+.hit-xy::after {
+  left: -4px;
+  right: -4px;
+}
+
 /* ---- Signature: the orbit ring — a satellite tracing a slow orbit ---- */
 
+/* The mark went grey with everything else, and it is the change I would defend
+   hardest. Its blue-and-cyan core was the app's signature — and it appeared on
+   the login screen, in every empty state, and in the terminal header, which
+   means the accent was on screen constantly for reasons that had nothing to do
+   with any session. That is exactly what makes a signal stop being one.
+
+   It loses nothing, because the mark never said anything with colour: what it
+   says is said with motion. The satellite sweeps while the connection is live
+   and parks when it is not (see `idle`), and a parked ring is legible in
+   greyscale, at 20px, and to someone who cannot tell blue from grey — which
+   the old version was not.
+
+   It also runs everywhere now. Parking the satellite is a sentence — "the
+   connection is gone" — and the app says it in exactly one place, the terminal
+   header. Everywhere else the mark sweeps: on the login screen, in an empty
+   list, beside a diff that is loading. 6s is unchanged and deliberate. A mark
+   that turns once every six seconds reads as alive at a glance and as nothing
+   at all when you are working next to it for an hour, which is the correct
+   ratio for a thing that is on screen permanently; faster would be a spinner,
+   and a spinner is a promise that something finishes. */
 .orbit-track {
   position: relative;
   border-radius: 9999px;
   border: 1.5px solid var(--color-line);
-  background: radial-gradient(closest-side, transparent 55%, rgb(108 127 242 / 0.12));
+  background: radial-gradient(
+    closest-side,
+    transparent 52%,
+    rgb(255 255 255 / 0.07)
+  );
+  box-shadow: 0 0 22px -8px rgb(255 255 255 / 0.3);
 }
 
 .orbit-track::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 28%;
   border-radius: 9999px;
-  background: linear-gradient(135deg, var(--color-accent-strong), var(--color-glow));
+  background: linear-gradient(140deg, #f4f3f0, #9c968c 78%);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.7),
+    0 0 12px -3px rgb(255 255 255 / 0.55);
 }
 
+/* The satellite, and the arc of light it drags behind it. Masked to the ring
+   band so the sweep never washes over the core. */
 .orbit-track::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: -1.5px;
   border-radius: 9999px;
-  background:
-    radial-gradient(circle at 50% 0%, var(--color-glow) 0 12%, transparent 13%);
+  background: conic-gradient(
+    from -12deg,
+    transparent 0 58%,
+    rgb(255 255 255 / 0.22) 86%,
+    rgb(255 255 255 / 0.95) 97%,
+    transparent 100%
+  );
+  -webkit-mask: radial-gradient(
+    closest-side,
+    transparent calc(100% - 2.5px),
+    #000 calc(100% - 2.5px)
+  );
+  mask: radial-gradient(
+    closest-side,
+    transparent calc(100% - 2.5px),
+    #000 calc(100% - 2.5px)
+  );
   animation: orbit-spin 6s linear infinite;
+}
+
+.orbit-track--idle {
+  box-shadow: none;
 }
 
 .orbit-track--idle::after {
   animation-play-state: paused;
-  opacity: 0.35;
+  opacity: 0.3;
 }
 
 @keyframes orbit-spin {
@@ -96,13 +1147,17 @@ body,
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .orbit-track::after {
-    animation: none;
-  }
+/* A soft field of light behind the mark, for the one place it is shown large.
+   Both pseudo-elements are already spoken for — core and satellite — so the
+   halo is cast rather than drawn. Declared after --idle so an idle mark shown
+   large still glows faintly; a small one in a row stays dark. */
+.orbit-track.halo {
+  box-shadow:
+    0 0 70px -12px rgb(255 255 255 / 0.22),
+    0 0 26px -8px rgb(255 255 255 / 0.2);
 }
 
-/* live pulse — amber, only for running sessions */
+/* live pulse — amber, one of the two hues left, and only for running sessions */
 .pulse-live {
   animation: pulse-live 2.4s ease-in-out infinite;
 }
@@ -117,9 +1172,49 @@ body,
   }
 }
 
+/* ---- Reduced motion: nothing moves, everything still changes state ---- */
+
 @media (prefers-reduced-motion: reduce) {
+  .orbit-track::after {
+    animation: none;
+  }
+
   .pulse-live {
     animation: none;
+  }
+
+  /* The light stops where it is. It parks near the top-left — the arc sits at
+     82-94% of a gradient that starts at twelve o'clock — which is the corner
+     everything else in this app is lit from, so a still live row still reads
+     as the lit one. The face, the wash and the bounce are untouched, which is
+     the whole reason they are separate declarations from the motion. */
+  .live-edge::before {
+    animation: none;
+  }
+
+  .scrim,
+  .sheet-panel,
+  .rise-in,
+  .pop-in,
+  .arrive,
+  .fade-in {
+    animation-duration: 1ms;
+  }
+
+  /* The delay has to go too, not just the duration: a staggered list with the
+     movement removed but the wait kept is a list that blinks in row by row,
+     which is worse than the animation it was meant to spare. */
+  .arrive {
+    animation-delay: 0ms;
+  }
+
+  .press {
+    transition-property:
+      background-color, border-color, color, box-shadow, opacity;
+  }
+
+  .press:active:not(:disabled) {
+    transform: none;
   }
 }
 

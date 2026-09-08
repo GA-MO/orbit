@@ -3,6 +3,7 @@ import Terminal, {
   type ApprovalRequest,
   type AskRequest,
   type ConnectionStatus,
+  type PreviewRequest,
   type TerminalHandle,
 } from './Terminal'
 import Login from './Login'
@@ -14,9 +15,10 @@ import NewSessionSheet from './sheets/NewSessionSheet'
 import PasteSheet from './sheets/PasteSheet'
 import VoiceSheet from './sheets/VoiceSheet'
 import { speechSupported, startSpeech, type SpeechSession } from './speech'
-import { registerPush, systemNotice } from './notice'
+import { dropPush, pushEndpoint, registerPush, systemNotice } from './notice'
 import ApprovalModal from './components/ApprovalModal'
 import AskModal from './components/AskModal'
+import PageViewer from './components/PageViewer'
 import { IconBranch, IconCapture, IconSessions, IconTerminal } from './components/ui'
 import {
   AuthError,
@@ -25,12 +27,13 @@ import {
   createSession,
   fetchSessions,
   restartSession,
+  unpairPhone,
   uploadImage,
+  SESSION_KEY,
   type Attention,
   type SessionInfo,
 } from './api'
 
-const SESSION_KEY = 'orbit.sessionId'
 /** How long a clipboard read gets before the manual sheet takes over. */
 const CLIPBOARD_WAIT_MS = 6000
 /** A notification, or a link, naming the session to open on arrival. */
@@ -67,6 +70,17 @@ const TABS: { id: View; label: string; Icon: typeof IconTerminal }[] = [
   { id: 'captures', label: 'Preview', Icon: IconCapture },
 ]
 
+/* A capture's label carries the route, matching `captureVia` in the Preview
+   tab. `/` adds nothing to a name that already says which port it was. */
+const previewPath = (url: string): string => {
+  try {
+    const { pathname } = new URL(url)
+    return pathname === '/' ? '' : pathname
+  } catch {
+    return ''
+  }
+}
+
 export default function App() {
   const [locked, setLocked] = useState<boolean | null>(null) // null = checking
   const [bootNonce, setBootNonce] = useState(0)
@@ -81,6 +95,12 @@ export default function App() {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   // Questions from the Mac queue up: each one is blocking something over there.
   const [asks, setAsks] = useState<AskRequest[]>([])
+  /* A page the agent published and asked to have looked at. Held up here, not
+     in the Preview tab that owns the other frames, because the tab in front
+     when an agent says "go and look at this" is nearly always the terminal —
+     that is where the work being described is being done. Framed from App, it
+     arrives over whatever is on screen instead of waiting behind a tab. */
+  const [preview, setPreview] = useState<PreviewRequest | null>(null)
   /* What each session is still waiting to tell someone. Held here rather than
      in the Sessions tab because the whole point is to be visible from the other
      two — a phone is picked up to find out whether anything wants you. */
@@ -294,6 +314,20 @@ export default function App() {
     showToast('That session is no longer on your Mac')
   }, [showToast])
 
+  /* Un-pairing this phone. The work is here rather than in the Sessions tab
+     because signing out is a fact about the whole app: the socket, the session
+     on screen and the login gate all belong to this component, and flipping
+     `locked` is what tears the first two down. The tab owns the asking. */
+  const unpair = useCallback(async () => {
+    /* Read before the request, cancelled after it: the server needs to be told
+       which endpoint is this phone while the subscription still exists. */
+    await unpairPhone(await pushEndpoint())
+    await dropPush()
+    setCurrentId(null)
+    setCurrent(null)
+    setLocked(true)
+  }, [])
+
   const pickImage = async (file: File | null) => {
     if (!file) return
     try {
@@ -381,6 +415,7 @@ export default function App() {
                 onApproval={setApproval}
                 onNotice={showNotice}
                 onAsk={addAsk}
+                onPreview={setPreview}
                 onInsertPath={insertPath}
                 onToast={showToast}
                 handleRef={termHandle}
@@ -404,6 +439,7 @@ export default function App() {
             attention={attention}
             onSelect={selectSession}
             onNew={() => setNewSessionOpen(true)}
+            onUnpair={unpair}
             onToast={showToast}
           />
         </div>
@@ -417,13 +453,13 @@ export default function App() {
         </div>
       </main>
 
-      <nav className="relative z-10 flex shrink-0 border-t border-line-subtle bg-surface pb-[env(safe-area-inset-bottom)]">
+      <nav className="relative z-10 flex shrink-0 bg-surface pb-[env(safe-area-inset-bottom)] shadow-[inset_0_1px_0_var(--edge-lit)]">
         {TABS.map(({ id, label, Icon }) => (
           <button
             key={id}
             onClick={() => setView(id)}
             aria-current={view === id ? 'page' : undefined}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${
+            className={`press flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${
               view === id ? 'text-accent' : 'text-faint hover:text-mut'
             }`}
           >
@@ -511,6 +547,54 @@ export default function App() {
           onAnswer={(choice) => answerAsk(asks[0].id, choice)}
         />
       )}
+      {/* Taking the screen is the intended behaviour here, not a cost to be
+         apologised for: a notice is the agent talking unprompted, whereas this
+         only goes out because someone asked to be shown something, so it opens
+         rather than queueing behind a toast. Two things still come first.
+
+         A second preview replaces the first rather than stacking on it. The
+         agent sends one when it has just changed the page it names, so the
+         newer URL is the one that was asked for, and a pile of frames would
+         only have to be dismissed one at a time on the way back to a terminal
+         nobody chose to leave. A frame already open from the Preview tab or
+         from a link tapped in the terminal is left where it is underneath —
+         it belongs to another component, this one paints over it, and closing
+         this puts the user back where they were rather than on a screen that
+         quietly threw their page away.
+
+         A blocked question is the one thing that outranks it. An `ask` or an
+         approval is holding something open on the Mac, and covering it with a
+         frame would leave the agent waiting on a tap nobody can see to make.
+         The preview is kept rather than dropped, the way the notice queue
+         keeps notices, and appears the moment the question is answered — the
+         z-index says the same thing, so even a render in the wrong order
+         cannot get it in front. */}
+      {preview && !approval && asks.length === 0 && (
+        <PageViewer
+          uri={preview.url}
+          /* Same shape the Preview tab files a capture under, path included:
+             now that a preview can land anywhere, two shots of one port are
+             told apart by the only thing that differs between them. */
+          label={`localhost:${preview.port}${previewPath(preview.url)}`}
+          onClose={() => {
+            /* Where the agent left this port is where the Preview tab should
+               reopen it. That tab writes the same key on its own frames; both
+               entrances lead to one page, so both have to remember it, or
+               coming back the other way silently lands on `/` again. Keyed by
+               the local port, not the public one, which `tailscale serve`
+               reassigns freely. */
+            try {
+              const { pathname, search, hash } = new URL(preview.url)
+              localStorage.setItem(`orbit.previewRoute.${preview.port}`, pathname + search + hash)
+            } catch {
+              // A URL we cannot parse is a route not worth remembering.
+            }
+            setPreview(null)
+          }}
+          onInsertPath={insertPath}
+          onToast={showToast}
+        />
+      )}
       {/* A notice from a session you are not looking at is the one worth acting
           on, and reading it is not the action — so it is the way there. Plain
           toasts (upload failed, session stopped) stay a plain div: nothing to go
@@ -522,7 +606,7 @@ export default function App() {
               selectSession(toast.sessionId!)
               setToast(null)
             }}
-            className="fixed bottom-20 left-1/2 z-50 flex max-w-[90vw] min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-accent/60 bg-overlay py-2 pr-3 pl-4 text-left text-[13px]"
+            className="lift fixed bottom-20 left-1/2 z-50 flex max-w-[90vw] min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-accent/60 bg-overlay py-2 pr-3 pl-4 text-left text-[13px]"
           >
             <span className="line-clamp-2">{toast.message}</span>
             <span className="shrink-0 rounded-full bg-accent-strong px-2.5 py-1 text-[11px] font-medium text-white">
@@ -532,7 +616,7 @@ export default function App() {
         ) : (
           /* A pill while it fits on one line, a box once it does not: a
              four-line message inside `rounded-full` is a blob. */
-          <div className="fixed bottom-20 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-[22px] border border-line bg-overlay px-4 py-2.5 text-center text-[13px]">
+          <div className="lift fixed bottom-20 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-[22px] border border-line bg-overlay px-4 py-2.5 text-center text-[13px]">
             {toast.message}
           </div>
         ))}

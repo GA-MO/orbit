@@ -6,6 +6,7 @@
 #   make test-smoke      # API / MCP / hooks only  (no browser)
 #   make test-touch      # touch behaviour only    (needs system Chrome)
 #   make test-changes    # the Changes tab only    (needs system Chrome)
+#   make test-preview-url # how an agent's path becomes a URL (no server needed)
 #
 # Everything the suites touch — sessions, captures, uploads, the access token —
 # lives under a scratch HOME that is deleted first, so a run cannot be coloured
@@ -84,8 +85,11 @@ case "$SUITE" in
   smoke)   run smoke smoke.mjs ;;
   touch)   run touch touch-smoke.mjs ;;
   changes) run changes changes-smoke.mjs ;;
-  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs ;;
-  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, or all)" >&2; exit 1 ;;
+  # Wants nothing but the build, and is run under the same throwaway server as
+  # the rest only so that `make test` stays one command rather than two.
+  preview-url) run preview-url preview-url-smoke.mjs ;;
+  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs ;;
+  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, or all)" >&2; exit 1 ;;
 esac
 
 echo ""

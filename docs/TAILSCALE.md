@@ -102,6 +102,31 @@ http ซึ่ง Orbit (https) เอามาแสดงในเฟรมไ
 Orbit จะไม่แตะ mapping ที่เป็นทางเข้าของตัวเอง (พอร์ต 443 หรืออันที่ชี้มาที่
 พอร์ต server) — ปิดไม่ได้ทั้งจาก UI และจาก API เพราะนั่นคือการตัดสายที่กำลังคุยอยู่
 
+### ถ้าเปิดแล้วเจอ "Blocked request. This host is not allowed"
+
+นี่คือ **dev server ของโปรเจกต์นั้นปฏิเสธเอง ไม่ใช่ Orbit หรือ Tailscale พัง** —
+Vite (และ webpack dev server รุ่นใหม่) ตรวจ `Host` header แล้วตอบหน้า block แทนแอป
+เมื่อชื่อโฮสต์ไม่ใช่ที่มันรู้จัก พอ `tailscale serve` ต่อเข้ามาในนามของ tailnet
+ชื่อนั้นจึงไม่ผ่าน ทั้งการเปิดเฟรมและการ capture โดนเหมือนกัน เพราะทั้งคู่เดินผ่าน
+ที่อยู่ tailnet โดยตั้งใจ — https จริง, secure context จริง, คุกกี้ `Secure` จริง
+
+แก้ที่โปรเจกต์นั้น ไม่ใช่ที่ Orbit:
+
+```js
+// vite.config.js
+export default defineConfig({
+  server: {
+    host: true,
+    // จุดนำหน้า = โฮสต์นั้นและซับโดเมนทั้งหมด จึงครอบทุก tailnet
+    // โดยไม่ต้องเขียนชื่อเครื่องซึ่งเปลี่ยนได้
+    allowedHosts: ['.ts.net'],
+  },
+})
+```
+
+ต้องรีสตาร์ต dev server ถึงจะมีผล และค่านี้ใช้เฉพาะตอน dev — `vite build`
+ไม่เคยอ่านมัน `web/vite.config.ts` ของ Orbit ตั้งค่านี้ไว้แล้ว
+
 ### ในเฟรมทำอะไรได้บ้าง
 
 | ปุ่ม | ได้อะไร |

@@ -50,12 +50,25 @@ export interface PreviewState {
 }
 
 /* Resolved once: which binary works, and what this machine is called. Neither
-   changes while the server runs, and both cost a process launch to find out. */
-let cli: string | null | undefined
-let host: string | null | undefined
+   changes while the server runs, and both cost a process launch to find out.
+
+   A failure is not the same kind of answer. Tailscale is often still coming up,
+   or still logged out, when Orbit starts after a reboot, and holding on to that
+   would leave Preview permanently broken with a restart as the only cure — the
+   one thing that costs a running session. So a failure is only remembered long
+   enough that `state()` on every foreground, and the liveness poll behind it,
+   cannot turn the retry into a stream of processes. */
+const RETRY_AFTER_FAILURE_MS = 30_000
+let cli: string | undefined
+let host: string | undefined
+let cliFailedAt = 0
+let hostFailedAt = 0
+
+const failedRecently = (at: number) => Date.now() - at < RETRY_AFTER_FAILURE_MS
 
 async function findCli(): Promise<string | null> {
   if (cli !== undefined) return cli
+  if (failedRecently(cliFailedAt)) return null
   for (const candidate of CLI_CANDIDATES) {
     try {
       await execFileAsync(candidate, ['version'], { timeout: CLI_TIMEOUT_MS })
@@ -64,7 +77,8 @@ async function findCli(): Promise<string | null> {
       // try the next one
     }
   }
-  return (cli = null)
+  cliFailedAt = Date.now()
+  return null
 }
 
 const run = async (args: string[]): Promise<string> => {
@@ -85,13 +99,17 @@ const run = async (args: string[]): Promise<string> => {
 
 async function tailnetHost(): Promise<string | null> {
   if (host !== undefined) return host
+  if (failedRecently(hostFailedAt)) return null
   try {
     const status = JSON.parse(await run(['status', '--json']))
     const dns: string = status?.Self?.DNSName ?? ''
-    return (host = dns.replace(/\.$/, '') || null)
+    const name = dns.replace(/\.$/, '')
+    if (name) return (host = name)
   } catch {
-    return (host = null)
+    // logged out, or not up yet — either way, worth asking again later
   }
+  hostFailedAt = Date.now()
+  return null
 }
 
 /** Whether a dev server is up on this port, so the UI can say so before you tap. */
@@ -107,6 +125,41 @@ export const isListening = (port: number): Promise<boolean> =>
     socket.once('timeout', () => done(false))
     socket.once('error', () => done(false))
   })
+
+/**
+ * Turn a path an agent asked for into a URL on a published preview host.
+ *
+ * Lives here rather than in the route because it is about the shape of a
+ * preview URL and nothing about HTTP — and because being a plain function of
+ * two strings is what makes it testable without tailscale on the machine.
+ *
+ * The published address is the only origin this may ever produce, so the
+ * question is not what the agent meant but what the string can be made to do.
+ * `//evil.com/x` reads as a path and resolves as a host, and `..` walks out of
+ * a directory, so neither can be trusted to `new URL` alone: every leading
+ * slash and backslash is stripped and exactly one put back, which leaves a
+ * host nowhere to hide, and `..` is then clamped at the root the way a browser
+ * clamps it. A query string survives all of that untouched, because a route
+ * worth showing is often `/orders?status=open`.
+ *
+ * A full `http://…` is refused rather than mangled into a path. An agent that
+ * passes one has misread the argument, and saying so teaches it more than
+ * quietly opening `/http:/example.com` would. A refusal is a plain `Error`,
+ * which the route turns into a 400 — the alternative, reaching back into
+ * `index.ts` for its `bad()`, would make this module depend on the one thing
+ * it was pulled out of.
+ */
+export const previewUrl = (base: string, raw?: string): string => {
+  const wanted = (raw ?? '').trim()
+  if (!wanted) return base
+  if (/^[a-z][a-z0-9+.-]*:/i.test(wanted)) throw new Error('path must be a path, not a full URL')
+  const origin = new URL(base)
+  const resolved = new URL(`/${wanted.replace(/\\/g, '/').replace(/^\/+/, '')}`, origin)
+  // Belt and braces: nothing above should be able to reach this, and if
+  // something ever does, it leaves as an error rather than as a link.
+  if (resolved.origin !== origin.origin) throw new Error('path must stay on the preview host')
+  return resolved.href
+}
 
 interface Mapping {
   publicPort: number

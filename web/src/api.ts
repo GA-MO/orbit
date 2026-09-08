@@ -44,6 +44,11 @@ export interface DirListing {
 }
 
 const TOKEN_KEY = 'orbit.token'
+/** The session this phone last had open — written by the app shell. */
+export const SESSION_KEY = 'orbit.sessionId'
+/** Folders sessions have been started in — written by the new-session sheet. */
+export const RECENTS_KEY = 'orbit.recentDirs'
+
 export const getToken = () => localStorage.getItem(TOKEN_KEY) ?? ''
 export const setToken = (token: string) => localStorage.setItem(TOKEN_KEY, token)
 
@@ -78,6 +83,36 @@ export const checkAuth = async (): Promise<boolean> => {
   }
 }
 
+/**
+ * Un-pair this phone from the Mac: the server expires the session cookie and
+ * retires this browser's push subscription, then everything the phone was
+ * holding on to goes.
+ *
+ * The server call comes first and nothing local is thrown away unless it
+ * succeeds. Clearing storage on a failed request would leave a phone with no
+ * token but a live cookie — logged out of the app while still able to open a
+ * socket, which is the exact half-signed-out state this whole route exists to
+ * avoid, and unrecoverable without retyping the token.
+ *
+ * What is forgotten is what names this Mac or reaches it: the token, the
+ * session that was on screen, and the folders sessions were started in — the
+ * next person to hold the phone should not be given a listing of someone's
+ * projects. What survives is what describes the phone rather than the Mac —
+ * the dictation language, whether the mic was granted, whether the key row was
+ * expanded, the capture viewport. None of it is a credential and none of it
+ * says anything about the machine that was paired, so destroying it would only
+ * make re-pairing feel like a factory reset.
+ */
+export const unpairPhone = async (pushEndpoint: string | null): Promise<void> => {
+  const res = await authFetch('/api/auth/unpair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: pushEndpoint }),
+  })
+  if (!res.ok) throw new Error(`unpair failed: ${res.status}`)
+  for (const key of [TOKEN_KEY, SESSION_KEY, RECENTS_KEY]) localStorage.removeItem(key)
+}
+
 export const fetchProviders = () => get<ProviderInfo[]>('/api/providers')
 export const fetchSessions = () => get<SessionInfo[]>('/api/sessions')
 export const fetchDirs = (path?: string) =>
@@ -98,6 +133,17 @@ export const createSession = async (
 }
 
 export const killSession = (id: string) => authFetch(`/api/sessions/${id}`, { method: 'DELETE' })
+
+/* A conversation from the Mac has no ✕ — its history is Claude Code's file and
+   Orbit only reads it. Hiding is what the phone can honestly offer instead: the
+   row goes away, the transcript does not. */
+export const hideSession = (id: string) =>
+  authFetch(`/api/sessions/${id}/hide`, { method: 'POST' })
+
+export const fetchHiddenCount = () => get<{ hidden: number }>('/api/sessions/hidden')
+
+export const unhideSessions = () =>
+  authFetch('/api/sessions/unhide', { method: 'POST' })
 
 export const renameSession = (id: string, name: string) =>
   authFetch(`/api/sessions/${id}`, {
@@ -170,6 +216,9 @@ export interface DevPort {
   port: number
   /** The program holding it, as the Mac names it — `node`, `Python`, `ruby`. */
   command: string
+  /** The project it is serving, when the Mac can say — the basename of the
+      process's working directory. Absent when it cannot be determined. */
+  project?: string
 }
 
 export const fetchDevPorts = () => get<DevPort[]>('/api/ports')
@@ -182,12 +231,6 @@ export const deleteScreenshot = (file: string) =>
 /** Image URL usable in <img src> — the session cookie authenticates it, so the
     token never lands in a URL. */
 export const screenshotUrl = (file: string) => `/api/screenshots/${file}`
-
-/** Close Orbit's warm headless Chrome (captures only — not agent GUI browsers). */
-export const closeCaptureBrowser = async (): Promise<void> => {
-  const res = await authFetch('/api/resources/chrome/close', { method: 'POST' })
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `close failed: ${res.status}`)
-}
 
 /** A dev server published over https on the tailnet, so the phone can frame it. */
 export interface Preview {
