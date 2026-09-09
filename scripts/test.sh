@@ -141,8 +141,10 @@ case "$SUITE" in
   # Makes a HOME of its own regardless of this script's, since it edits
   # ~/.claude/settings.json and must never be able to reach the real one.
   setup)   run setup setup-smoke.mjs ;;
-  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs; run idle idle-smoke.mjs; run ask ask-smoke.mjs; run setup setup-smoke.mjs ;;
-  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, idle, ask, setup, or all)" >&2; exit 1 ;;
+  # The installer, against a release that is a directory: no network, no binary.
+  install) run install install-smoke.mjs ;;
+  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs; run idle idle-smoke.mjs; run ask ask-smoke.mjs; run setup setup-smoke.mjs; run install install-smoke.mjs ;;
+  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, idle, ask, setup, install, or all)" >&2; exit 1 ;;
 esac
 
 echo ""

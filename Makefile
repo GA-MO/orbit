@@ -1,5 +1,5 @@
 .PHONY: help install setup unsetup doctor dev build start stop clean icons shots dist \
-	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-setup test-clean \
+	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-setup test-install test-clean \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
 
@@ -80,6 +80,9 @@ icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.s
 
 test: ## Run every suite against a throwaway server
 	@scripts/test.sh all
+
+test-install: ## The installer (install.sh) against a stand-in release (no network)
+	@scripts/test.sh install
 
 test-smoke: ## API / MCP / hooks only (no browser)
 	@scripts/test.sh smoke

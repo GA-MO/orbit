@@ -79,11 +79,19 @@ Then open `http://<mac-ip>:3001` from your phone. That is enough for the termina
 One executable, for a Mac that has no checkout:
 
 ```sh
-make dist                 # → dist/orbit for this Mac (make dist TARGETS=all: arm64 + x64)
-dist/orbit doctor         # what this Mac has and is missing
-dist/orbit setup          # wire the hooks and the MCP server into Claude Code
-dist/orbit phone          # run it, published over the tailnet as https
+curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
+orbit doctor              # what this Mac has and is missing
+orbit setup               # wire the hooks and the MCP server into Claude Code
+orbit phone               # run it, published over the tailnet as https
 ```
+
+`install.sh` picks the binary for the Mac's architecture from the newest
+GitHub release, refuses one whose checksum does not match the release's, puts
+it in `~/.orbit/bin` and on the PATH. While the repository is private it
+needs the `gh` CLI logged in, or a `GITHUB_TOKEN`; `ORBIT_VERSION=v0.2.0`,
+`ORBIT_INSTALL_DIR` and `ORBIT_NO_MODIFY_PATH` are the knobs. From a
+checkout, `make dist` builds the same executable as `dist/orbit`
+(`TARGETS=all` for both architectures).
 
 The server, the MCP server (`orbit mcp`), the two Claude Code hooks
 (`orbit hook approve|notify`), the installer, the built web app and bun-pty's
