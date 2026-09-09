@@ -9,26 +9,41 @@
 #   make test-preview-url # how an agent's path becomes a URL (no server needed)
 #   make test-idle       # noticing a session went quiet    (no server needed)
 #   make test-ask        # answering from a notification    (no server needed)
+#   make test-clean      # reap what a killed run left behind
 #
 # Everything the suites touch — sessions, captures, uploads, the access token —
-# lives under a scratch HOME that is deleted first, so a run cannot be coloured
-# by the last one and cannot reach into the real ~/.orbit. The port is likewise
-# a spare: the running Orbit is on 3001, and these tests kill sessions.
+# lives under a scratch HOME that is deleted on the way out, so a run cannot be
+# coloured by the last one and cannot reach into the real ~/.orbit. The port is
+# likewise a spare — the running Orbit is on 3001, and these tests kill sessions
+# — and the run picks it itself, so two at once need not negotiate.
 #
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${ORBIT_TEST_PORT:-3099}"
-SCRATCH="${ORBIT_TEST_HOME:-/tmp/orbit-smoke}"
 SUITE="${1:-all}"
+
+free() { ! lsof -tiTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+
+# Pick the port here rather than making the caller do it. Asking for one used to
+# mean the run died on "port in use", so a second session would invent its own
+# port *and* its own HOME — which is how six /tmp/orbit-smoke-31xx directories
+# outlived the runs that made them. Search from 3099 and let the scratch HOME
+# follow the port, so a run's leftovers are always the ones it can clean up.
+if [ -n "${ORBIT_TEST_PORT:-}" ]; then
+  PORT="$ORBIT_TEST_PORT"
+  free "$PORT" || { echo "  Port $PORT is already in use. Free it, or unset ORBIT_TEST_PORT to be given a spare." >&2; exit 1; }
+else
+  PORT=""
+  for p in $(seq 3099 3148); do
+    free "$p" && { PORT="$p"; break; }
+  done
+  [ -n "$PORT" ] || { echo "  No free port in 3099-3148. Is something looping? Try: make test-clean" >&2; exit 1; }
+fi
+
+SCRATCH="${ORBIT_TEST_HOME:-/tmp/orbit-smoke-$PORT}"
 
 if [ "$PORT" = "3001" ]; then
   echo "  Refusing to test against :3001 — that is the real server, and this kills sessions." >&2
-  exit 1
-fi
-
-if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "  Port $PORT is already in use. Free it, or set ORBIT_TEST_PORT to another." >&2
   exit 1
 fi
 
@@ -63,9 +78,16 @@ HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
 SERVER_PID=$!
 
 # Kill it however we leave — a failed suite, a Ctrl-C, or the end of the script.
+# The scratch HOME goes too, but only once the suites have passed: a failed run
+# is the one whose server log someone still wants to read, and the message at
+# the bottom points at it. Anything left behind is named after a port, so
+# `make test-clean` can tell a dead run's leftovers from a live one's.
+PASSED=0
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null
   wait "$SERVER_PID" 2>/dev/null
+  [ "$PASSED" = "1" ] && rm -rf "$SCRATCH"
+  return 0
 }
 trap cleanup EXIT INT TERM
 
@@ -108,6 +130,7 @@ esac
 echo ""
 if [ ${#failed[@]} -eq 0 ]; then
   echo "  All suites passed."
+  PASSED=1
   exit 0
 fi
 echo "  FAILED: ${failed[*]}"

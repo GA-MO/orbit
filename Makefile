@@ -1,5 +1,5 @@
 .PHONY: help install dev build start stop clean icons \
-	test test-smoke test-touch test-changes test-preview-url test-idle test-ask \
+	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-clean \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
 
@@ -17,7 +17,7 @@ help: ## Show available targets
 	@echo "  Orbit — make targets"
 	@echo ""
 	@echo "  Phone:   make phone   →  make stop when done"
-	@echo "  Test:    make test    (throwaway server on :3099, never touches ~/.orbit)"
+	@echo "  Test:    make test    (throwaway server on a spare port, never touches ~/.orbit)"
 	@echo "  Hygiene: make clean   (prune ~/.orbit caches; keeps auth/sessions)"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -55,8 +55,9 @@ icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.s
 	@node scripts/icons.mjs
 
 # ── test ───────────────────────────────────────────────
-# Builds, starts an Orbit of its own (:3099, scratch HOME), runs the suites,
-# and takes it down again. The one you are using on :3001 is never touched.
+# Builds, starts an Orbit of its own (first free port from 3099, scratch HOME
+# named after it), runs the suites, and takes both down again. The one you are
+# using on :3001 is never touched.
 
 test: ## Run every suite against a throwaway server
 	@scripts/test.sh all
@@ -78,6 +79,39 @@ test-idle: ## Noticing a session went quiet (no server needed)
 
 test-ask: ## Answering a question from a notification (no server needed)
 	@scripts/test.sh ask
+
+# A run cleans up after itself — unless it was killed outright (kill -9, or the
+# terminal it lived in went away), in which case its EXIT trap never fired. That
+# leaves an orphaned server holding a port and a scratch HOME nobody will empty.
+# Both are recognisable: the server has been reparented to init, and the HOME is
+# named after a port that nothing is listening on.
+test-clean: ## Reap test servers and scratch HOMEs left by killed runs
+	@for p in $$(seq 3099 3148); do \
+		for pid in $$(lsof -tiTCP:$$p -sTCP:LISTEN 2>/dev/null); do \
+			ppid=$$(ps -o ppid= -p $$pid 2>/dev/null | tr -d ' '); \
+			if [ "$$ppid" = "1" ]; then \
+				echo "  Orphaned test server on :$$p (PID $$pid) — killing"; \
+				kill $$pid 2>/dev/null || true; \
+			else \
+				echo "  :$$p in use by a live run (PID $$pid) — left alone"; \
+			fi; \
+		done; \
+	done
+	@sleep 0.3
+	@removed=0; \
+	for dir in /tmp/orbit-smoke /tmp/orbit-smoke-*; do \
+		[ -d "$$dir" ] || continue; \
+		port=$${dir##*-}; \
+		case "$$port" in \
+			[0-9][0-9][0-9][0-9]) \
+				if lsof -tiTCP:$$port -sTCP:LISTEN >/dev/null 2>&1; then \
+					echo "  $$dir — still in use by :$$port, kept"; \
+					continue; \
+				fi;; \
+		esac; \
+		rm -rf "$$dir" && echo "  $$dir — removed" && removed=$$((removed + 1)); \
+	done; \
+	echo "  Removed $$removed scratch HOME(s)."
 
 clean: ## Prune ~/.orbit screenshots & uploads (keep newest 50 each)
 	@for name in screenshots uploads; do \
