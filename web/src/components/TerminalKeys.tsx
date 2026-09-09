@@ -1,11 +1,6 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type TouchEvent } from 'react'
 import { IconButton, IconEdit, IconMic } from './ui'
 
-/**
- * Modifier state. `once` fires for the next key then clears (the common case);
- * tapping again promotes it to `lock`, which stays until tapped off — the same
- * tap / tap-again cycle iOS uses for shift.
- */
 export type ModState = 'off' | 'once' | 'lock'
 
 export const cycleMod = (m: ModState): ModState =>
@@ -13,16 +8,10 @@ export const cycleMod = (m: ModState): ModState =>
 
 interface Props {
   keyboardOpen: boolean
-  /* The three ways a whole message gets in, as against a key at a time. They
-     sit in this bar rather than the header because everything else a thumb
-     reaches for mid-conversation is already down here, and the header is
-     across the screen from it. */
   onCompose: () => void
   onVoice: () => void
   voiceAvailable: boolean
-  /** Something written and not yet sent, so the pen can say so. */
   draftPending: boolean
-  /** Ctrl lives in the parent: it also rewrites what the soft keyboard types. */
   ctrl: ModState
   onCtrlChange: (next: ModState) => void
   onSend: (data: string) => void
@@ -36,51 +25,35 @@ type KeyDef = {
   shiftData?: string
   ctrlData?: string
   repeat?: boolean
-  /** A drawn symbol rather than a word — it needs the extra points to read. */
   glyph?: boolean
 }
 
-/*
- * Two fixed rows rather than one scrolling strip: at a 44px touch target only
- * five keys fit across a phone, so a single row hides the rest behind a swipe.
- *
- * Both rows are always up. They used to fold behind a Keys toggle, and folding
- * them is a resize: the agent is told a new height, answers with one frame, and
- * if it was mid-draw when the fold came that frame is the half-written one that
- * stays on screen — the composer gone until something else moves. Three rounds
- * of chasing that from the client did not close it, and the bar is 50pt against
- * a screen that is otherwise all terminal. So the height never changes, and the
- * bug has nothing to stand on.
- *
- * The bottom row holds what the thumb reaches for; everything else lives in the
- * row above, except the arrows, which hold the inverted-T of a real keyboard on
- * the right: ↑ over ← ↓ →, because that shape is read by muscle memory rather
- * than by looking. The T only needs one bare corner to read, so the other one
- * pays for the / key — see SLASH.
- */
+const ESC = '\x1b'
+const TAB = '\t'
+const SHIFT_TAB = '\x1b[Z'
+const CTRL_C = '\x03'
+const CARRIAGE_RETURN = '\r'
+const BACKSPACE = '\x7f'
+const DELETE_WORD = '\x17'
+
 const ROW_UPPER: KeyDef[] = [
-  { label: 'Esc', data: '\x1b' },
-  { label: 'Tab', data: '\t', shiftData: '\x1b[Z' },
-  { label: '^C', data: '\x03' },
+  { label: 'Esc', data: ESC },
+  { label: 'Tab', data: TAB, shiftData: SHIFT_TAB },
+  { label: '^C', data: CTRL_C },
 ]
 
 const ROW_LOWER: KeyDef[] = [
-  { label: '⏎', data: '\r', glyph: true },
-  { label: '⌫', data: '\x7f', ctrlData: '\x17', repeat: true, glyph: true }, // ctrl → delete word
+  { label: '⏎', data: CARRIAGE_RETURN, glyph: true },
+  { label: '⌫', data: BACKSPACE, ctrlData: DELETE_WORD, repeat: true, glyph: true },
 ]
 
-/*
- * The one character worth a key of its own: every skill starts with it, and iOS
- * buries / a layer deep behind the 123 switch. Shift makes it ?, the way it does
- * on the keyboard it is standing in for.
- */
 const SLASH: KeyDef = { label: '/', data: '/', shiftData: '?', glyph: true }
 
-const arrow = (label: string, final: string): KeyDef => ({
+const arrow = (label: string, csiFinal: string): KeyDef => ({
   label,
-  data: `\x1b[${final}`,
-  shiftData: `\x1b[1;2${final}`,
-  ctrlData: `\x1b[1;5${final}`,
+  data: `\x1b[${csiFinal}`,
+  shiftData: `\x1b[1;2${csiFinal}`,
+  ctrlData: `\x1b[1;5${csiFinal}`,
   repeat: true,
   glyph: true,
 })
@@ -92,15 +65,13 @@ const ARROWS = {
   right: arrow('→', 'C'),
 }
 
-/* 40px, not 44: three arrows plus a five-key row have to clear 375px of phone,
-   and the full height keeps each of them a comfortable target anyway. */
 const ARROW_W = 'w-10'
 const FLEX_KEY = 'min-w-10 flex-1'
 const GLYPH_TEXT = 'text-[15px]'
 
 const TAP_SLOP_PX = 10
-const HOLD_MS = 400
-const REPEAT_MS = 80
+const HOLD_BEFORE_REPEAT_MS = 400
+const REPEAT_EVERY_MS = 80
 
 const MOD_STYLE: Record<ModState, string> = {
   off: 'border-line bg-raised text-fore',
@@ -108,24 +79,7 @@ const MOD_STYLE: Record<ModState, string> = {
   lock: 'border-accent bg-accent-strong text-white',
 }
 
-function Key({
-  label,
-  mod,
-  onPress,
-  repeat = false,
-  className = '',
-  text = 'text-[13px]',
-}: {
-  label: string
-  /** Present only on modifier keys — drives styling and the pressed state. */
-  mod?: ModState
-  onPress: () => void
-  repeat?: boolean
-  className?: string
-  /** Kept a prop rather than a caller override: two font sizes on one element
-      resolve by stylesheet order, which is not something to bet a glyph on. */
-  text?: string
-}) {
+function useTapOrHold(onPress: () => void, repeat: boolean) {
   const start = useRef({ x: 0, y: 0 })
   const moved = useRef(false)
   const repeatStarted = useRef(false)
@@ -139,41 +93,64 @@ function Key({
     repeatTimer.current = null
   }
 
-  const tap = () => {
-    if (moved.current) return
-    onPress()
+  const pressUnlessMoved = () => {
+    if (!moved.current) onPress()
   }
 
-  const onDown = (x: number, y: number) => {
+  const beginRepeatAfterHold = () => {
+    holdTimer.current = setTimeout(() => {
+      repeatStarted.current = true
+      pressUnlessMoved()
+      repeatTimer.current = setInterval(pressUnlessMoved, REPEAT_EVERY_MS)
+    }, HOLD_BEFORE_REPEAT_MS)
+  }
+
+  const down = (x: number, y: number) => {
     start.current = { x, y }
     moved.current = false
     repeatStarted.current = false
     cancelTimers()
-    if (repeat) {
-      holdTimer.current = setTimeout(() => {
-        repeatStarted.current = true
-        if (!moved.current) onPress()
-        repeatTimer.current = setInterval(() => {
-          if (!moved.current) onPress()
-        }, REPEAT_MS)
-      }, HOLD_MS)
-    }
+    if (repeat) beginRepeatAfterHold()
   }
 
-  const onMove = (x: number, y: number) => {
-    if (
-      Math.abs(x - start.current.x) > TAP_SLOP_PX ||
-      Math.abs(y - start.current.y) > TAP_SLOP_PX
-    ) {
+  const move = (x: number, y: number) => {
+    const slipped =
+      Math.abs(x - start.current.x) > TAP_SLOP_PX || Math.abs(y - start.current.y) > TAP_SLOP_PX
+    if (slipped) {
       moved.current = true
       cancelTimers()
     }
   }
 
-  const onUp = () => {
+  const up = () => {
     cancelTimers()
-    if (!repeatStarted.current) tap()
+    if (!repeatStarted.current) pressUnlessMoved()
   }
+
+  const cancel = () => {
+    moved.current = true
+    cancelTimers()
+  }
+
+  return { down, move, up, cancel, cancelTimers }
+}
+
+function Key({
+  label,
+  mod,
+  onPress,
+  repeat = false,
+  className = '',
+  text = 'text-[13px]',
+}: {
+  label: string
+  mod?: ModState
+  onPress: () => void
+  repeat?: boolean
+  className?: string
+  text?: string
+}) {
+  const gesture = useTapOrHold(onPress, repeat)
 
   return (
     <button
@@ -181,38 +158,33 @@ function Key({
       aria-pressed={mod === undefined ? undefined : mod !== 'off'}
       aria-label={mod === 'lock' ? `${label} (locked)` : label}
       onTouchStart={(e) => {
-        const t = e.changedTouches[0]
-        if (t) onDown(t.clientX, t.clientY)
+        const touch = e.changedTouches[0]
+        if (touch) gesture.down(touch.clientX, touch.clientY)
       }}
       onTouchMove={(e) => {
-        const t = e.changedTouches[0]
-        if (t) onMove(t.clientX, t.clientY)
+        const touch = e.changedTouches[0]
+        if (touch) gesture.move(touch.clientX, touch.clientY)
       }}
       onTouchEnd={(e) => {
         e.preventDefault()
-        onUp()
+        gesture.up()
       }}
       onPointerDown={(e) => {
         if (e.pointerType === 'touch') return
-        onDown(e.clientX, e.clientY)
+        gesture.down(e.clientX, e.clientY)
       }}
       onPointerMove={(e) => {
         if (e.pointerType === 'touch') return
-        onMove(e.clientX, e.clientY)
+        gesture.move(e.clientX, e.clientY)
       }}
       onPointerUp={(e) => {
         if (e.pointerType === 'touch') return
         e.preventDefault()
-        onUp()
+        gesture.up()
       }}
-      onPointerCancel={() => {
-        moved.current = true
-        cancelTimers()
-      }}
-      onPointerLeave={() => cancelTimers()}
+      onPointerCancel={gesture.cancel}
+      onPointerLeave={gesture.cancelTimers}
       onContextMenu={(e) => e.preventDefault()}
-      /* Width comes from the caller: the rows share it out, the arrow cluster
-         pins it. Height alone carries the 44px touch target. */
       className={`h-11 rounded-lg border font-mono ${text} transition-colors active:bg-overlay ${MOD_STYLE[mod ?? 'off']} ${className}`}
     >
       {label}
@@ -237,19 +209,23 @@ export default function TerminalKeys({
   const pressCtrl = () => {
     const next = cycleMod(ctrl)
     onCtrlChange(next)
-    // Ctrl is aimed at a letter that has to come from the soft keyboard.
-    if (next !== 'off' && !keyboardOpen) onFocus()
+    const ctrlNeedsALetterFromTheSoftKeyboard = next !== 'off' && !keyboardOpen
+    if (ctrlNeedsALetterFromTheSoftKeyboard) onFocus()
+  }
+
+  const releaseOnceModifiers = () => {
+    if (shift === 'once') setShift('off')
   }
 
   const sendKey = (key: KeyDef) => {
     if (ctrl !== 'off' && key.ctrlData) {
       onSend(key.ctrlData)
       if (ctrl === 'once') onCtrlChange('off')
-      if (shift === 'once') setShift('off')
+      releaseOnceModifiers()
       return
     }
     onSend(shift !== 'off' && key.shiftData ? key.shiftData : key.data)
-    if (shift === 'once') setShift('off')
+    releaseOnceModifiers()
   }
 
   const keyOf = (key: KeyDef, className = FLEX_KEY) => (
@@ -265,21 +241,6 @@ export default function TerminalKeys({
 
   const arrowOf = (key: KeyDef) => keyOf(key, ARROW_W)
 
-  /* Three permanent slots, because they answer three different questions: how
-     a whole message gets written, how it gets spoken, and how the prompt gets
-     typed at directly.
-
-     They used to share one slot and hide behind each other — voice a layer
-     down inside the message sheet, the keyboard button only there once a
-     keyboard was up. Tapping the terminal does raise the keyboard, but that is
-     an unmarked gesture and no help at all in the other direction: nothing
-     else on screen blurs the textarea.
-
-     The width is there for all three at `md`, which is drawn at 36px and
-     tapped at 44 — `hit-xy` grows the hit box by half a gap on each side, so
-     the targets meet without overlapping. Fixed width in this row is then
-     3 x 36 + 2 x 40 for the glyph keys and 128 for the arrow cluster, which
-     clears a 375pt screen with room over. At `lg` it does not. */
   const toggleKeyboard = () => {
     if (keyboardOpen) onBlur()
     else onFocus()
@@ -301,17 +262,16 @@ export default function TerminalKeys({
     </IconButton>
   )
 
+  const toggleKeyboardOnTouchBeforeBlur = (e: TouchEvent) => {
+    e.preventDefault()
+    toggleKeyboard()
+  }
+
   const keyboardButton = (
     <IconButton
       label={keyboardOpen ? 'Hide keyboard' : 'Show keyboard'}
       className={keyboardOpen ? 'bg-accent/15 text-accent' : ''}
-      /* Handled on touch and swallowed there: a tap that also arrives as a
-         click has already blurred the textarea on the way, which closes the
-         keyboard before the toggle gets to decide to open it. */
-      onTouchEnd={(e) => {
-        e.preventDefault()
-        toggleKeyboard()
-      }}
+      onTouchEnd={toggleKeyboardOnTouchBeforeBlur}
       onClick={toggleKeyboard}
     >
       <KeyboardIcon size={20} />
@@ -319,24 +279,20 @@ export default function TerminalKeys({
   )
 
   return (
-    // z-10: the terminal's screen is positioned, so it paints over a static bar.
     <div className="relative z-10 shrink-0 touch-manipulation">
       <div className="flex flex-col gap-1 border-t border-line-subtle bg-surface px-1.5 py-1">
         <div className="flex items-center gap-2">
-            <div className="flex flex-1 items-center gap-1">
-              <Key
-                label="⇧"
-                mod={shift}
-                className={FLEX_KEY}
-                text={GLYPH_TEXT}
-                onPress={() => setShift(cycleMod)}
-              />
-              <Key label="Ctrl" mod={ctrl} className={FLEX_KEY} onPress={pressCtrl} />
-              {ROW_UPPER.map((key) => keyOf(key))}
-            </div>
-            {/* Top of the inverted-T: ↑ centred over ↓, its left corner bare so the
-                shape still reads; / takes the right corner, out at the edge where
-                a thumb reaching for ↑ does not pass through it. */}
+          <div className="flex flex-1 items-center gap-1">
+            <Key
+              label="⇧"
+              mod={shift}
+              className={FLEX_KEY}
+              text={GLYPH_TEXT}
+              onPress={() => setShift(cycleMod)}
+            />
+            <Key label="Ctrl" mod={ctrl} className={FLEX_KEY} onPress={pressCtrl} />
+            {ROW_UPPER.map((key) => keyOf(key))}
+          </div>
           <div className="flex shrink-0 items-center gap-1">
             <span className={ARROW_W} aria-hidden />
             {arrowOf(ARROWS.up)}

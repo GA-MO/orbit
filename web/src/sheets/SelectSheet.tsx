@@ -5,62 +5,63 @@ import { charIndex, wordRange, type Snapshot } from '../terminal-snapshot'
 
 interface Props {
   shot: Snapshot
-  /** Hand what was picked to the prompt. Absent on a session with no PTY. */
   onInsertPath?: (path: string) => void
   onClose: () => void
 }
 
-/**
- * The terminal's text, standing still, so the phone can select it.
- *
- * Everything below the surface of this panel is the platform's. There are no
- * grips here, no highlight rectangles, no long-press timer and no hit-testing
- * against a cell grid — a `<pre>` of real text is all iOS needs to give the
- * loupe, the handles, double-tap for a word, Look Up and Share, and to keep the
- * selection alive across a scroll. What is left for us is the two things it
- * cannot know: which word was meant, and where that word is.
- *
- * `white-space: pre` with the text sideways-scrollable rather than wrapped,
- * matching the Changes tab. Re-wrapping to 390px would make a copied line
- * disagree with the line on the terminal, and it would fold every diff and
- * every aligned column into porridge — the two cases where the shape of the
- * line is the information.
- *
- * The whole snapshot is one text node on purpose. A DOM offset is then the same
- * number as a string offset, which is what lets the word be pre-selected and
- * the Line button expand a selection without a second index of where every span
- * begins.
- */
+const PRESSED_WORD_VIEW_FRACTION_FROM_TOP = 1 / 3
+const PRESSED_WORD_VIEW_FRACTION_FROM_LEFT = 1 / 4
+
+const clampOffset = (offset: number, length: number) => Math.max(0, Math.min(offset, length))
+
+function lineBoundsAround(text: string, start: number, end: number): [number, number] {
+  const from = text.lastIndexOf('\n', Math.max(0, start - 1)) + 1
+  const nextBreak = text.indexOf('\n', end)
+  return [from, nextBreak < 0 ? text.length : nextBreak]
+}
+
+function coversWholeLines(text: string, range: Range) {
+  const startsAtLineStart = range.startOffset === 0 || text[range.startOffset - 1] === '\n'
+  const endsAtLineEnd = range.endOffset === text.length || text[range.endOffset] === '\n'
+  return startsAtLineStart && endsAtLineEnd
+}
+
+function plural(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+function scrollRangeIntoView(box: HTMLElement, range: Range) {
+  const rect = range.getBoundingClientRect()
+  const view = box.getBoundingClientRect()
+  box.scrollTop += rect.top - view.top - view.height * PRESSED_WORD_VIEW_FRACTION_FROM_TOP
+  if (rect.left < view.left || rect.right > view.right)
+    box.scrollLeft += rect.left - view.left - view.width * PRESSED_WORD_VIEW_FRACTION_FROM_LEFT
+}
+
 export default function SelectSheet({ shot, onInsertPath, onClose }: Props) {
   const preRef = useRef<HTMLPreElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [picked, setPicked] = useState('')
-  /* What went to the clipboard, not whether something did. `Copied` then stands
-     exactly as long as the thing it is talking about is still the selection,
-     and it cannot be left standing over a different one by an event arriving in
-     an order nobody predicted. */
   const [copiedText, setCopiedText] = useState<string | null>(null)
   const text = shot.lines.join('\n')
 
-  /** The one text node everything here counts against. */
-  const node = () => preRef.current?.firstChild ?? null
+  const textNode = () => preRef.current?.firstChild ?? null
 
-  /** The live selection, but only while it is inside this panel. */
-  const rangeIn = () => {
+  const selectionInsidePre = () => {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return null
     const range = sel.getRangeAt(0)
-    const own = node()
+    const own = textNode()
     if (!own || range.startContainer !== own || range.endContainer !== own) return null
     return range
   }
 
   const select = (from: number, to: number) => {
-    const own = node()
+    const own = textNode()
     if (!own) return
     const range = document.createRange()
-    range.setStart(own, Math.max(0, Math.min(from, text.length)))
-    range.setEnd(own, Math.max(0, Math.min(to, text.length)))
+    range.setStart(own, clampOffset(from, text.length))
+    range.setEnd(own, clampOffset(to, text.length))
     const sel = window.getSelection()
     sel?.removeAllRanges()
     sel?.addRange(range)
@@ -68,65 +69,44 @@ export default function SelectSheet({ shot, onInsertPath, onClose }: Props) {
     return range
   }
 
-  /* Open with the pressed word already picked and the handles already up. The
-     press said which word was wanted; making the panel appear scrolled to the
-     top with nothing selected would throw that away and ask again. */
   useEffect(() => {
     const { hit, lines } = shot
     if (!hit) return
-    const start = charIndex(lines, hit.line, 0)
+    const lineStart = charIndex(lines, hit.line, 0)
     const [from, to] = wordRange(lines[hit.line] ?? '', hit.offset)
-    const range = select(start + from, start + to)
+    const range = select(lineStart + from, lineStart + to)
     const box = scrollRef.current
     if (!range || !box) return
-    /* A third of the way down rather than centred: what is usually wanted next
-       is the lines *after* the one that was pressed. */
-    const rect = range.getBoundingClientRect()
-    const view = box.getBoundingClientRect()
-    box.scrollTop += rect.top - view.top - view.height / 3
-    if (rect.left < view.left || rect.right > view.right)
-      box.scrollLeft += rect.left - view.left - view.width / 4
+    scrollRangeIntoView(box, range)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /* What the fingers did to the selection, mirrored into the bar. */
   useEffect(() => {
-    const read = () => {
-      const range = rangeIn()
+    const mirrorSelection = () => {
+      const range = selectionInsidePre()
       setPicked(range ? range.toString() : '')
     }
-    document.addEventListener('selectionchange', read)
-    return () => document.removeEventListener('selectionchange', read)
+    document.addEventListener('selectionchange', mirrorSelection)
+    return () => document.removeEventListener('selectionchange', mirrorSelection)
   }, [])
 
-  /* Whole logical lines, from wherever the handles happen to sit. Dragging a
-     handle to the end of a long line means scrolling sideways with the other
-     hand; this is the one selection worth a button. */
   const expandToLines = () => {
-    const range = rangeIn()
+    const range = selectionInsidePre()
     if (!range) return
-    const from = text.lastIndexOf('\n', Math.max(0, range.startOffset - 1)) + 1
-    const nextBreak = text.indexOf('\n', range.endOffset)
-    select(from, nextBreak < 0 ? text.length : nextBreak)
+    const [from, to] = lineBoundsAround(text, range.startOffset, range.endOffset)
+    select(from, to)
   }
 
   const wholeLines =
     !!picked &&
     (() => {
-      const range = rangeIn()
-      if (!range) return false
-      const before = range.startOffset === 0 || text[range.startOffset - 1] === '\n'
-      const after = range.endOffset === text.length || text[range.endOffset] === '\n'
-      return before && after
+      const range = selectionInsidePre()
+      return range ? coversWholeLines(text, range) : false
     })()
 
   const lineCount = picked ? picked.split('\n').length : 0
-  /* Count what was actually picked: whole lines are lines, a piece of one is
-     characters — which is the number that tells you whether you got the path. */
-  const label =
-    wholeLines || lineCount > 1
-      ? `${lineCount} line${lineCount === 1 ? '' : 's'}`
-      : `${picked.length} char${picked.length === 1 ? '' : 's'}`
+  const countLabel =
+    wholeLines || lineCount > 1 ? plural(lineCount, 'line') : plural(picked.length, 'char')
 
   const copied = !!picked && picked === copiedText
 
@@ -134,6 +114,11 @@ export default function SelectSheet({ shot, onInsertPath, onClose }: Props) {
     if (!picked) return
     await writeToClipboard(picked)
     setCopiedText(picked)
+  }
+
+  const insertPicked = () => {
+    onInsertPath?.(picked)
+    onClose()
   }
 
   return (
@@ -147,8 +132,6 @@ export default function SelectSheet({ shot, onInsertPath, onClose }: Props) {
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto overscroll-contain px-5 py-2"
       >
-        {/* `w-max` so the box scrolls sideways to the longest line instead of
-            squeezing every line into the narrow one. */}
         <pre
           ref={preRef}
           className="w-max font-mono text-[13px] leading-[1.5] whitespace-pre text-fore [-webkit-touch-callout:default] [-webkit-user-select:text] [user-select:text]"
@@ -156,12 +139,10 @@ export default function SelectSheet({ shot, onInsertPath, onClose }: Props) {
           {text}
         </pre>
       </div>
-      {/* The bar carries only what the system menu above it cannot: the count
-          that says whether the whole path came, whole-line selection, and the
-          one destination that is not the clipboard. Copy is here too, because
-          the system menu is gone the moment a handle is nudged. */}
       <div className="flex shrink-0 items-center gap-2 border-t border-line-subtle px-4 py-2.5">
-        <span className="min-w-16 text-xs tabular-nums text-mut">{picked ? label : 'Nothing picked'}</span>
+        <span className="min-w-16 text-xs tabular-nums text-mut">
+          {picked ? countLabel : 'Nothing picked'}
+        </span>
         <div className="ml-auto flex items-center gap-1.5">
           {picked && !wholeLines && (
             <Button variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={expandToLines}>
@@ -172,10 +153,7 @@ export default function SelectSheet({ shot, onInsertPath, onClose }: Props) {
             <Button
               variant="outline"
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs"
-              onClick={() => {
-                onInsertPath(picked)
-                onClose()
-              }}
+              onClick={insertPicked}
             >
               <IconInsert size={14} />
               Insert

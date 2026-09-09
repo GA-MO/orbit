@@ -1,32 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Sheet } from './components/ui'
 
-/* Camera QR scanner for pairing. The QR the Mac prints holds the bare token,
-   never a URL: a link would open Safari, and on iOS a home-screen web app has
-   its own storage, so the token would land in the wrong one of the two — and
-   Orbit has to be the installed app for push to work at all. So the camera
-   opens inside Orbit and the decoded string goes straight into the field.
+type QrDecoder = typeof import('jsqr').default
 
-   Safari has no BarcodeDetector, so the decoding is jsQR's — 130KB of
-   dependency-free JavaScript, 47KB over the wire. It is pulled in by a dynamic
-   import from the tap that opens this sheet rather than at module scope,
-   because almost every login is a paste and the decoder has no business
-   sitting in the boot bundle for those. */
+const DECODE_WIDTH_PX = 480
+
+const REAR_CAMERA: MediaStreamConstraints = { video: { facingMode: 'environment' } }
+
+const KEEP_VIDEO_INLINE_ON_IOS = { playsInline: true, muted: true, autoPlay: true } as const
 
 export const qrScanSupported = () =>
   window.isSecureContext && typeof navigator.mediaDevices?.getUserMedia === 'function'
 
-/** Why the button is missing — plain http on the LAN is the common case, and a
-    dead button with no explanation sends people hunting for a bug that isn't one. */
 export const qrScanUnavailable = () =>
   window.isSecureContext
     ? 'This browser has no camera access'
     : 'Scanning needs a secure connection (https). See docs/TAILSCALE.md.'
 
-/* WebKit reports a refusal as a DOMException name and nothing else, so the name
-   is translated into the setting the user has to go and change — the same
-   treatment speech.ts gives the microphone, for the same reason: there are no
-   devtools on a phone and the raw name explains nothing. */
 const cameraMessage = (err: unknown): string => {
   const name = (err as { name?: string })?.name ?? ''
   switch (name) {
@@ -43,6 +33,25 @@ const cameraMessage = (err: unknown): string => {
   }
 }
 
+const stopTracks = (stream: MediaStream) => stream.getTracks().forEach((t) => t.stop())
+
+const decodeDownscaledFrame = (
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  decode: QrDecoder,
+): string | null => {
+  const scale = Math.min(1, DECODE_WIDTH_PX / video.videoWidth)
+  canvas.width = Math.round(video.videoWidth * scale)
+  canvas.height = Math.round(video.videoHeight * scale)
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const found = decode(image.data, image.width, image.height, {
+    inversionAttempts: 'attemptBoth',
+  })
+  return found?.data.trim() || null
+}
+
 interface Props {
   onResult: (token: string) => void
   onClose: () => void
@@ -52,10 +61,6 @@ export default function QrScanner({ onResult, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [error, setError] = useState<string | null>(null)
 
-  /* Everything the camera holds is created and torn down inside this one
-     effect, so there is exactly one place that can leak it. A stream left
-     running keeps the recording indicator lit and the battery draining, and on
-     iOS nothing on screen says the page is still holding it. */
   useEffect(() => {
     let stopped = false
     let frame = 0
@@ -66,54 +71,34 @@ export default function QrScanner({ onResult, onClose }: Props) {
     const stop = () => {
       stopped = true
       cancelAnimationFrame(frame)
-      stream?.getTracks().forEach((t) => t.stop())
+      if (stream) stopTracks(stream)
       stream = null
     }
 
-    // The import and the permission request start together rather than one
-    // after the other: the download is the slow half, and asking for the camera
-    // first keeps the prompt inside the tap that opened the sheet.
-    Promise.all([
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }),
-      import('jsqr'),
-    ])
-      .then(async ([media, { default: jsQR }]) => {
+    const frameIsReady = (video: HTMLVideoElement) =>
+      video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0
+
+    Promise.all([navigator.mediaDevices.getUserMedia(REAR_CAMERA), import('jsqr')])
+      .then(async ([media, { default: decode }]) => {
         const video = videoRef.current
         if (stopped || !video || !ctx) {
-          media.getTracks().forEach((t) => t.stop())
+          stopTracks(media)
           return
         }
         stream = media
         video.srcObject = media
         await video.play()
 
-        const tick = () => {
+        const scanNextFrame = () => {
           if (stopped) return
-          frame = requestAnimationFrame(tick)
-          if (video.readyState < video.HAVE_CURRENT_DATA || !video.videoWidth) return
-
-          // The frame is decoded at a fraction of its capture size. jsQR's cost
-          // is per pixel, and a 1080p frame sixty times a second heats the phone
-          // for no gain — a QR filling a third of the view is still tens of
-          // modules across at 480px.
-          const scale = Math.min(1, 480 / video.videoWidth)
-          canvas.width = Math.round(video.videoWidth * scale)
-          canvas.height = Math.round(video.videoHeight * scale)
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-          const image = ctx.getImageData(0, 0, canvas.width, canvas.height)
-          // Both polarities are tried because the QR is printed into a terminal,
-          // and on a dark theme it comes out light-on-dark — the inverse of what
-          // a decoder expects. Guessing wrong would leave half of all users
-          // pointing the camera at a code that never resolves.
-          const found = jsQR(image.data, image.width, image.height, {
-            inversionAttempts: 'attemptBoth',
-          })
-          const text = found?.data.trim()
+          frame = requestAnimationFrame(scanNextFrame)
+          if (!frameIsReady(video)) return
+          const text = decodeDownscaledFrame(video, canvas, ctx, decode)
           if (!text) return
           stop()
           onResult(text)
         }
-        frame = requestAnimationFrame(tick)
+        frame = requestAnimationFrame(scanNextFrame)
       })
       .catch((err: unknown) => {
         stop()
@@ -130,11 +115,7 @@ export default function QrScanner({ onResult, onClose }: Props) {
           <video
             ref={videoRef}
             className="aspect-square w-full object-cover"
-            /* Without both of these iOS takes the video fullscreen the moment it
-               plays, which would hide the sheet and its cancel button. */
-            playsInline
-            muted
-            autoPlay
+            {...KEEP_VIDEO_INLINE_ON_IOS}
           />
           <div className="pointer-events-none absolute inset-6 rounded-xl border-2 border-accent/70" />
         </div>

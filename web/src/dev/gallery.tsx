@@ -49,28 +49,32 @@ import {
   ASK_TWO,
 } from './fixtures'
 
-/* ---------------------------------------------------------------------------
-   Orbit's states gallery — every primitive, in every state, on one URL.
-
-   Why this page is shaped the way it is: most of this UI is written by agents
-   that cannot see what they made, and reaching a real state costs a running
-   server, a paired token, and an agent that happens to be blocked on a
-   question. `orbit_capture` renders a URL headlessly and hands the image back,
-   so a plain unauthenticated URL that draws everything at once turns "the look
-   is unverified" into a screenshot taken in the same turn as the code.
-
-   That is also the constraint on everything below. Nothing here may need a
-   click, because a click is a state a screenshot never reaches — anything the
-   app would reveal on tap is rendered already open, and where a component has
-   two mutually exclusive states it is rendered twice rather than toggled.
-   There is no controls panel and no routing for the same reason: a page with
-   settings is a page whose screenshot depends on which settings were last
-   touched.
---------------------------------------------------------------------------- */
-
 const noop = () => {}
 
-/* ------------------------------ The mark -------------------------------- */
+const ICON_BUTTON_SIZES = ['sm', 'md', 'lg'] as const
+const GLYPH_SIZE_FOR: Record<(typeof ICON_BUTTON_SIZES)[number], number> = {
+  sm: 14,
+  md: 17,
+  lg: 20,
+}
+
+const SEG_TWO = [
+  { id: 'live', label: 'Live' },
+  { id: 'ended', label: 'Ended' },
+]
+
+const SEG_THREE = [
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'changes', label: 'Changes' },
+  { id: 'captures', label: 'Captures' },
+]
+
+const SEG_LONG = [
+  { id: 'unstaged', label: 'Unstaged' },
+  { id: 'staged', label: 'Staged' },
+  { id: 'untracked', label: 'Untracked' },
+  { id: 'conflicted', label: 'Conflicted' },
+]
 
 function MarkSection() {
   return (
@@ -105,8 +109,6 @@ function MarkSection() {
   )
 }
 
-/* -------------------------------- Icons --------------------------------- */
-
 const ICONS = [
   ['IconTerminal', IconTerminal],
   ['IconSessions', IconSessions],
@@ -131,12 +133,6 @@ const ICONS = [
   ['IconSearch', IconSearch],
 ] as const
 
-/* The whole set at one size, in one grid, because the only defect that matters
-   in a hand-drawn icon set is inconsistency — a stroke that is heavier, a
-   glyph that sits a pixel low — and none of that is visible one icon at a
-   time. The second row of each pair is drawn at 17px, the size the dense
-   header rows actually use, where a 1.8 stroke starts to fill its own
-   counters. */
 function IconGrid({ size }: { size: number }) {
   return (
     <div className="grid grid-cols-3 gap-1.5 p-3">
@@ -152,8 +148,6 @@ function IconGrid({ size }: { size: number }) {
     </div>
   )
 }
-
-/* ------------------------------- Buttons -------------------------------- */
 
 const VARIANTS = ['primary', 'outline', 'ghost', 'danger'] as const
 
@@ -176,15 +170,6 @@ function ButtonMatrix({ disabled = false }: { disabled?: boolean }) {
   )
 }
 
-/* -------------------------------- Field ---------------------------------- */
-
-/**
- * `focused` is a parameter rather than a fixed state because a document has
- * exactly one focused element, and this specimen is drawn twice. Handing the
- * real focus to the dark copy — the one that ships — and labelling the pale
- * one honestly beats faking the ring with a class, which would then be a
- * second definition of focus quietly free to disagree with the first.
- */
 function FieldStates({ focused = false }: { focused?: boolean }) {
   return (
     <Pad>
@@ -201,9 +186,6 @@ function FieldStates({ focused = false }: { focused?: boolean }) {
         <Field autoFocus={focused} defaultValue="rename this session" />
       </div>
       <div>
-        {/* Field has no error prop — the danger border is composed by the
-            caller. Drawn the way callers write it, so what gets reviewed is
-            the composition rather than an API that does not exist. */}
         <Label>error (composed by the caller)</Label>
         <Field
           defaultValue="not-a-port"
@@ -218,8 +200,6 @@ function FieldStates({ focused = false }: { focused?: boolean }) {
     </Pad>
   )
 }
-
-/* ------------------------------- Sheets ---------------------------------- */
 
 function SheetBody() {
   return (
@@ -239,15 +219,7 @@ function SheetBody() {
   )
 }
 
-/* --------------------------------- Page ---------------------------------- */
-
 function Gallery() {
-  /* NoticeOptIn hides itself unless the browser will actually grant a push
-     subscription, and that needs a secure context — over http on a LAN address
-     `navigator.serviceWorker` does not exist, so the component correctly
-     renders nothing and the section looks broken rather than empty. Saying so
-     in place beats stubbing the browser API, which would show a component
-     living in conditions it never meets. */
   const noticeState = noticePermission()
 
   return (
@@ -306,10 +278,6 @@ function Gallery() {
           <ButtonMatrix disabled />
         </Screen>
         <Screen label="busy · long label · full width">
-          {/* Button has no loading prop. What the app does instead — and what is
-              drawn here — is disable it and swap the label, which is the whole
-              of Orbit's loading affordance: no spinner exists in the primitive
-              set. If that is wrong, this frame is where it will look wrong. */}
           <Pad>
             <Button disabled>Asking…</Button>
             <Button variant="outline" disabled>
@@ -329,21 +297,18 @@ function Gallery() {
       >
         <Both label="sizes" showHits>
           <Pad>
-            {(['sm', 'md', 'lg'] as const).map((size) => (
+            {ICON_BUTTON_SIZES.map((size) => (
               <div key={size} className="flex items-center gap-4 py-1.5">
                 <span className="w-8 shrink-0 font-mono text-[10px] text-faint">{size}</span>
                 <IconButton label="Close" size={size}>
-                  <IconClose size={size === 'sm' ? 14 : size === 'md' ? 17 : 20} />
+                  <IconClose size={GLYPH_SIZE_FOR[size]} />
                 </IconButton>
                 <IconButton label="Trash" size={size} disabled>
-                  <IconTrash size={size === 'sm' ? 14 : size === 'md' ? 17 : 20} />
+                  <IconTrash size={GLYPH_SIZE_FOR[size]} />
                 </IconButton>
                 <span className="font-mono text-[10px] text-faint">enabled · disabled</span>
               </div>
             ))}
-            {/* A dense row is the case the hit area exists for: four glyphs a
-                gap apart, each of which must still take a thumb without
-                stealing its neighbour's tap. */}
             <div className="mt-2 flex items-center gap-0.5 border-t border-line/50 pt-4">
               <IconButton label="Close">
                 <IconClose size={18} />
@@ -382,17 +347,10 @@ function Gallery() {
         note="Static instances rather than one that toggles: each selection is its own specimen, so a screenshot catches all of them."
       >
         <Both label="selection">
-          {/* items-start, because Segmented is inline-flex and a stretching
-              column would widen its track to the frame — which is not how any
-              view uses it, and would hide the only interesting question here:
-              whether four long labels still fit a phone. */}
           <Pad className="items-start">
             <Segmented value="live" options={SEG_TWO} onChange={noop} />
             <Segmented value="ended" options={SEG_TWO} onChange={noop} />
             <Segmented value="changes" options={SEG_THREE} onChange={noop} />
-            {/* Four long labels at 390px is where this either wraps, overflows
-                its rounded track, or squeezes the text — none of which can be
-                predicted from the class list. */}
             <Segmented value="staged" options={SEG_LONG} onChange={noop} />
           </Pad>
         </Both>
@@ -526,22 +484,9 @@ function Gallery() {
         </Screen>
       </Section>
 
-      {/* ----------------------------------------------------------------
-          View-level stories go here.
-
-          Deliberately empty for now: CapturesView, SessionsView and
-          ChangesView are all being rewritten as this is written, and a story
-          pinned to their current props would be stale before it was read.
-          When they settle, each wants a `Screen` with a fixed height and a
-          hand-written list of SessionInfo / Screenshot / diff rows from
-          fixtures.ts — never a fetch. The interesting states are the ones the
-          server cannot be asked for: a session waiting on an answer, a port
-          published whose dev server has died, a diff that is one 4000-line
-          file, and every error path.
-          ---------------------------------------------------------------- */}
       <Section
         title="Views"
-        note="Empty on purpose — the three list views are mid-rewrite. See the comment in gallery.tsx for the shape their stories should take."
+        note="Empty on purpose — the three list views are mid-rewrite. When they settle, each wants a fixed-height Screen fed from hand-written rows in fixtures.ts, never a fetch."
       >
         <Aside>
           CapturesView, SessionsView and ChangesView are being rewritten right now. Their stories
@@ -551,23 +496,5 @@ function Gallery() {
     </div>
   )
 }
-
-const SEG_TWO = [
-  { id: 'live', label: 'Live' },
-  { id: 'ended', label: 'Ended' },
-]
-
-const SEG_THREE = [
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'changes', label: 'Changes' },
-  { id: 'captures', label: 'Captures' },
-]
-
-const SEG_LONG = [
-  { id: 'unstaged', label: 'Unstaged' },
-  { id: 'staged', label: 'Staged' },
-  { id: 'untracked', label: 'Untracked' },
-  { id: 'conflicted', label: 'Conflicted' },
-]
 
 createRoot(document.getElementById('root')!).render(<Gallery />)

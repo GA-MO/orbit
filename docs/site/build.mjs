@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/**
- * Build docs/site/index.html — one self-contained file, no network at open time.
- *
- * The page is meant to be opened straight off disk, mailed, or published as a
- * hosted artifact, so every asset is embedded: the Space Grotesk face the app
- * itself bundles, a Thai face to go with it, and the real screenshots from
- * docs/images (downscaled to phone size and re-encoded, or the file would be
- * several megabytes).
- *
- *   node docs/site/build.mjs
- *
- * Needs macOS `sips` for the image pass, which is the only platform Orbit runs
- * on anyway.
- */
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -26,24 +12,20 @@ const FONT = path.join(
   root,
   'node_modules/@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2',
 )
-/* Space Grotesk has no Thai. Without a Thai face of our own the page falls
-   back to whatever the device ships — Thonburi on Apple, which is looped and
-   reads like a government form next to a geometric Latin sans. Anuphan is
-   loopless and built for exactly this pairing. Thai subset only: the Latin
-   in it would never be reached. */
 const FONT_THAI = path.join(
   root,
   'node_modules/@fontsource-variable/anuphan/files/anuphan-thai-wght-normal.woff2',
 )
 const SHOT_DIR = path.join(root, 'docs/images')
-/* The hero phone is 300 CSS px wide, so a retina screen asks for 600 — which a
-   520px source cannot answer, and upscaling it is what made the pictures look
-   soft. `make shots` already writes exactly what this page wants (780px wide,
-   JPEG q88), so anything at or under this width is embedded as it is: no
-   resample, and no second lossy pass on top of the first. Only a PNG, or
-   something larger, goes through sips. */
 const SHOT_WIDTH = 780
 const SHOT_QUALITY = 82
+const SHOT_FILE = /\.(png|jpg)$/
+const KB = 1024
+
+const PAGES = [
+  { template: 'template.html', out: 'index.html' },
+  { template: 'template.th.html', out: path.join('th', 'index.html') },
+]
 
 function fontDataUri(file) {
   if (!fs.existsSync(file)) {
@@ -53,48 +35,51 @@ function fontDataUri(file) {
   return `'data:font/woff2;base64,${fs.readFileSync(file).toString('base64')}'`
 }
 
-/** Pixel width of an image, straight from sips. */
-function width(file) {
+function jpegDataUri(file) {
+  return `data:image/jpeg;base64,${fs.readFileSync(file).toString('base64')}`
+}
+
+function pixelWidth(file) {
   const out = execFileSync('sips', ['-g', 'pixelWidth', file], { encoding: 'utf8' })
   return Number(out.match(/pixelWidth:\s*(\d+)/)?.[1] ?? Infinity)
 }
 
-function shots() {
+function alreadyPhoneSized(file) {
+  return file.endsWith('.jpg') && pixelWidth(file) <= SHOT_WIDTH
+}
+
+function resampleToJpeg(source, dest) {
+  execFileSync('sips', [
+    '-s', 'format', 'jpeg',
+    '-s', 'formatOptions', String(SHOT_QUALITY),
+    '-Z', String(SHOT_WIDTH),
+    source,
+    '--out', dest,
+  ], { stdio: 'ignore' })
+}
+
+function embedShots() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-site-'))
-  const out = {}
-  for (const file of fs.readdirSync(SHOT_DIR).filter((f) => /\.(png|jpg)$/.test(f)).sort()) {
-    const name = path.basename(file).replace(/\.(png|jpg)$/, '')
+  const shots = {}
+  const files = fs.readdirSync(SHOT_DIR).filter((f) => SHOT_FILE.test(f)).sort()
+  for (const file of files) {
+    const name = path.basename(file).replace(SHOT_FILE, '')
     const source = path.join(SHOT_DIR, file)
 
-    if (file.endsWith('.jpg') && width(source) <= SHOT_WIDTH) {
-      out[name] = `data:image/jpeg;base64,${fs.readFileSync(source).toString('base64')}`
+    if (alreadyPhoneSized(source)) {
+      shots[name] = jpegDataUri(source)
       continue
     }
 
-    const jpg = path.join(tmp, `${name}.jpg`)
-    execFileSync('sips', [
-      '-s', 'format', 'jpeg',
-      '-s', 'formatOptions', String(SHOT_QUALITY),
-      '-Z', String(SHOT_WIDTH),
-      source,
-      '--out', jpg,
-    ], { stdio: 'ignore' })
-    out[name] = `data:image/jpeg;base64,${fs.readFileSync(jpg).toString('base64')}`
+    const resampled = path.join(tmp, `${name}.jpg`)
+    resampleToJpeg(source, resampled)
+    shots[name] = jpegDataUri(resampled)
   }
   fs.rmSync(tmp, { recursive: true, force: true })
-  return out
+  return shots
 }
 
-const images = shots()
-
-/* Two pages from two templates: English at the root, Thai at /th/. The
-   screenshots and fonts are embedded once each and shared by both. */
-const PAGES = [
-  { template: 'template.html', out: 'index.html' },
-  { template: 'template.th.html', out: path.join('th', 'index.html') },
-]
-
-for (const page of PAGES) {
+function renderPage(page, images) {
   const template = fs.readFileSync(path.join(here, page.template), 'utf8')
   const html = template
     .replace('{{FONT}}', () => fontDataUri(FONT))
@@ -112,7 +97,10 @@ for (const page of PAGES) {
   fs.writeFileSync(dest, html)
 
   console.log(
-    `[site] ${path.relative(root, dest)} — ${(html.length / 1024).toFixed(0)}KB, ` +
+    `[site] ${path.relative(root, dest)} — ${(html.length / KB).toFixed(0)}KB, ` +
       `${Object.keys(images).length} screenshots embedded`,
   )
 }
+
+const images = embedShots()
+for (const page of PAGES) renderPage(page, images)

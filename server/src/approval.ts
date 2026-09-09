@@ -1,11 +1,3 @@
-/**
- * Screening for dangerous commands in terminal input.
- *
- * Only multi-character chunks are screened (paste, voice input, automation) —
- * interactive keystrokes arrive one character at a time and are the user's own
- * deliberate typing, which cannot be reconstructed reliably anyway.
- */
-
 const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\brm\s+(-[a-z]*[rf][a-z]*\s*)+/i, label: 'recursive/forced delete (rm -rf)' },
   { pattern: /\bsudo\b/, label: 'privileged command (sudo)' },
@@ -19,32 +11,31 @@ const DANGEROUS_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\blaunchctl\s+(unload|remove)/, label: 'disable system service' },
 ]
 
+const KEYSTROKE_MAX_LENGTH = 3
+const LINE_MAX_CHARS = 200
+
 export interface Danger {
   label: string
-  /** The line that matched, for display in the approval prompt. */
   line: string
 }
 
 export function screen(chunk: string): Danger | null {
-  // Single keystrokes and control sequences pass through untouched.
-  if (chunk.length <= 3) return null
+  if (chunk.length <= KEYSTROKE_MAX_LENGTH) return null
   return screenCommand(chunk)
 }
 
-/**
- * Screen a command known to be whole — an agent's tool call rather than a
- * stream of keystrokes, so there is no length below which it is only typing.
- */
+const lineContaining = (text: string, index: number): string => {
+  const lineStart = text.lastIndexOf('\n', index) + 1
+  const lineEnd = text.indexOf('\n', index)
+  return text.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim()
+}
+
 export function screenCommand(command: string): Danger | null {
-  const chunk = command
   for (const { pattern, label } of DANGEROUS_PATTERNS) {
-    const match = chunk.match(pattern)
+    const match = command.match(pattern)
     if (match) {
-      const index = chunk.indexOf(match[0])
-      const lineStart = chunk.lastIndexOf('\n', index) + 1
-      const lineEnd = chunk.indexOf('\n', index)
-      const line = chunk.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim()
-      return { label, line: line.slice(0, 200) }
+      const line = lineContaining(command, command.indexOf(match[0]))
+      return { label, line: line.slice(0, LINE_MAX_CHARS) }
     }
   }
   return null

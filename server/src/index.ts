@@ -30,12 +30,13 @@ import * as pairing from './pairing.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
-/* Inside a `bun build --compile` binary the module lives on Bun's virtual
-   filesystem, and so does everything `scripts/dist.sh` embedded beside it:
-   `--asset=web/dist` lands at /$bunfs/root/dist, keeping the directory's own
-   name and dropping the path above it. A checkout serves the real folder. */
-const COMPILED = import.meta.url.startsWith('file:///$bunfs/')
-const WEB_DIST = COMPILED ? '/$bunfs/root/dist' : fileURLToPath(new URL('../../web/dist', import.meta.url))
+
+const BUN_VIRTUAL_FS_URL = 'file:///$bunfs/'
+const EMBEDDED_WEB_DIST = '/$bunfs/root/dist'
+const RUNNING_FROM_COMPILED_BINARY = import.meta.url.startsWith(BUN_VIRTUAL_FS_URL)
+const WEB_DIST = RUNNING_FROM_COMPILED_BINARY
+  ? EMBEDDED_WEB_DIST
+  : fileURLToPath(new URL('../../web/dist', import.meta.url))
 
 const TOKEN = getToken()
 const manager = new PtyManager()
@@ -49,12 +50,12 @@ type ClientMessage =
   | { type: 'answer'; id: string; choice: string }
   | { type: 'viewing'; sessionId: string | null }
 
-/* `JSON.parse` returns whatever the wire carried, and the cast above it used
-   to be the only thing between a frame and the switch below. A `null` frame,
-   a `resize` with no numbers, an `input` whose data is a number — each threw
-   somewhere past the switch, and with nothing catching it the process exited
-   and took every PTY session with it. So the shape is checked here, once, and
-   a frame that is not one of these is simply not a message. */
+const MAX_TERMINAL_DIMENSION = 1000
+
+const isString = (v: unknown): v is string => typeof v === 'string'
+const isTerminalDimension = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) > 0 && (v as number) <= MAX_TERMINAL_DIMENSION
+
 const parseClientMessage = (raw: unknown): ClientMessage | null => {
   let msg: any
   try {
@@ -63,22 +64,24 @@ const parseClientMessage = (raw: unknown): ClientMessage | null => {
     return null
   }
   if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return null
-  const str = (v: unknown): v is string => typeof v === 'string'
-  const dim = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0 && (v as number) <= 1000
   switch (msg.type) {
     case 'input':
-      return str(msg.data) ? { type: 'input', data: msg.data } : null
+      return isString(msg.data) ? { type: 'input', data: msg.data } : null
     case 'resize':
-      return dim(msg.cols) && dim(msg.rows) ? { type: 'resize', cols: msg.cols, rows: msg.rows } : null
+      return isTerminalDimension(msg.cols) && isTerminalDimension(msg.rows)
+        ? { type: 'resize', cols: msg.cols, rows: msg.rows }
+        : null
     case 'ping':
       return { type: 'ping' }
     case 'approve':
     case 'deny':
-      return str(msg.id) ? { type: msg.type, id: msg.id } : null
+      return isString(msg.id) ? { type: msg.type, id: msg.id } : null
     case 'answer':
-      return str(msg.id) ? { type: 'answer', id: msg.id, choice: str(msg.choice) ? msg.choice : '' } : null
+      return isString(msg.id)
+        ? { type: 'answer', id: msg.id, choice: isString(msg.choice) ? msg.choice : '' }
+        : null
     case 'viewing':
-      return { type: 'viewing', sessionId: str(msg.sessionId) ? msg.sessionId : null }
+      return { type: 'viewing', sessionId: isString(msg.sessionId) ? msg.sessionId : null }
     default:
       return null
   }
@@ -101,12 +104,9 @@ const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body))
 }
 
-/* Every JSON route reads its body through here, so the cap belongs here too.
-   Without one a request that never ends is a string that grows until the
-   process does — and the upload route, the only one that was ever expected to
-   carry weight, has always had a limit of its own. A megabyte is far more than
-   anything on this API sends: the largest is a commit message. */
 const BODY_LIMIT = 1024 * 1024
+
+const stopReadingSoTheAnswerCanStillBeWritten = (req: http.IncomingMessage) => req.pause()
 
 const readBody = (req: http.IncomingMessage) =>
   new Promise<string>((resolve, reject) => {
@@ -114,10 +114,7 @@ const readBody = (req: http.IncomingMessage) =>
     req.on('data', (chunk) => {
       body += chunk
       if (body.length > BODY_LIMIT) {
-        /* Paused, not destroyed: destroying here closed the socket before the
-           413 was written, so the client saw a reset and never the reason.
-           The response handler ends the connection once the answer is out. */
-        req.pause()
+        stopReadingSoTheAnswerCanStillBeWritten(req)
         reject(new HttpError(413, `body exceeds ${BODY_LIMIT / 1024}KB limit`))
       }
     })
@@ -134,111 +131,92 @@ const readJson = async <T>(req: http.IncomingMessage): Promise<T> => {
   }
 }
 
-/**
- * Which session a message from the Mac is about.
- *
- * The sender is a descendant of the PTY, so it usually knows: `ORBIT_SESSION_ID`
- * is in its environment. The folder is the fallback for anything that predates
- * it, and only where the answer is not a guess — two agents in one folder make
- * it one, and filing the message against the wrong session is worse than
- * filing it against none.
- */
-const resolveSession = (sessionId?: string | null, source?: string | null): string | null => {
-  if (sessionId && (manager.get(sessionId) || manager.isDead(sessionId))) return sessionId
-  if (!source) return null
-  const cwd = path.resolve(source)
-  const live = manager.list().filter((s) => s.alive && s.cwd === cwd)
-  return live.length === 1 ? live[0].id : null
+const isKnownSession = (sessionId: string) => !!manager.get(sessionId) || manager.isDead(sessionId)
+
+const onlyLiveSessionIn = (folder: string): string | null => {
+  const cwd = path.resolve(folder)
+  const liveHere = manager.list().filter((s) => s.alive && s.cwd === cwd)
+  return liveHere.length === 1 ? liveHere[0].id : null
 }
 
-/** Restrict filesystem/session paths to the user's home directory. */
+const resolveSession = (claimedSessionId?: string | null, senderFolder?: string | null): string | null => {
+  if (claimedSessionId && isKnownSession(claimedSessionId)) return claimedSessionId
+  if (!senderFolder) return null
+  return onlyLiveSessionIn(senderFolder)
+}
+
 const safePath = (p: string): string | null => {
   const resolved = path.resolve(p)
-  return resolved === HOME || resolved.startsWith(HOME + path.sep) ? resolved : null
+  const insideHome = resolved === HOME || resolved.startsWith(HOME + path.sep)
+  return insideHome ? resolved : null
 }
 
-/* Two credentials, deliberately unequal in what they can do.
- *
- * The token, as a Bearer header, is the real one: anything at all. The session
- * cookie stands in only where a header cannot be set — the WebSocket handshake
- * and an <img src> — so it authorises reads and the socket, never a write.
- * SameSite=Strict is what makes that safe: no other origin can cause the
- * browser to send it in the first place. */
-/* Compared the way the cookie is, and for the same reason: `===` on a string
-   stops at the first byte that differs, and the time it took to stop is a
-   reading of how much of the guess was right. */
-const bearer = (req: http.IncomingMessage): boolean =>
+const hasBearerToken = (req: http.IncomingMessage): boolean =>
   matches(req.headers.authorization ?? '', `Bearer ${TOKEN}`)
 
 const authorized = (req: http.IncomingMessage): boolean => {
-  if (bearer(req)) return true
-  return req.method === 'GET' && hasSessionCookie(req, TOKEN)
+  if (hasBearerToken(req)) return true
+  const cookieMayAuthorize = req.method === 'GET'
+  return cookieMayAuthorize && hasSessionCookie(req, TOKEN)
 }
 
-/* SameSite is not same-origin. The cookie is scoped to a *site*, and a site
-   ignores the port — so a page served from another port of this same host
-   (a published preview on 8443, a Vite dev server on 5173, both of which Orbit
-   itself puts in front of the user) is same-site, and a `new WebSocket()` from
-   it arrives with the cookie attached. CORS never enters into a WebSocket
-   handshake; the `Origin` header is the only thing that says who opened it.
+const hostsThisRequestWasAddressedTo = (req: http.IncomingMessage): string[] => {
+  const forwarded = req.headers['x-forwarded-host']
+  const candidates = [req.headers.host, Array.isArray(forwarded) ? forwarded[0] : forwarded]
+  return candidates.filter((h): h is string => !!h).map((h) => h.split(',')[0].trim())
+}
 
-   A browser always sends one, so a handshake without it did not come from a
-   page — and a page is the only thing this defends against; a client that
-   stole the HttpOnly cookie outright is a different problem. The proxy in
-   front keeps the browser's Host, and Vite's dev proxy does too, so the
-   origin's host and the request's host agree in every way Orbit is reached. */
-const sameOrigin = (req: http.IncomingMessage): boolean => {
+const originIsThisHost = (req: http.IncomingMessage): boolean => {
   const origin = req.headers.origin
-  if (!origin) return true
-  let host: string
+  const sentByABrowserPage = !!origin
+  if (!sentByABrowserPage) return true
+  let originHost: string
   try {
-    host = new URL(origin).host
+    originHost = new URL(origin).host
   } catch {
     return false
   }
-  const forwarded = req.headers['x-forwarded-host']
-  const candidates = [req.headers.host, Array.isArray(forwarded) ? forwarded[0] : forwarded]
-  return candidates.some((h) => !!h && h.split(',')[0].trim() === host)
+  return hostsThisRequestWasAddressedTo(req).includes(originHost)
 }
 
-/* ---- Slowing down a guess -------------------------------------------------
- *
- * A tailnet is not the open internet, but the token is the only thing between
- * anyone already on it and every file under the home directory — and nothing
- * stopped a client from trying tokens as fast as the loop could answer.
- *
- * This holds a rejection back rather than refusing to answer at all. A block
- * would be a way to lock the owner out, since `tailscale serve` proxies every
- * remote client from 127.0.0.1 and they all count as one address. A delay
- * costs a guesser everything and the owner nothing: a phone that is logged in
- * never fails, so it never waits.
- */
 const FREE_ATTEMPTS = 10
 const FAILURE_FORGOTTEN_MS = 60_000
+const DELAY_PER_EXTRA_ATTEMPT_MS = 250
 const MAX_DELAY_MS = 2000
+const PRUNE_FAILURES_ABOVE = 64
+const WARN_EVERY_N_ATTEMPTS = 10
 
 const failures = new Map<string, { count: number; last: number }>()
 
-const rejectSlowly = (req: http.IncomingMessage): Promise<void> => {
-  const key = req.socket.remoteAddress ?? 'unknown'
-  const now = Date.now()
+const guesserKey = (req: http.IncomingMessage) => req.socket.remoteAddress ?? 'unknown'
+
+const countFailure = (key: string, now: number): number => {
   const seen = failures.get(key)
   const count = seen && now - seen.last < FAILURE_FORGOTTEN_MS ? seen.count + 1 : 1
   failures.set(key, { count, last: now })
-  if (failures.size > 64) {
-    for (const [k, v] of failures) if (now - v.last > FAILURE_FORGOTTEN_MS) failures.delete(k)
-  }
-  const over = count - FREE_ATTEMPTS
-  // Past the free tries it is worth a line in the log: this is the only place a guess is visible.
-  if (over > 0 && over % 10 === 1) console.warn(`[orbit] ${count} bad credentials from ${key}`)
-  if (over <= 0) return Promise.resolve()
-  return new Promise((resolve) => setTimeout(resolve, Math.min(over * 250, MAX_DELAY_MS)))
+  return count
 }
 
-const forgetFailures = (req: http.IncomingMessage) =>
-  failures.delete(req.socket.remoteAddress ?? 'unknown')
+const forgetOldFailures = (now: number) => {
+  if (failures.size <= PRUNE_FAILURES_ABOVE) return
+  for (const [k, v] of failures) if (now - v.last > FAILURE_FORGOTTEN_MS) failures.delete(k)
+}
 
-// ---- Static serving of the built web app (production: single port) ----
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+const slowDownCredentialGuessing = (req: http.IncomingMessage): Promise<void> => {
+  const key = guesserKey(req)
+  const now = Date.now()
+  const count = countFailure(key, now)
+  forgetOldFailures(now)
+  const attemptsPastFree = count - FREE_ATTEMPTS
+  const worthALogLine = attemptsPastFree > 0 && attemptsPastFree % WARN_EVERY_N_ATTEMPTS === 1
+  if (worthALogLine) console.warn(`[orbit] ${count} bad credentials from ${key}`)
+  if (attemptsPastFree <= 0) return Promise.resolve()
+  return sleep(Math.min(attemptsPastFree * DELAY_PER_EXTRA_ATTEMPT_MS, MAX_DELAY_MS))
+}
+
+const forgetFailures = (req: http.IncomingMessage) => failures.delete(guesserKey(req))
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -253,25 +231,26 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
+const LEADING_PARENT_SEGMENTS = /^(\.\.[/\\])+/
+
+const isAppShellPath = (requestPath: string) => requestPath === '/' || requestPath === '/index.html'
+
+const statFile = (file: string) => fsp.stat(file).catch(() => null)
+
 async function serveStatic(url: URL, res: http.ServerResponse) {
-  const rel = path.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
-  let file = path.join(WEB_DIST, rel)
+  const requestPath = path.normalize(decodeURIComponent(url.pathname)).replace(LEADING_PARENT_SEGMENTS, '')
+  let file = path.join(WEB_DIST, requestPath)
   if (!file.startsWith(WEB_DIST)) return json(res, 404, { error: 'not found' })
 
-  let stat = await fsp.stat(file).catch(() => null)
+  let stat = await statFile(file)
   if (!stat?.isFile()) {
-    /* The app is one screen with no client-side routes, so the only address it
-       answers to is `/`. Anything else that misses is a mistyped or truncated
-       URL, and handing those the app makes a wrong address look like the app
-       bouncing back — which is exactly how a link split across two terminal
-       rows presents itself. */
-    if (rel !== '/' && rel !== '/index.html') {
+    if (!isAppShellPath(requestPath)) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-      res.end(`Orbit: no such path — ${rel}`)
+      res.end(`Orbit: no such path — ${requestPath}`)
       return
     }
     file = path.join(WEB_DIST, 'index.html')
-    stat = await fsp.stat(file).catch(() => null)
+    stat = await statFile(file)
   }
   if (!stat?.isFile()) {
     res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -282,17 +261,18 @@ async function serveStatic(url: URL, res: http.ServerResponse) {
     'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream',
     'Content-Length': stat.size,
   })
-  /* Bun's virtual filesystem answers stat and readFile but not a read
-     stream — `open` on it is ENOENT — and the app is half a megabyte, so
-     the embedded copy is read whole. A checkout still streams from disk. */
-  if (COMPILED) {
+  await sendFileBody(file, res)
+}
+
+const virtualFsCannotStream = RUNNING_FROM_COMPILED_BINARY
+
+async function sendFileBody(file: string, res: http.ServerResponse) {
+  if (virtualFsCannotStream) {
     res.end(await fsp.readFile(file))
     return
   }
   fs.createReadStream(file).pipe(res)
 }
-
-// ---- API ----
 
 async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://localhost')
@@ -300,15 +280,9 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true })
 
   if (url.pathname.startsWith('/api/')) {
-    /* One exception, and it is not a hole: a notification tapped on a locked
-       phone is handled by the service worker, which has no token and must not
-       be given one. It carries a capability for a single open question
-       instead, and the route below checks it. */
-    const byCapability =
-      req.method === 'POST' && (url.pathname === '/api/ask/answer' || url.pathname === '/api/auth/pair')
-    if (!byCapability) {
+    if (!carriesItsOwnCredential(req, url)) {
       if (!authorized(req)) {
-        await rejectSlowly(req)
+        await slowDownCredentialGuessing(req)
         return json(res, 401, { error: 'unauthorized' })
       }
       forgetFailures(req)
@@ -316,24 +290,15 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
     return handleAuthedApi(req, res, url)
   }
 
-  // Anything else is the web app itself (public shell; all data sits behind the API).
-  if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(url, res)
+  const wantsTheWebApp = req.method === 'GET' || req.method === 'HEAD'
+  if (wantsTheWebApp) return serveStatic(url, res)
   json(res, 404, { error: 'not found' })
 }
-/* ---- Router -----------------------------------------------------------
- *
- * One table, not a chain of ifs. The chain worked, but its correctness lived
- * in the order the branches happened to be written in: every literal path had
- * to be tested before the pattern that could also match it, and a route added
- * at the wrong line answered with the wrong handler — silently, since both
- * branches are valid code.
- *
- * Here a pattern matches only a path with the same number of segments, so
- * `/api/sessions` and `/api/sessions/:id` cannot collide however they are
- * ordered. Registration order still decides between two patterns that could
- * both match (`/api/previews/live` before `/api/previews/:port`), and those
- * are written next to each other.
- */
+
+const ROUTES_WITH_THEIR_OWN_CREDENTIAL = ['/api/ask/answer', '/api/auth/pair']
+
+const carriesItsOwnCredential = (req: http.IncomingMessage, url: URL) =>
+  req.method === 'POST' && ROUTES_WITH_THEIR_OWN_CREDENTIAL.includes(url.pathname)
 
 class HttpError extends Error {
   constructor(
@@ -352,7 +317,7 @@ interface Ctx {
   res: http.ServerResponse
   url: URL
   params: Record<string, string>
-  /** The request body as JSON. A malformed one is a 400 before the handler runs. */
+
   body<T = Record<string, any>>(): Promise<T>
 }
 
@@ -365,34 +330,39 @@ const on = (spec: string, handler: Handler) => {
   routes.push({ method, segments: pathname.split('/'), handler })
 }
 
-const match = (method: string, pathname: string) => {
-  const parts = pathname.split('/')
-  for (const r of routes) {
-    if (r.method !== method || r.segments.length !== parts.length) continue
-    const params: Record<string, string> = {}
-    let ok = true
-    for (let i = 0; i < parts.length; i++) {
-      const seg = r.segments[i]
-      if (!seg.startsWith(':')) {
-        if (seg !== parts[i]) {
-          ok = false
-          break
-        }
-        continue
-      }
-      if (!parts[i]) {
-        ok = false
-        break
-      }
-      params[seg.slice(1)] = decodeURIComponent(parts[i])
+const isParam = (segment: string) => segment.startsWith(':')
+
+const bindParams = (pattern: string[], parts: string[]): Record<string, string> | null => {
+  const params: Record<string, string> = {}
+  for (let i = 0; i < parts.length; i++) {
+    const segment = pattern[i]
+    if (!isParam(segment)) {
+      if (segment !== parts[i]) return null
+      continue
     }
-    if (ok) return { handler: r.handler, params }
+    if (!parts[i]) return null
+    params[segment.slice(1)] = decodeURIComponent(parts[i])
+  }
+  return params
+}
+
+const matchRoute = (method: string, pathname: string) => {
+  const parts = pathname.split('/')
+  for (const route of routes) {
+    if (route.method !== method || route.segments.length !== parts.length) continue
+    const params = bindParams(route.segments, parts)
+    if (params) return { handler: route.handler, params }
   }
   return null
 }
 
+const closeSocketOnceAnswered = (req: http.IncomingMessage, res: http.ServerResponse) => {
+  res.setHeader('Connection', 'close')
+  res.on('finish', () => req.destroy())
+}
+
 async function handleAuthedApi(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
-  const hit = match(req.method ?? 'GET', url.pathname)
+  const hit = matchRoute(req.method ?? 'GET', url.pathname)
   if (!hit) return json(res, 404, { error: 'not found' })
   try {
     await hit.handler({
@@ -404,60 +374,40 @@ async function handleAuthedApi(req: http.IncomingMessage, res: http.ServerRespon
     })
   } catch (err) {
     if (err instanceof HttpError) {
-      // A body that was refused unread is still on the wire; close behind the answer.
-      if (err.status === 413) {
-        res.setHeader('Connection', 'close')
-        res.on('finish', () => req.destroy())
-      }
+      const bodyLeftUnreadOnTheWire = err.status === 413
+      if (bodyLeftUnreadOnTheWire) closeSocketOnceAnswered(req, res)
       return json(res, err.status, { error: err.message })
     }
     throw err
   }
 }
 
-// ---- Routes ----
+const renewSessionCookie = (req: http.IncomingMessage, res: http.ServerResponse) =>
+  res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
 
-/* The token check is also where a browser picks up its session cookie, so
-   every successful pairing — and every reload — renews it in one round trip. */
 on('GET /api/auth/check', ({ req, res }) => {
-  if (bearer(req)) res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
+  if (hasBearerToken(req)) renewSessionCookie(req, res)
   return json(res, 200, { ok: true })
 })
 
-/* A pairing code for the token — see pairing.ts. The failure path is slowed
-   like a bad token's, since a code is shorter-lived but not longer. */
 on('POST /api/auth/pair', async ({ req, res, body }) => {
   const b = await body<{ code?: unknown }>()
   const code = typeof b.code === 'string' ? b.code : ''
   if (!code || !pairing.redeem(code)) {
-    await rejectSlowly(req)
+    await slowDownCredentialGuessing(req)
     return json(res, 401, { error: 'that pairing code is not good any more' })
   }
   forgetFailures(req)
-  res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
+  renewSessionCookie(req, res)
   return json(res, 200, { token: TOKEN })
 })
 
-/* A fresh code, for whoever already holds the token — `orbit pair` on the Mac,
-   printing a new QR after the one on screen has expired. */
 on('POST /api/auth/pair-code', async ({ res }) => {
   const { code, expiresAt } = pairing.mint()
   const base = await pairBase()
   return json(res, 200, { code, expiresAt, url: pairing.pairUrl(base, code) })
 })
 
-/* Unpairing this phone, which is more than forgetting the token it typed.
-   Two things outlive `localStorage` and both are handed back here: the session
-   cookie, which no script can delete (see `expiredSessionCookie`), and the push
-   subscription, which is registered against the *browser* and would otherwise
-   keep waking a phone that can no longer open the app to see why. The endpoint
-   comes from the client because that is the only side that knows which of the
-   registered devices is this one — the server sees a list of opaque URLs with
-   nothing on them that says "the phone asking".
-
-   A Bearer token is required, like every other write: the cookie alone must not
-   be able to unpair, or a request the browser was tricked into sending could
-   log the owner out. */
 on('POST /api/auth/unpair', async ({ req, res, body }) => {
   const b = await body<{ endpoint?: string }>()
   if (typeof b.endpoint === 'string' && b.endpoint) push.unsubscribe(b.endpoint)
@@ -474,13 +424,12 @@ on('GET /api/providers', async ({ res }) => {
   )
 })
 
+const discoverSessionsStartedFromTheMac = () =>
+  manager.discover().catch((err) => console.error('[orbit] transcript scan failed:', err))
+
 on('GET /api/sessions', async ({ res }) => {
-  /* Conversations run from a terminal on the Mac are found by looking, not by
-     being told — so the list is where the looking happens. A scan that fails
-     costs those rows, never the sessions Orbit does own. */
-  await manager.discover().catch((err) => console.error('[orbit] transcript scan failed:', err))
+  await discoverSessionsStartedFromTheMac()
   const list = manager.list()
-  // A forgotten session cannot still be waiting for anything.
   attention.keepOnly(list.map((s) => s.id))
   return json(
     res,
@@ -489,63 +438,55 @@ on('GET /api/sessions', async ({ res }) => {
   )
 })
 
+const MAX_SESSION_NAME_LENGTH = 60
+
+const sessionNameFrom = (raw: unknown): string =>
+  typeof raw === 'string' ? raw.trim().slice(0, MAX_SESSION_NAME_LENGTH) : ''
+
+const directoryInsideHome = async (requested: string): Promise<string> => {
+  const safe = safePath(requested)
+  if (!safe) throw bad('cwd must be inside the home directory')
+  const stat = await statFile(safe)
+  if (!stat?.isDirectory()) throw bad('cwd is not a directory')
+  return safe
+}
+
+const infoFor = (sessionId: string) => manager.list().find((s) => s.id === sessionId)
+
 on('POST /api/sessions', async ({ res, body }) => {
   const b = await body<{ provider?: string; cwd?: string; name?: string }>()
 
   const provider = getProvider(b.provider ?? 'shell')
   if (!provider) throw bad(`unknown provider: ${b.provider}`)
 
-  let cwd = HOME
-  if (b.cwd) {
-    const safe = safePath(b.cwd)
-    if (!safe) throw bad('cwd must be inside the home directory')
-    const stat = await fsp.stat(safe).catch(() => null)
-    if (!stat?.isDirectory()) throw bad('cwd is not a directory')
-    cwd = safe
-  }
-
-  const name = typeof b.name === 'string' ? b.name.trim().slice(0, 60) : ''
+  const cwd = b.cwd ? await directoryInsideHome(b.cwd) : HOME
+  const name = sessionNameFrom(b.name)
   const session = manager.create({ provider, cwd, name: name || undefined })
-  const info = manager.list().find((s) => s.id === session.id)
-  return json(res, 201, info)
+  return json(res, 201, infoFor(session.id))
 })
 
 on('DELETE /api/sessions/:id', ({ res, params }) => {
   const session = manager.get(params.id)
   if (session) {
-    session.kill() // moves to the ended list, history kept
+    session.kill()
     return json(res, 200, { ok: true })
   }
-  /* Its transcript belongs to Claude Code on the Mac. Orbit reads that file and
-     writes nothing to it — deleting one from a phone is not a tap to offer. */
-  if (manager.isExternal(params.id)) {
+  const transcriptBelongsToTheMac = manager.isExternal(params.id)
+  if (transcriptBelongsToTheMac) {
     throw bad('this conversation belongs to the Mac — Orbit only reads it')
   }
-  if (manager.forget(params.id)) return json(res, 200, { ok: true }) // ended: remove + history
+  const endedAndForgotten = manager.forget(params.id)
+  if (endedAndForgotten) return json(res, 200, { ok: true })
   throw notFound()
 })
 
-/* Hiding, which is what the ✕ on a conversation from the Mac would have been
-   if Orbit were allowed to delete one. It is not: that transcript is Claude
-   Code's file, and the DELETE above says so. So the phone keeps its own list of
-   rows it does not want to see, in `~/.orbit/hidden.json`, and the file stays
-   exactly where it was — a hidden conversation is still resumable at the desk,
-   and still comes back if it is un-hidden.
-
-   Both of these are literal paths that could be read as `/api/sessions/:id`,
-   which is why neither is a DELETE: the router picks between two patterns of
-   the same shape by registration order, and a rule that lives in the order
-   lines happen to be written is the exact thing the table replaced. A GET and
-   a POST collide with nothing. */
 on('GET /api/sessions/hidden', ({ res }) => json(res, 200, { hidden: manager.hiddenCount() }))
 
 on('POST /api/sessions/unhide', ({ res }) => json(res, 200, { unhidden: manager.unhideAll() }))
 
 on('POST /api/sessions/:id/hide', ({ res, params }) => {
-  if (manager.hide(params.id)) return json(res, 200, { ok: true })
-  /* Either it is not a row the phone was just shown, or it is one of Orbit's
-     own — which has a real ✕ and a real delete, and must not quietly acquire a
-     second, weaker one that leaves the history on disk. */
+  const hideableRowFromTheMac = manager.hide(params.id)
+  if (hideableRowFromTheMac) return json(res, 200, { ok: true })
   throw notFound()
 })
 
@@ -553,14 +494,12 @@ on('PATCH /api/sessions/:id', async ({ res, params, body }) => {
   const session = manager.get(params.id)
   if (!session) throw notFound()
   const b = await body<{ name?: string }>()
-  const name = typeof b.name === 'string' ? b.name.trim().slice(0, 60) : ''
+  const name = sessionNameFrom(b.name)
   session.name = name || null
   manager.persistNow()
   return json(res, 200, { ok: true, name: session.name })
 })
 
-/* Reading is what marks it read. The phone says so when the session is
-   actually on screen, which is the only moment that means anything. */
 on('DELETE /api/sessions/:id/attention', ({ res, params }) =>
   json(res, 200, { cleared: attention.clear(params.id) }),
 )
@@ -574,36 +513,42 @@ on('POST /api/sessions/:id/restart', async ({ res, params, body }) => {
       b.resume ? 'this agent cannot resume a conversation' : 'not found or not restartable',
     )
   }
-  const info = manager.list().find((s) => s.id === session.id)
-  return json(res, 201, info)
+  return json(res, 201, infoFor(session.id))
 })
+
+const readUploadBody = (req: http.IncomingMessage) =>
+  new Promise<Buffer[]>((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > uploads.LIMIT) {
+        stopReadingSoTheAnswerCanStillBeWritten(req)
+        reject(new HttpError(413, `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit`))
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolve(chunks))
+    req.on('error', reject)
+  })
 
 on('POST /api/upload', async ({ req, res, url }) => {
   const rawName = url.searchParams.get('name') ?? 'image.png'
-  const chunks: Buffer[] = []
-  let size = 0
+  let chunks: Buffer[]
   try {
-    await new Promise<void>((resolve, reject) => {
-      req.on('data', (chunk: Buffer) => {
-        size += chunk.length
-        if (size > uploads.LIMIT) {
-          req.pause()
-          reject(new HttpError(413, `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit`))
-          return
-        }
-        chunks.push(chunk)
-      })
-      req.on('end', resolve)
-      req.on('error', reject)
-    })
+    chunks = await readUploadBody(req)
   } catch (err) {
     if (err instanceof HttpError) throw err
     throw bad('upload failed')
   }
-  if (size === 0) throw bad('empty upload')
-  const file = await uploads.save(rawName, Buffer.concat(chunks))
+  const content = Buffer.concat(chunks)
+  if (content.length === 0) throw bad('empty upload')
+  const file = await uploads.save(rawName, content)
   return json(res, 201, { path: file })
 })
+
+const HTTP_URL = /^https?:\/\//
 
 on('POST /api/screenshot', async ({ res, body }) => {
   const b = await body<{
@@ -625,7 +570,7 @@ on('POST /api/screenshot', async ({ res, body }) => {
     }
   }
 
-  if (!b.url || !/^https?:\/\//.test(b.url)) throw bad('url must start with http(s)://')
+  if (!b.url || !HTTP_URL.test(b.url)) throw bad('url must start with http(s)://')
   if (b.preset !== undefined && !screenshot.isPreset(b.preset)) {
     throw bad(`unknown preset: ${b.preset}`)
   }
@@ -638,41 +583,23 @@ on('POST /api/screenshot', async ({ res, body }) => {
 
 on('GET /api/presets', ({ res }) => json(res, 200, screenshot.PRESETS))
 
-/* Force-cold the warm Playwright Chrome used for captures. Does not touch
-   GUI browsers an agent opened in a PTY — those are not Orbit's process.
-
-   No longer offered on the phone: the button was faint text in the middle of a
-   settings row, was read as closing the frame or the agent's own tabs, and
-   saved a process that `screenshot.ts` already closes itself after a minute
-   idle. Kept as a route because a wedged Chrome is worth one curl, and nothing
-   reaches this by accident. */
 on('POST /api/resources/chrome/close', async ({ res }) => {
   await screenshot.shutdown()
   return json(res, 200, { ok: true })
 })
 
-/* What is serving a page on this Mac right now, so the phone can offer it
-   instead of asking someone to type a port on a touch keyboard. Costs one
-   `lsof` and a short-lived socket per candidate, so it is asked on arrival
-   and on waking — never polled. */
 on('GET /api/ports', async ({ res }) => json(res, 200, await ports.devServers(PORT)))
-
-// ---- Previews: a dev server, over https, on the tailnet ----
 
 on('GET /api/previews', async ({ res }) => json(res, 200, await preview.state(PORT)))
 
-/* The half worth polling. `ports` is a list because the phone already knows
-   which ones it is showing, and asking about those costs a TCP connect each —
-   no `tailscale` process, so a tab left open is not a process every few
-   seconds. Capped so one request cannot ask for a port scan.
+const MAX_PORTS_PER_LIVENESS_CHECK = 32
 
-   Registered above `/api/previews/:port`, the only other route it could match. */
 on('GET /api/previews/live', async ({ res, url }) => {
   const wanted = (url.searchParams.get('ports') ?? '')
     .split(',')
     .map(Number)
     .filter(Boolean)
-    .slice(0, 32)
+    .slice(0, MAX_PORTS_PER_LIVENESS_CHECK)
   return json(res, 200, await preview.liveness(wanted))
 })
 
@@ -694,111 +621,82 @@ on('DELETE /api/previews/:port', async ({ res, params }) => {
   }
 })
 
-/**
- * The agent saying "go and look at this yourself".
- *
- * `orbit_capture` lets it look at the picture and `orbit_notify` lets it say
- * done; this is the third thing, which neither could do — hand the running app
- * to the person holding the phone, already on the route in question, without
- * them tapping through the Preview tab and then typing a path.
- */
+const MAX_PORT = 65_535
+
+const isPortNumber = (port: number) => Number.isInteger(port) && port >= 1 && port <= MAX_PORT
+
+const rethrowAsBadRequest = <T>(work: () => T): T => {
+  try {
+    return work()
+  } catch (err) {
+    throw bad((err as Error).message)
+  }
+}
+
+const publishOrBadRequest = async (port: number): Promise<preview.Preview> => {
+  try {
+    return await preview.start(port, PORT)
+  } catch (err) {
+    throw bad((err as Error).message)
+  }
+}
+
+const leaveANoticeAboutTheMissedPreview = async (
+  url: string,
+  port: number,
+  source: string | null,
+  sessionId: string | null,
+): Promise<number> => {
+  const { pathname, search } = new URL(url)
+  const message = `Wanted to show you port ${port} at ${pathname}${search} — open it from the Preview tab.`
+  const notice = notify.notify({ message, source, sessionId })
+  const pushed = await push.send('Orbit', message, sessionId, push.NOTICE)
+  if (pushed > 0) notify.markPushed(notice.id)
+  return pushed
+}
+
 on('POST /api/preview', async ({ res, body }) => {
   const b = await body<{ port?: number; path?: string; source?: string; sessionId?: string }>()
   const port = Number(b.port)
-  /* Ahead of the probe below, not because `preview.start` does not check the
-     same thing a moment later, but because a socket opened on `NaN` — which is
-     what an agent that forgot the argument sends — fails with the wrong words
-     entirely. */
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw bad('port must be 1–65535')
+  if (!isPortNumber(port)) throw bad('port must be 1–65535')
 
-  /* The one place a port reaches the tailnet without anybody looking at it.
-     From the phone, publishing is a deliberate tap on a chip the Mac already
-     filtered down to things that answer HTTP; here the agent names the number
-     itself, and `orbit_preview(5432)` would put Postgres on the tailnet — read
-     only by the tailnet, and only until Orbit exits, but published by a
-     mistake rather than by a decision. So ask the port the same question the
-     chip list asks, before `tailscale serve` is touched at all: a refusal that
-     published nothing is one the agent can simply act on.
-
-     This is where the agent's path deliberately parts company with the
-     phone's. `preview.start` publishes a port with nothing on it yet, because
-     a person tapping a chip is often a second ahead of the dev server and the
-     row says so — the human reads "nothing there yet" and waits. The agent has
-     no such row: it hands the URL straight to a frame on someone's phone, and
-     a blank frame is indistinguishable from a broken app. It is also the one
-     that can fix it, having just been told which port it forgot to start. */
-  if (!(await ports.speaksHttp(port))) {
+  const somethingToShow = await ports.speaksHttp(port)
+  if (!somethingToShow) {
     throw bad(
       `nothing is answering HTTP on ${port} — start the dev server first, or, if that ` +
         'port is a database or some other service, it is not something the phone can open',
     )
   }
 
-  let published: preview.Preview
-  try {
-    published = await preview.start(port, PORT)
-  } catch (err) {
-    // Same treatment as POST /api/previews: tailscale's own words, verbatim.
-    throw bad((err as Error).message)
-  }
-  let url: string
-  try {
-    url = preview.previewUrl(published.url, b.path)
-  } catch (err) {
-    // A plain Error from preview.ts; the 400 is this route's to give.
-    throw bad((err as Error).message)
-  }
+  const published = await publishOrBadRequest(port)
+  const url = rethrowAsBadRequest(() => preview.previewUrl(published.url, b.path))
+  const source = b.source ?? null
   const sessionId = resolveSession(b.sessionId, b.source)
-  const { delivered } = notify.openPreview({
-    url,
-    port: published.port,
-    source: b.source ?? null,
-    sessionId,
-  })
-  /* Nobody was there. A frame cannot be opened retroactively — and would show
-     the wrong thing if it could, an hour of work later — so what is kept is a
-     notice saying which port and path were meant, through the same missed
-     queue and push that carry a notice nobody was there for. The user opens it
-     themselves, on the route the agent named. */
-  let pushed = 0
-  if (delivered === 0) {
-    const { pathname, search } = new URL(url)
-    const message = `Wanted to show you port ${published.port} at ${pathname}${search} — open it from the Preview tab.`
-    const notice = notify.notify({ message, source: b.source ?? null, sessionId })
-    pushed = await push.send('Orbit', message, sessionId, push.NOTICE)
-    if (pushed > 0) notify.markPushed(notice.id)
-  }
+  const { delivered } = notify.openPreview({ url, port: published.port, source, sessionId })
+
+  const nobodyWasThere = delivered === 0
+  const pushed = nobodyWasThere
+    ? await leaveANoticeAboutTheMissedPreview(url, published.port, source, sessionId)
+    : 0
   return json(res, 200, { url, port: published.port, delivered, pushed, sessionId })
 })
 
-/* ---- What the agent changed ----
- *
- * Everything here is addressed by folder rather than by session: the phone
- * takes the folder from whichever session it is showing, and two sessions in
- * one repository are looking at the same working tree anyway. Same home
- * restriction as the folder browser — this reads and writes real files.
- */
 type RepoCtx = Ctx & { cwd: string; input: Record<string, any> }
+
+const requestedRepoFolder = (c: Ctx, input: Record<string, any>): string => {
+  if (c.req.method === 'GET') return c.url.searchParams.get('cwd') ?? ''
+  return typeof input.cwd === 'string' ? input.cwd : ''
+}
 
 const inRepo =
   (handler: (c: RepoCtx) => Promise<unknown> | unknown): Handler =>
   async (c) => {
     const input = c.req.method === 'GET' ? {} : await c.body()
-    const asked =
-      c.req.method === 'GET'
-        ? (c.url.searchParams.get('cwd') ?? '')
-        : typeof input.cwd === 'string'
-          ? input.cwd
-          : ''
-    const cwd = safePath(asked)
-    if (!cwd) throw bad('cwd must be inside the home directory')
-    const stat = await fsp.stat(cwd).catch(() => null)
-    if (!stat?.isDirectory()) throw bad('cwd is not a directory')
+    const cwd = await directoryInsideHome(requestedRepoFolder(c, input))
     try {
       return await handler({ ...c, cwd, input })
     } catch (err) {
       if (err instanceof HttpError) throw err
-      // git's own words: "nothing is staged", "failed to push some refs", …
       throw bad((err as Error).message)
     }
   }
@@ -828,10 +726,6 @@ on(
   }),
 )
 
-/* One hunk rather than the whole file. The body of the hunk comes from the
-   phone; the header naming the file is written on this side from a path that
-   has already been checked, so a patch cannot reach a file the sheet was not
-   showing. */
 on(
   'POST /api/git/hunk',
   inRepo(async ({ res, cwd, input }) => {
@@ -860,24 +754,12 @@ on(
   }),
 )
 
-// ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
-
-/** What to call a session in a banner, in the order the phone itself does. */
 const labelOf = (sessionId: string): string => {
   const s = manager.list().find((entry) => entry.id === sessionId)
   if (!s) return 'A session'
   return s.name ?? s.firstCommand ?? path.basename(s.cwd) ?? s.providerName
 }
 
-/* The other half of the channel: a session that stopped without saying so.
- *
- * `idle.ts` works out that it happened; everything here is about who, if
- * anyone, should be interrupted for it. Three answers, in order of how much
- * they cost the user: someone already has it on screen (nothing at all — the
- * screen it was scraped from is the thing they are looking at), the agent has
- * already spoken for itself (`raiseIdle` declines, and its words stand), or a
- * phone is connected and gets a silent badge. Only when there is no phone at
- * all is this worth a notification, and that is the case it was built for. */
 manager.onQuiet = (sessionId, message) => {
   if (notify.isViewing(sessionId)) return
   if (!attention.raiseIdle(sessionId, message)) return
@@ -902,30 +784,22 @@ on('POST /api/notify', async ({ res, body }) => {
   if (!message) throw bad('message is required')
 
   const sessionId = resolveSession(b.sessionId, b.source)
-  /* `quiet` is for things the user can already see, and what they can see is
-     one session — not "Orbit is open somewhere". Judging it by whether any
-     phone was connected is what made the other session's "Claude is waiting"
-     vanish while you were reading this one. */
+
   const seen = sessionId ? notify.isViewing(sessionId) : notify.clientCount() > 0
   if (b.quiet && seen) {
     return json(res, 200, { delivered: 0, pushed: 0, dropped: true, sessionId })
   }
-  // Held against the session until someone reads it — a toast is three seconds.
+
   if (sessionId && !seen) {
     attention.raise(sessionId, b.kind === 'waiting' ? 'waiting' : 'done', message)
   }
   const { delivered, id } = notify.notify({ message, source: b.source ?? null, sessionId })
-  // Nothing was listening: wake the phone instead, and it will also see the
-  // notice itself when it next connects.
+
   const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId, push.NOTICE) : 0
   if (pushed > 0) notify.markPushed(id)
   return json(res, 200, { delivered, pushed, sessionId })
 })
 
-/* The one route the access token does not guard — see `notify.answerWith`,
-   which is where the reasoning lives. Everything it can do is bounded by a
-   capability that came out of this server minutes ago and dies with the
-   question it names. */
 on('POST /api/ask/answer', async ({ req, res, body }) => {
   const b = await body<{ id?: string; token?: string; choice?: string }>()
   const ok =
@@ -934,11 +808,8 @@ on('POST /api/ask/answer', async ({ req, res, body }) => {
     typeof b.choice === 'string' &&
     notify.answerWith(b.id, b.token, b.choice)
   if (!ok) {
-    /* Stale rather than wrong, most of the time: the question was answered in
-       the app, or timed out, while its banner sat on the lock screen. The
-       delay is paced the same way a bad token is regardless — the two are
-       indistinguishable from here, and only one of them is a person. */
-    await rejectSlowly(req)
+
+    await slowDownCredentialGuessing(req)
     return json(res, 404, { error: 'that question is no longer open' })
   }
   forgetFailures(req)
@@ -981,17 +852,10 @@ on('POST /api/ask', async ({ res, body }) => {
     : undefined
   const timeoutSeconds = Math.min(Math.max(b.timeoutSeconds ?? 120, 5), 600)
   const sessionId = resolveSession(b.sessionId, b.source)
-  /* Nobody to ask. No phone holds a socket and none has asked to be pushed
-     to, so the only way this question gets answered is someone opening the
-     app by coincidence inside the timeout — and the approval hook's timeout
-     is three minutes, which is how long `rm -f build/` at the desk stalled
-     before being refused. A few seconds covers a socket mid-reconnect; the
-     rest of the wait was for nobody. The answer is the same either way. */
+
   const unheard = notify.clientCount() === 0 && push.count() === 0
   const timeoutMs = unheard ? Math.min(timeoutSeconds, 5) * 1000 : timeoutSeconds * 1000
-  /* Marked as waiting for the whole time it is open. A question that nobody
-     answers times out over there and leaves nothing behind otherwise — and
-     "an agent gave up waiting for me" is worth finding out late. */
+
   if (sessionId) attention.raise(sessionId, 'waiting', question)
   const result = await notify.ask({
     question,
@@ -1000,17 +864,7 @@ on('POST /api/ask', async ({ res, body }) => {
     source: b.source ?? null,
     sessionId,
     timeoutMs,
-    /* A question is worth waking someone for — and unlike a notice it is still
-       waiting when they arrive, so the push is a nudge rather than the content.
-       It carries the question's name and a one-shot capability to answer it, so
-       the two obvious answers can be buttons on the banner itself: the phone
-       that was woken for this is, by definition, in a pocket with the app shut,
-       and "unlock, open Orbit, wait for the socket, tap Allow" is four steps to
-       say a word the notification was already showing.
 
-       Sent from inside `ask` rather than before it because a capability cannot
-       name a question that does not exist yet, and not awaited because the
-       thing being waited for is the answer. */
     announce: ({ id, answerToken, options: choices }) => {
       if (notify.clientCount() > 0) return
       void push.send(
@@ -1078,12 +932,6 @@ const server = http.createServer((req, res) => {
   })
 })
 
-/* `maxPayload` because a frame is a keystroke or a paste, and the default is
-   100MB of memory anyone who can open a socket may ask for. `perMessageDeflate`
-   because the first thing every reconnect carries is the scrollback replay —
-   up to 200KB of text, on a phone, every time the screen comes back on.
-   `threshold` keeps single keystrokes out of the compressor, where the frame
-   header would cost more than the byte saved. */
 const wss = new WebSocketServer({
   server,
   path: '/ws',
@@ -1097,10 +945,9 @@ const wss = new WebSocketServer({
 
 wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url ?? '/ws', 'http://localhost')
-  // A browser cannot set a header here, so the cookie carries it; other clients
-  // (the MCP server, scripts) send the token the normal way.
-  if (!bearer(req) && !(hasSessionCookie(req, TOKEN) && sameOrigin(req))) {
-    await rejectSlowly(req)
+
+  if (!hasBearerToken(req) && !(hasSessionCookie(req, TOKEN) && originIsThisHost(req))) {
+    await slowDownCredentialGuessing(req)
     ws.close(4001, 'unauthorized')
     return
   }
@@ -1114,12 +961,8 @@ wss.on('connection', async (ws: WebSocket, req) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg))
   }
 
-  /* Notices and questions are about the phone, not about one session — every
-     open socket carries them, including the one showing an ended session. */
   const client = notify.addClient(send)
-  /* Assume the session it attached to is the one on screen, which is true the
-     moment the app opens on the terminal. The phone corrects it as soon as it
-     mounts, and whenever it leaves for another tab or the screen goes dark. */
+
   client.setViewing(requestedId)
   ws.on('close', client.drop)
   ws.on('message', (raw) => {
@@ -1128,12 +971,9 @@ wss.on('connection', async (ws: WebSocket, req) => {
     if (msg?.type === 'viewing') client.setViewing(msg.sessionId)
   })
 
-  // Ended session: replay its history read-only, no PTY behind it.
   if (requestedId && !manager.get(requestedId) && manager.isDead(requestedId)) {
     const history = await manager.deadScrollback(requestedId)
-    /* One of these ran on the Mac and was never Orbit's to end. Saying it
-       "ended" would claim something about a conversation the user may simply
-       have walked away from. */
+
     const footer = manager.isExternal(requestedId)
       ? 'end of transcript — read-only'
       : 'session ended — read-only'
@@ -1141,15 +981,12 @@ wss.on('connection', async (ws: WebSocket, req) => {
       type: 'ready',
       sessionId: requestedId,
       readOnly: true,
-      // Just the fact — the client owns the affordance (New lives in the header).
+
       replay: history + `\r\n\x1b[90m[${footer}]\x1b[0m\r\n`,
     })
     return
   }
 
-  /* A session id the server has never heard of is a stale one on the phone —
-     from a cleared ~/.orbit, or a pruned entry. Silently opening a shell in the
-     home directory instead looked like the session had simply moved. */
   const existing = requestedId ? manager.get(requestedId) : undefined
   if (requestedId && !existing) {
     send({ type: 'gone', sessionId: requestedId })
@@ -1157,12 +994,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
     return
   }
 
-  // No id at all (a bare /ws connection) still gets a shell to talk to.
   let session: ReturnType<PtyManager['create']>
   try {
     session = existing ?? manager.create({ cols, rows })
   } catch (err) {
-    // A spawn that failed is this socket's problem, not the process's.
+
     console.error('[orbit] could not start a shell:', err)
     ws.close(1011, 'could not start a shell')
     return
@@ -1170,11 +1006,6 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   send({ type: 'ready', sessionId: session.id, readOnly: false, replay: session.scrollback() })
 
-  /* A phone on a slow link reading an agent that prints fast: `ws.send` queues
-     without limit, and the queue is this process's memory. Past a bound the
-     frame is dropped rather than held — the screen is redrawn whole by the
-     agent on the next resize anyway, and a session that fell behind by a
-     megabyte was not being read. */
   const MAX_BUFFERED = 4 * 1024 * 1024
   const offData = session.onData((data) => {
     if (ws.bufferedAmount > MAX_BUFFERED) return
@@ -1185,14 +1016,8 @@ wss.on('connection', async (ws: WebSocket, req) => {
     ws.close()
   })
 
-  /* The replay above is the screen, drawn by the agent for the size it had —
-     so at that same size there is nothing to ask for, and asking anyway was the
-     jump that opened every switch between sessions. A phone arriving at a
-     different size is the one case the replay cannot cover, and `resize` drops
-     everything else. */
   if (existing) session.resize(cols, rows)
 
-  // Dangerous chunks (paste/voice/automation) are held until the user approves.
   const pendingApprovals = new Map<string, string>()
   let approvalSeq = 0
 
@@ -1223,9 +1048,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
         pendingApprovals.delete(msg.id)
         break
       case 'resize':
-        /* Only a size that moved, and only once the phone's layout has settled:
-           the size the agent hears is then the size the screen has, and the one
-           SIGWINCH it raises is answered with one whole frame. */
+
         session.resize(msg.cols, msg.rows)
         break
       case 'ping':
@@ -1234,7 +1057,6 @@ wss.on('connection', async (ws: WebSocket, req) => {
     }
   })
 
-  // Detaching a client leaves the PTY running; the phone can reconnect later.
   ws.on('close', () => {
     offData()
     offExit()
@@ -1242,17 +1064,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 })
 
 server.listen(PORT, async () => {
-  /* The banner's first line is the phone's address, and only `tailscale` knows
-     it. That answer costs a process and, on a machine whose network is still
-     coming up, can take the CLI's full timeout to arrive — so it is raced, and
-     a lookup that has not answered within a moment is simply not waited for.
-     The banner then leads with the local URL instead, which is the honest
-     answer when nothing can confirm the other one. Startup is not blocked
-     either way: the server is already listening by the time this runs.
 
-     Piped into a log file or handed to a service manager the whole block is
-     noise, and `plainBanner` keeps the `[orbit] access token:` line the docs
-     point at. */
   const tailnetUrl = await Promise.race([
     preview
       .state(PORT)
@@ -1260,9 +1072,7 @@ server.listen(PORT, async () => {
       .catch(() => null),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500).unref()),
   ])
-  /* The QR is an address the phone's camera can open, with a pairing code
-     good for ten minutes; the token line beside it is for typing and for the
-     docs. Only when someone is watching: a log file has no camera. */
+
   const pairUrl = process.stdout.isTTY ? pairing.pairUrl(await pairBase(tailnetUrl), pairing.mint().code) : null
   const facts = { port: PORT, token: TOKEN, tailnetUrl, pairUrl }
   console.log(process.stdout.isTTY ? banner(facts) : plainBanner(facts))
@@ -1279,9 +1089,6 @@ server.listen(PORT, async () => {
     .catch((err) => console.error('[orbit] startup maintenance failed:', err))
 })
 
-/* Where a phone can reach this server, most useful first: the tailnet
-   address when it is published, else the Mac's own address on the local
-   network, else localhost — which only helps a simulator. */
 async function pairBase(tailnetUrl?: string | null): Promise<string> {
   const published =
     tailnetUrl === undefined
@@ -1297,8 +1104,7 @@ async function pairBase(tailnetUrl?: string | null): Promise<string> {
 
 const shutdown = () => {
   manager.killAll()
-  // Warm Chrome and published preview serves (8443+) would otherwise outlive
-  // the process. Front-door Tailscale (443) is left for `make stop` / phone-off.
+
   Promise.all([screenshot.shutdown(), preview.stopAll(PORT)]).finally(() => process.exit(0))
   setTimeout(() => process.exit(0), 2000).unref()
 }
@@ -1306,11 +1112,6 @@ const shutdown = () => {
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 
-/* Last resort. Node's default for either of these is to exit, which here
-   means every PTY session dies with its scrollback unflushed because one
-   handler threw. Logging and carrying on is the wrong answer for a corrupted
-   state, but the failures actually seen — a spawn that failed, a socket that
-   closed mid-write — are local to one request, and the sessions were fine. */
 process.on('unhandledRejection', (err) => {
   console.error('[orbit] unhandled rejection:', err)
 })

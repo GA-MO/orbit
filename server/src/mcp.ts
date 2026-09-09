@@ -1,21 +1,3 @@
-/**
- * Orbit as an MCP server — the agent's side of the app.
- *
- * Everything here already exists in the phone UI; this exposes it to the agent
- * running inside an Orbit session, so it can look at its own work and reach the
- * person holding the phone without them driving every step:
- *
- *   orbit_capture   render a URL and *see* the picture (not a file path)
- *   orbit_screen    look at the Mac's screen — simulators, native apps, Xcode
- *   orbit_notify    say "done" — or "waiting for you" — to the phone
- *   orbit_preview   open the running app on their phone, on a route you choose
- *   orbit_ask       ask a question and wait for the tap
- *
- * Speaks JSON-RPC over stdio directly: the protocol surface an MCP server needs
- * is four methods, which is less code than wiring up a framework for it.
- *
- * Register with:  claude mcp add orbit -- node <repo>/server/dist/mcp.js
- */
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -26,25 +8,23 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 
 const PROTOCOL_VERSION = '2025-06-18'
+const SERVER_INFO = { name: 'orbit', version: '0.1.0' }
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const BASE = `http://127.0.0.1:${PORT}`
-/* Inherited from the PTY the agent was launched in — this process is its
-   grandchild. It lets a message be filed against the session it came out of
-   rather than guessed at from a folder two sessions may share. Empty when
-   Claude Code is running at the desk instead of through Orbit. */
 const SESSION_ID = process.env.ORBIT_SESSION_ID || null
-/** Claude resizes anything larger anyway; sending less costs the agent less. */
 const MAX_IMAGE_WIDTH = 1568
+const CONFIG_PATH = path.join(process.env.ORBIT_HOME || os.homedir(), '.orbit', 'config.json')
+const ERROR_BODY_PREVIEW_CHARS = 200
 
-const token = (): string => {
+const JSON_RPC_METHOD_NOT_FOUND = -32601
+const JSON_RPC_INVALID_PARAMS = -32602
+const JSON_RPC_INTERNAL_ERROR = -32603
+
+const readToken = (): string => {
   try {
-    const config = JSON.parse(
-      fs.readFileSync(path.join(process.env.ORBIT_HOME || os.homedir(), '.orbit', 'config.json'), 'utf8'),
-    )
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
     if (typeof config.token === 'string') return config.token
-  } catch {
-    // reported per call — the server may simply not have run yet
-  }
+  } catch {}
   return ''
 }
 
@@ -53,7 +33,7 @@ const api = async (route: string, body: unknown): Promise<any> => {
   try {
     res = await fetch(BASE + route, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${readToken()}` },
       body: JSON.stringify(body),
     })
   } catch {
@@ -64,31 +44,29 @@ const api = async (route: string, body: unknown): Promise<any> => {
   try {
     parsed = JSON.parse(text)
   } catch {
-    parsed = { error: text.slice(0, 200) }
+    parsed = { error: text.slice(0, ERROR_BODY_PREVIEW_CHARS) }
   }
   if (!res.ok) throw new Error(parsed.error ?? `${route} failed (${res.status})`)
   return parsed
 }
 
-/* A retina screen is ~3500px wide; downscaling a copy keeps the original on
-   disk full size while the agent gets something proportionate. */
+const downscaledCopy = async (filePath: string): Promise<string | null> => {
+  const scaled = path.join(os.tmpdir(), `orbit-mcp-${path.basename(filePath)}`)
+  const ok = await execFileAsync('/usr/bin/sips', ['-Z', String(MAX_IMAGE_WIDTH), filePath, '--out', scaled])
+    .then(() => true)
+    .catch(() => false)
+  return ok ? scaled : null
+}
+
 const imageContent = async (filePath: string, width: number | null) => {
-  let source = filePath
-  if (width && width > MAX_IMAGE_WIDTH) {
-    const scaled = path.join(os.tmpdir(), `orbit-mcp-${path.basename(filePath)}`)
-    const ok = await execFileAsync('/usr/bin/sips', ['-Z', String(MAX_IMAGE_WIDTH), filePath, '--out', scaled])
-      .then(() => true)
-      .catch(() => false)
-    if (ok) source = scaled
-  }
+  const needsDownscale = !!width && width > MAX_IMAGE_WIDTH
+  const source = (needsDownscale && (await downscaledCopy(filePath))) || filePath
   const data = await fsp.readFile(source, 'base64')
   if (source !== filePath) await fsp.rm(source, { force: true })
   return { type: 'image', data, mimeType: 'image/png' }
 }
 
 const text = (value: string) => ({ type: 'text', text: value })
-
-// ---- Tools ----
 
 interface Tool {
   name: string
@@ -154,10 +132,6 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         message: { type: 'string', description: 'One line, e.g. "Migration finished — 42 files changed".' },
-        /* Without this every message an agent sent counted as "done", so the
-           one thing worth interrupting someone for — work stopped, waiting on
-           them — was the one thing it could not say. The hook could; the agent
-           itself could not. */
         kind: {
           type: 'string',
           enum: ['done', 'waiting'],
@@ -175,14 +149,12 @@ const TOOLS: Tool[] = [
         source: process.cwd(),
         sessionId: SESSION_ID,
       })
-      /* A `waiting` message is kept against the session, so "nobody saw it" is
-         not the same answer it used to be — it is still going to be there. */
-      const missed =
+      const nobodySawIt =
         kind === 'waiting'
           ? 'No phone is connected right now — it is held against this session until someone reads it.'
           : 'No phone is connected right now — the message was not shown.'
       return {
-        content: [text(delivered > 0 ? `Delivered to ${delivered} connected phone(s).` : missed)],
+        content: [text(delivered > 0 ? `Delivered to ${delivered} connected phone(s).` : nobodySawIt)],
       }
     },
   },
@@ -194,10 +166,6 @@ const TOOLS: Tool[] = [
       type: 'object',
       properties: {
         port: { type: 'number', description: "The dev server's port on the Mac, e.g. 5173." },
-        /* The whole reason this tool exists: a published preview lands on `/`,
-           and the route worth showing is the one just changed. Asking the user
-           to type it on a phone keyboard is the problem the port chips in the
-           Preview tab were invented to remove. */
         path: {
           type: 'string',
           description: 'Route to land on, e.g. /settings or /orders?status=open. Defaults to /.',
@@ -212,9 +180,6 @@ const TOOLS: Tool[] = [
         source: process.cwd(),
         sessionId: SESSION_ID,
       })
-      /* Say plainly that nobody saw it. The frame cannot be opened after the
-         fact, so what the user gets instead is a notice naming the port and
-         path — worth telling the agent, which may want to mention it. */
       const reached =
         opened.delivered > 0
           ? `Opened on ${opened.delivered} connected phone(s).`
@@ -265,8 +230,6 @@ const TOOLS: Tool[] = [
   },
 ]
 
-// ---- JSON-RPC over stdio ----
-
 const write = (msg: unknown): void => {
   process.stdout.write(`${JSON.stringify(msg)}\n`)
 }
@@ -274,18 +237,28 @@ const reply = (id: unknown, result: unknown): void => write({ jsonrpc: '2.0', id
 const fail = (id: unknown, code: number, message: string): void =>
   write({ jsonrpc: '2.0', id, error: { code, message } })
 
+const isNotification = (msg: any): boolean => msg.id === undefined
+
+const callTool = async (id: unknown, params: any): Promise<void> => {
+  const tool = TOOLS.find((t) => t.name === params?.name)
+  if (!tool) return fail(id, JSON_RPC_INVALID_PARAMS, `unknown tool: ${params?.name}`)
+  try {
+    return reply(id, await tool.run(params.arguments ?? {}))
+  } catch (err) {
+    return reply(id, { content: [text(`${tool.name} failed: ${(err as Error).message}`)], isError: true })
+  }
+}
+
 async function handle(msg: any): Promise<void> {
   const { id, method, params } = msg
-  // Notifications carry no id and expect no response.
-  if (id === undefined) return
+  if (isNotification(msg)) return
 
   switch (method) {
     case 'initialize':
       return reply(id, {
-        // Agreeing to the client's version avoids a needless renegotiation.
         protocolVersion: params?.protocolVersion ?? PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'orbit', version: '0.1.0' },
+        serverInfo: SERVER_INFO,
       })
     case 'ping':
       return reply(id, {})
@@ -293,19 +266,21 @@ async function handle(msg: any): Promise<void> {
       return reply(id, {
         tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
       })
-    case 'tools/call': {
-      const tool = TOOLS.find((t) => t.name === params?.name)
-      if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`)
-      try {
-        return reply(id, await tool.run(params.arguments ?? {}))
-      } catch (err) {
-        // Tool failures belong in the conversation, not in the transport.
-        return reply(id, { content: [text(`${tool.name} failed: ${(err as Error).message}`)], isError: true })
-      }
-    }
+    case 'tools/call':
+      return callTool(id, params)
     default:
-      return fail(id, -32601, `method not found: ${method}`)
+      return fail(id, JSON_RPC_METHOD_NOT_FOUND, `method not found: ${method}`)
   }
+}
+
+const handleLine = (line: string): void => {
+  let msg: any
+  try {
+    msg = JSON.parse(line)
+  } catch {
+    return
+  }
+  handle(msg).catch((err) => fail(msg.id, JSON_RPC_INTERNAL_ERROR, (err as Error).message))
 }
 
 let buffer = ''
@@ -316,14 +291,7 @@ process.stdin.on('data', (chunk) => {
   while ((newline = buffer.indexOf('\n')) !== -1) {
     const line = buffer.slice(0, newline).trim()
     buffer = buffer.slice(newline + 1)
-    if (!line) continue
-    let msg: any
-    try {
-      msg = JSON.parse(line)
-    } catch {
-      continue
-    }
-    handle(msg).catch((err) => fail(msg.id, -32603, (err as Error).message))
+    if (line) handleLine(line)
   }
 })
 process.stdin.on('end', () => process.exit(0))

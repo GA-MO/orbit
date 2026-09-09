@@ -6,32 +6,17 @@ interface Props {
   onAnswer: (choice: string) => void;
 }
 
-/**
- * A question raised on the Mac — by an agent through the MCP server, or by the
- * approval hook holding a command. Something over there is blocked until this
- * is tapped, so there is no dismiss: every path answers.
- */
+const DEFAULT_OPTIONS = ["Allow", "Deny"];
+
+const optionsLayout = (count: number) =>
+  count === 2 ? "flex-row-reverse" : "flex-col";
+
 export default function AskModal({ request, onAnswer }: Props) {
-  const options = request.options.length ? request.options : ["Allow", "Deny"];
-  /* The first option is the emphasised one and sits where a thumb lands — so
-     whoever asks puts the safe choice first. Two options read as a decision;
-     more than two stack. */
-  const layout = options.length === 2 ? "flex-row-reverse" : "flex-col";
+  const options = request.options.length ? request.options : DEFAULT_OPTIONS;
 
   return (
     <div className="fade-in app-fill z-50 flex items-center justify-center bg-black/60 p-5 backdrop-blur-[2px]">
       <div className="pop-in lift flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-accent/40 bg-surface p-5">
-        {/* The header is a title and a provenance line, and a long project
-            path used to break it: the title wrapped to two lines and the
-            truncated path sat beside the second one, so the modal opened
-            looking broken.
-
-            The title never wraps now — it is four words and it is the thing
-            you read first — and the path takes whatever is left, truncating
-            from the head so the end of a path (which is the part that
-            identifies it) survives. `min-w-0` is what lets it shrink at all
-            inside a flex row; without it a long path refuses to truncate and
-            pushes the title instead, which is how this started. */}
         <div className="flex items-baseline justify-between gap-3">
           <span className="font-display shrink-0 text-[15px] font-semibold whitespace-nowrap text-accent">
             Your Mac is asking
@@ -55,7 +40,7 @@ export default function AskModal({ request, onAnswer }: Props) {
           </code>
         )}
 
-        <div className={`flex gap-2 ${layout}`}>
+        <div className={`flex gap-2 ${optionsLayout(options.length)}`}>
           {options.map((option, i) => (
             <Button
               key={option}

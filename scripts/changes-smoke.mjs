@@ -1,27 +1,30 @@
 #!/usr/bin/env node
-/**
- * The Changes tab, driven the way a thumb drives it.
- *
- * What the API proves is that a hunk can be staged. What only the browser can
- * prove is that the button to do it is on screen, attached to the right hunk,
- * and that the words it changed are marked where they actually changed.
- *
- * Runs against a throwaway Orbit — never the one you are using:
- *
- *   scripts/test.sh changes
- */
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { chromium } from 'playwright-core'
 
+const LIVE_PORT = '3001'
 const PORT = process.env.ORBIT_PORT ?? '3099'
 const BASE = process.env.ORBIT_URL ?? `http://127.0.0.1:${PORT}`
 const HOME = process.env.ORBIT_HOME ?? os.homedir()
 
-if (BASE.includes(':3001')) {
-  console.error('refusing to run against port 3001 — that is the real server')
+const PHONE = { width: 390, height: 844 }
+const LOGIN_SETTLE_MS = 600
+const TERMINAL_TIMEOUT_MS = 15000
+const TERMINAL_SETTLE_MS = 1200
+const TAB_SETTLE_MS = 1500
+const SHEET_SETTLE_MS = 1200
+const STAGE_SETTLE_MS = 1500
+const CLOSE_SETTLE_MS = 800
+
+const LINE_COUNT = 24
+const RENAMED_LINE = 2
+const RENUMBERED_LINE = 21
+
+if (BASE.includes(`:${LIVE_PORT}`)) {
+  console.error(`refusing to run against port ${LIVE_PORT} — that is the real server`)
   process.exit(1)
 }
 
@@ -35,27 +38,29 @@ const check = (name, pass, detail = '') => {
   console.log(`  ${pass ? 'ok  ' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`)
 }
 
-// ---- a repository with two changes far enough apart to be two hunks --------
-
 const REPO = path.join(HOME, 'changes-smoke')
-fs.rmSync(REPO, { recursive: true, force: true })
-fs.mkdirSync(REPO, { recursive: true })
+const APP_FILE = path.join(REPO, 'app.ts')
 const git = (...args) => execFileSync('git', ['-C', REPO, ...args], { encoding: 'utf8' }).trim()
-execFileSync('git', ['init', '-b', 'main', REPO])
-git('config', 'user.email', 'smoke@example.com')
-git('config', 'user.name', 'Smoke')
 
-const original = Array.from({ length: 24 }, (_, i) => `const value${i} = ${i}`)
-fs.writeFileSync(path.join(REPO, 'app.ts'), original.join('\n') + '\n')
-git('add', '.')
-git('commit', '-m', 'first')
+const makeRepoWithTwoHunks = () => {
+  fs.rmSync(REPO, { recursive: true, force: true })
+  fs.mkdirSync(REPO, { recursive: true })
+  execFileSync('git', ['init', '-b', 'main', REPO])
+  git('config', 'user.email', 'smoke@example.com')
+  git('config', 'user.name', 'Smoke')
 
-const edited = [...original]
-// A renamed identifier at the top: one word of a long line, which is the whole
-// case for marking words rather than lines.
-edited[2] = 'const renamedValue2 = 2'
-edited[21] = 'const value21 = 999'
-fs.writeFileSync(path.join(REPO, 'app.ts'), edited.join('\n') + '\n')
+  const original = Array.from({ length: LINE_COUNT }, (_, i) => `const value${i} = ${i}`)
+  fs.writeFileSync(APP_FILE, original.join('\n') + '\n')
+  git('add', '.')
+  git('commit', '-m', 'first')
+
+  const edited = [...original]
+  edited[RENAMED_LINE] = `const renamedValue${RENAMED_LINE} = ${RENAMED_LINE}`
+  edited[RENUMBERED_LINE] = `const value${RENUMBERED_LINE} = 999`
+  fs.writeFileSync(APP_FILE, edited.join('\n') + '\n')
+}
+
+makeRepoWithTwoHunks()
 
 const api = async (route, body, method = 'POST') => {
   const res = await fetch(BASE + route, {
@@ -68,11 +73,9 @@ const api = async (route, body, method = 'POST') => {
 
 const session = (await api('/api/sessions', { provider: 'shell', cwd: REPO, name: 'changes' })).body
 
-// ---- the phone ------------------------------------------------------------
-
 const browser = await chromium.launch({ channel: 'chrome' })
 const context = await browser.newContext({
-  viewport: { width: 390, height: 844 },
+  viewport: PHONE,
   hasTouch: true,
   isMobile: true,
   deviceScaleFactor: 2,
@@ -82,44 +85,50 @@ const errors = []
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
 
+const logIn = async () => {
+  await page.goto(`${BASE}/?session=${session.id}`)
+  await page.waitForTimeout(LOGIN_SETTLE_MS)
+  await page.fill('input', token)
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.xterm-screen', { timeout: TERMINAL_TIMEOUT_MS })
+  await page.waitForTimeout(TERMINAL_SETTLE_MS)
+  errors.length = 0
+}
+
+const hunkHeaders = () => page.locator('text=/^@@ /')
+
+const markedWords = () =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('span')]
+      .filter((el) => /bg-(ok|danger)\/30/.test(el.className))
+      .map((el) => el.textContent),
+  )
+
+const stagedDiff = () => git('diff', '--cached', '--', 'app.ts')
+const unstagedDiff = () => git('diff', '--', 'app.ts')
+
 console.log(`\n── changes · ${BASE} ${'─'.repeat(30)}`)
 
-await page.goto(`${BASE}/?session=${session.id}`)
-await page.waitForTimeout(600)
-await page.fill('input', token)
-await page.keyboard.press('Enter')
-await page.waitForSelector('.xterm-screen', { timeout: 15000 })
-await page.waitForTimeout(1200)
-/* The 401 that put the login screen up is the app working, not the app
-   failing. Everything from here on is a real error. */
-errors.length = 0
+await logIn()
 
 await page.getByRole('button', { name: /changes/i }).first().click()
-await page.waitForTimeout(1500)
+await page.waitForTimeout(TAB_SETTLE_MS)
 
 check('the tab finds the repository the session is in', await page.getByText('main').first().isVisible())
 const row = page.getByText('app.ts').first()
 check('the changed file is listed', await row.isVisible())
 
 await row.click()
-await page.waitForTimeout(1200)
+await page.waitForTimeout(SHEET_SETTLE_MS)
 
-const hunkHeaders = await page.locator('text=/^@@ /').count()
-check('two changes far apart are shown as two hunks', hunkHeaders === 2, `${hunkHeaders}`)
+const hunkCount = await hunkHeaders().count()
+check('two changes far apart are shown as two hunks', hunkCount === 2, `${hunkCount}`)
 
-/* Scoped to the sheet and exact: "Stage all" sits in the list behind it, and a
-   substring match would find that instead and click straight through. */
 const sheet = page.locator('.app-fill.z-40')
 const stageButtons = sheet.getByRole('button', { name: 'Stage', exact: true })
 check('each hunk carries its own Stage button', (await stageButtons.count()) === 2, `${await stageButtons.count()}`)
 
-/* The point of the whole thing: on the renamed line, only the identifier is
-   marked — not the `const`, not the `= 2` that never moved. */
-const marked = await page.evaluate(() =>
-  [...document.querySelectorAll('span')]
-    .filter((el) => /bg-(ok|danger)\/30/.test(el.className))
-    .map((el) => el.textContent),
-)
+const marked = await markedWords()
 check('the words that changed are the words that are marked', marked.length > 0, JSON.stringify(marked))
 check(
   '…and the rest of the line is not',
@@ -128,24 +137,19 @@ check(
 )
 
 await stageButtons.first().click()
-await page.waitForTimeout(1500)
+await page.waitForTimeout(STAGE_SETTLE_MS)
 
 check(
   'staging one hunk stages one hunk',
-  git('diff', '--cached', '--', 'app.ts').includes('renamedValue2') &&
-    !git('diff', '--cached', '--', 'app.ts').includes('999'),
+  stagedDiff().includes('renamedValue2') && !stagedDiff().includes('999'),
 )
-check('…and leaves the other where it was', git('diff', '--', 'app.ts').includes('999'))
-/* Staging half a file is nearly always followed by staging another half of it,
-   so the sheet stays where it is rather than sending you back to the list. */
-check('the sheet stays open on what is left', await page.locator('text=/^@@ /').first().isVisible())
-/* One hunk left is the whole file again, and the row already has a button for
-   that — a per-hunk button beside it would be two ways to do one thing. */
+check('…and leaves the other where it was', unstagedDiff().includes('999'))
+check('the sheet stays open on what is left', await hunkHeaders().first().isVisible())
 const leftToStage = await sheet.getByRole('button', { name: 'Stage', exact: true }).count()
 check('a lone remaining hunk is the whole file again, and says so by not asking', leftToStage === 0, `${leftToStage}`)
 
 await sheet.locator('[aria-label="Close"]').first().click()
-await page.waitForTimeout(800)
+await page.waitForTimeout(CLOSE_SETTLE_MS)
 check('the file is now in both lists at once', await page.getByText('Staged').first().isVisible())
 
 check('no console errors', errors.length === 0, errors.join(' | '))

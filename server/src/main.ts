@@ -1,9 +1,3 @@
-/**
- * The entry point — one program that is the server, the MCP server, the
- * Claude Code hooks and the installer, told apart by the first argument,
- * because a phone-side install should be one executable and not a folder
- * of them. A checkout runs the same thing as `bun server/dist/main.js`.
- */
 const [command, ...rest] = process.argv.slice(2)
 
 const usage = `orbit — a phone-side console for the coding agents on this Mac

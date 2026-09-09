@@ -1,36 +1,29 @@
 #!/usr/bin/env node
-/**
- * Answering a question from the notification itself.
- *
- * A push wakes the service worker with the app shut and the phone locked, and
- * that worker holds no access token — deliberately, since a background script
- * with standing rights to the whole API is a worse thing to own than four taps.
- * What it gets instead is a capability: this one question, by name, answered
- * with one of the options that question declared, once.
- *
- * All of that lives in `notify.ts` and none of it needs a socket or a server,
- * so it is tested here rather than through HTTP — where the token would have to
- * be recovered from an encrypted push payload to test anything at all.
- *
- *   bun scripts/ask-smoke.mjs
- */
 import * as notify from '../server/dist/notify.js'
 import * as push from '../server/dist/push.js'
+
+const SECTION_WIDTH = 58
+const DEFAULT_TIMEOUT_MS = 5000
+const BRIEF_TIMEOUT_MS = 50
+const PAST_BRIEF_TIMEOUT_MS = 150
+const MIN_TOKEN_LENGTH = 32
+const MAX_TOPIC_LENGTH = 32
 
 let failures = 0
 const check = (label, ok, detail = '') => {
   if (!ok) failures++
   console.log(`${ok ? '  ok  ' : ' FAIL '} ${label}${detail ? ` — ${detail}` : ''}`)
 }
-const section = (title) => console.log(`\n── ${title} ${'─'.repeat(Math.max(0, 58 - title.length))}`)
+const section = (title) => console.log(`\n── ${title} ${'─'.repeat(Math.max(0, SECTION_WIDTH - title.length))}`)
 
-/** Open a question and hand back what a notification would be given about it. */
-const open = (opts = {}) => {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const openQuestion = (opts = {}) => {
   let capability
   const result = notify.ask({
     question: 'Deploy?',
     options: ['Yes', 'No'],
-    timeoutMs: 5000,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
     ...opts,
     announce: (info) => (capability = info),
   })
@@ -39,20 +32,21 @@ const open = (opts = {}) => {
 
 section('the capability a notification carries')
 
-const first = open()
+const first = openQuestion()
 check('a question is announced before it goes out', !!first.capability?.id)
 check(
   '…with the options it will be answered with',
   JSON.stringify(first.capability?.options) === '["Yes","No"]',
   JSON.stringify(first.capability?.options),
 )
+const tokenLength = (first.capability?.answerToken ?? '').length
 check(
   '…and a token long enough not to be guessed',
-  (first.capability?.answerToken ?? '').length >= 32,
-  `${(first.capability?.answerToken ?? '').length} chars`,
+  tokenLength >= MIN_TOKEN_LENGTH,
+  `${tokenLength} chars`,
 )
 
-const defaults = open({ options: undefined })
+const defaults = openQuestion({ options: undefined })
 check(
   'a question with no options offers Allow / Deny',
   JSON.stringify(defaults.capability?.options) === '["Allow","Deny"]',
@@ -85,11 +79,8 @@ check(
   notify.answerWith(id, answerToken, 'No') === false,
 )
 
-/* The other end of the same rule: a question that timed out has stopped
-   waiting, and its notification may be sitting on a lock screen for another
-   half hour. */
-const brief = open({ timeoutMs: 50 })
-await new Promise((r) => setTimeout(r, 150))
+const brief = openQuestion({ timeoutMs: BRIEF_TIMEOUT_MS })
+await sleep(PAST_BRIEF_TIMEOUT_MS)
 check(
   'a question that timed out cannot be answered late',
   notify.answerWith(brief.capability.id, brief.capability.answerToken, 'Yes') === false,
@@ -98,27 +89,22 @@ check('…and it timed out for the agent too', (await brief.result).timedOut ===
 
 section('the topic a push service will accept')
 
-/* Proven against Apple's own endpoint on 9 Sep 2026: `orbit-notice` (12) and
-   `orbit-wait` (10) came back 201, `orbit-waiting` (13), `orbitwaitings` (13)
-   and `orbit-ask` (9) came back 400 BadWebPushTopic. The characters were never
-   the rule — the length is, because the header is decoded as base64url. */
 check('a length base64 could produce is fine', push.topicIsValid('orbit-notice'))
 check('…and a dash in it changes nothing', push.topicIsValid('orbit-wait'))
 check(
   'a length base64 could not produce is rejected',
   !push.topicIsValid('orbit-waiting') && !push.topicIsValid('orbitwaitings'),
 )
-check('nothing over 32 characters', !push.topicIsValid('o'.repeat(33)))
+check('nothing over 32 characters', !push.topicIsValid('o'.repeat(MAX_TOPIC_LENGTH + 1)))
 check('nothing outside the alphabet', !push.topicIsValid('orbit notice'))
 check('and no empty topic', !push.topicIsValid(''))
 
-/* The shelves the app actually ships. This is the assertion that would have
-   caught it: both of these were wrong for five weeks. */
-for (const [name, shelf] of [
+const SHIPPED_SHELVES = [
   ['NOTICE', push.NOTICE],
   ['WAITING', push.WAITING],
   ['question()', push.question(60)],
-]) {
+]
+for (const [name, shelf] of SHIPPED_SHELVES) {
   check(`${name} ships a topic that will be accepted`, push.topicIsValid(shelf.topic), shelf.topic)
 }
 

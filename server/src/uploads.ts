@@ -6,6 +6,9 @@ import { orbitDir } from './home.js'
 
 const UPLOAD_DIR = orbitDir('uploads')
 const KEEP = 50
+const NAME_MAX = 80
+const DEFAULT_NAME = 'image.png'
+const UNSAFE_NAME_CHARS = /[^\w.-]/g
 
 export const LIMIT = 20 * 1024 * 1024
 
@@ -26,15 +29,16 @@ const list = async () => {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
-/** Drop uploads beyond the newest {@link KEEP}. */
 export async function prune(): Promise<void> {
   const items = await list()
   await Promise.all(items.slice(KEEP).map((i) => fsp.rm(i.path, { force: true })))
 }
 
+const safeFileName = (name: string): string =>
+  path.basename(name).replace(UNSAFE_NAME_CHARS, '_').slice(0, NAME_MAX) || DEFAULT_NAME
+
 export async function save(name: string, data: Buffer): Promise<string> {
-  const safe = path.basename(name).replace(/[^\w.-]/g, '_').slice(0, 80) || 'image.png'
-  const filePath = path.join(UPLOAD_DIR, `${Date.now()}-${safe}`)
+  const filePath = path.join(UPLOAD_DIR, `${Date.now()}-${safeFileName(name)}`)
   await fsp.writeFile(filePath, data)
   await prune()
   return filePath

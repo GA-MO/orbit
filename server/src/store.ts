@@ -8,6 +8,7 @@ const DATA_DIR = orbitDir()
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json')
 const SCROLLBACK_DIR = path.join(DATA_DIR, 'scrollback')
 const HIDDEN_FILE = path.join(DATA_DIR, 'hidden.json')
+const SCROLLBACK_EXT = '.txt'
 
 fs.mkdirSync(SCROLLBACK_DIR, { recursive: true })
 
@@ -18,36 +19,34 @@ export interface PersistedSession {
   providerName: string
   cwd: string
   createdAt: string
-  /** First line typed into the session — stands in for a name nobody gave it. */
   firstCommand: string | null
-  /** null while the session is running; set when it ends (or the server died). */
   endedAt: string | null
   exitCode: number | null
-  /**
-   * The agent's own name for the conversation held here, for providers that let
-   * Orbit choose one. Null for the rest, and for sessions persisted before this
-   * existed — those can still only reach their folder's newest conversation.
-   */
   conversationId: string | null
 }
 
-/* Labels captured before the CSI fix kept the body of SGR mouse reports: the
-   ESC [ prefix was stripped, the <35;28;28M it introduced was not. */
-const MOUSE_REPORT_RESIDUE = /^(?:<\d+;\d+;\d+[Mm])+/
+const LEGACY_MOUSE_REPORT_RESIDUE = /^(?:<\d+;\d+;\d+[Mm])+/
 
-export function load(): PersistedSession[] {
+const stripLegacyMouseReport = (firstCommand: string | null | undefined): string | null =>
+  firstCommand?.replace(LEGACY_MOUSE_REPORT_RESIDUE, '').trim() || null
+
+const fillFieldsOlderFormatsLack = (s: PersistedSession): PersistedSession => ({
+  ...s,
+  firstCommand: stripLegacyMouseReport(s.firstCommand),
+  conversationId: s.conversationId ?? null,
+})
+
+function readJsonArrayOrNothing(file: string): unknown[] {
   try {
-    const list = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8'))
-    if (!Array.isArray(list)) return []
-    // Sessions persisted before firstCommand existed simply have none.
-    return list.map((s: PersistedSession) => ({
-      ...s,
-      firstCommand: s.firstCommand?.replace(MOUSE_REPORT_RESIDUE, '').trim() || null,
-      conversationId: s.conversationId ?? null,
-    }))
+    const list = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return Array.isArray(list) ? list : []
   } catch {
     return []
   }
+}
+
+export function load(): PersistedSession[] {
+  return readJsonArrayOrNothing(SESSIONS_FILE).map((s) => fillFieldsOlderFormatsLack(s as PersistedSession))
 }
 
 export function saveAll(sessions: PersistedSession[]): void {
@@ -58,7 +57,7 @@ export function saveAll(sessions: PersistedSession[]): void {
   }
 }
 
-const scrollbackPath = (id: string) => path.join(SCROLLBACK_DIR, `${id}.txt`)
+const scrollbackPath = (id: string) => path.join(SCROLLBACK_DIR, `${id}${SCROLLBACK_EXT}`)
 
 export function saveScrollback(id: string, text: string): void {
   fsp.writeFile(scrollbackPath(id), text).catch((err) => {
@@ -66,13 +65,10 @@ export function saveScrollback(id: string, text: string): void {
   })
 }
 
-/** Synchronous variant for the shutdown path, where async writes would be lost. */
 export function saveScrollbackSync(id: string, text: string): void {
   try {
     fs.writeFileSync(scrollbackPath(id), text)
-  } catch {
-    // best effort on shutdown
-  }
+  } catch {}
 }
 
 export function readScrollback(id: string): Promise<string> {
@@ -83,13 +79,12 @@ export function deleteScrollback(id: string): void {
   fsp.rm(scrollbackPath(id), { force: true }).catch(() => {})
 }
 
-/** Remove scrollback files with no matching session id. */
 export async function sweepOrphanScrollback(knownIds: Set<string>): Promise<number> {
   const names = await fsp.readdir(SCROLLBACK_DIR).catch(() => [] as string[])
   let removed = 0
   for (const name of names) {
-    if (!name.endsWith('.txt')) continue
-    const id = name.slice(0, -4)
+    if (!name.endsWith(SCROLLBACK_EXT)) continue
+    const id = name.slice(0, -SCROLLBACK_EXT.length)
     if (knownIds.has(id)) continue
     await fsp.rm(scrollbackPath(id), { force: true }).catch(() => {})
     removed++
@@ -97,28 +92,8 @@ export async function sweepOrphanScrollback(knownIds: Set<string>): Promise<numb
   return removed
 }
 
-/**
- * Transcripts the phone has asked not to see again.
- *
- * These are ids, never files. A conversation held at the Mac's own desk is
- * Claude Code's record of it, so the only thing Orbit is allowed to remember is
- * that this phone does not want the row — the transcript stays exactly where it
- * was. Kept in its own file rather than folded into `sessions.json` because
- * that file is rewritten from the live session maps on every change, and an id
- * with no session behind it has nowhere to live in there.
- *
- * Read with the same tolerance as the sessions: a file that was never written
- * and a file that got truncated both mean nothing is hidden, which is a state
- * the user can put right by hiding the row again — a crash on startup is not.
- */
 export function loadHidden(): string[] {
-  try {
-    const list = JSON.parse(fs.readFileSync(HIDDEN_FILE, 'utf8'))
-    if (!Array.isArray(list)) return []
-    return list.filter((id): id is string => typeof id === 'string')
-  } catch {
-    return []
-  }
+  return readJsonArrayOrNothing(HIDDEN_FILE).filter((id): id is string => typeof id === 'string')
 }
 
 export function saveHidden(ids: string[]): void {

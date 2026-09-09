@@ -1,6 +1,7 @@
-/** True on phones/tablets — broader than coarse-pointer media query alone. */
+const COARSE_POINTER_QUERY = '(hover: none) and (pointer: coarse)'
+
 export const isTouchDevice = () =>
   typeof window !== 'undefined' &&
   ('ontouchstart' in window ||
     navigator.maxTouchPoints > 0 ||
-    window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+    window.matchMedia(COARSE_POINTER_QUERY).matches)

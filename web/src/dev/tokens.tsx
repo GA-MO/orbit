@@ -1,25 +1,19 @@
 import { Label } from './scaffold'
 
-/* ---------------------------------------------------------------------------
-   The palette, read back out of the running stylesheet.
-
-   Every value on this page is resolved from the document rather than typed in
-   beside a swatch. A hardcoded hex would be right the day it was written and a
-   lie a week later, and a token list that lies is worse than none: it is the
-   thing a reviewer trusts instead of looking.
---------------------------------------------------------------------------- */
-
-const read = (name: string) =>
+const readCssVariable = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+
+const TILE_WIDTH_CLASS = 'w-[168px]'
+const RADII = ['field', 'card', 'sheet']
 
 const SURFACES = ['ink', 'surface', 'raised', 'overlay', 'line-subtle', 'line']
 const INKS = ['fore', 'mut', 'faint']
 const SIGNALS = ['accent', 'accent-strong', 'glow', 'live', 'ok', 'add', 'danger']
 
 function Swatch({ name }: { name: string }) {
-  const value = read(`--color-${name}`)
+  const value = readCssVariable(`--color-${name}`)
   return (
-    <div className="w-[168px]">
+    <div className={TILE_WIDTH_CLASS}>
       <div
         className="h-14 rounded-(--radius-field) border border-line"
         style={{ background: value }}
@@ -43,20 +37,18 @@ function Group({ title, names }: { title: string; names: string[] }) {
   )
 }
 
-/* The three radii are only meaningful against each other, so they are drawn at
-   one size and side by side; a card corner shown alone tells you nothing. */
 function Radii() {
   return (
     <div>
       <Label>Radii</Label>
       <div className="flex flex-wrap gap-3">
-        {['field', 'card', 'sheet'].map((name) => (
-          <div key={name} className="w-[168px]">
+        {RADII.map((name) => (
+          <div key={name} className={TILE_WIDTH_CLASS}>
             <div
               className="flex h-14 items-center justify-center border border-line bg-raised text-xs text-mut"
               style={{ borderRadius: `var(--radius-${name})` }}
             >
-              {read(`--radius-${name}`) || '—'}
+              {readCssVariable(`--radius-${name}`) || '—'}
             </div>
             <div className="mt-1.5 font-mono text-[11px] text-fore">--radius-{name}</div>
           </div>
@@ -66,12 +58,6 @@ function Radii() {
   )
 }
 
-/* Depth in Orbit is light on a top edge plus occlusion underneath, never a
-   grey card shadow — which is exactly the sort of claim that is impossible to
-   check in prose and obvious in a row of three tiles. `.lift` and `.key-lit`
-   are shown as the classes a component would actually reach for; the raw
-   shadow variables are shown too, because one of them (`--shadow-sheet`)
-   throws its light upward and no class exposes it on its own. */
 function Depth() {
   return (
     <div>

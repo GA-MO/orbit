@@ -19,16 +19,119 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   ended: 'Ended',
 }
 
+const STATUS_COLOR: Record<ConnectionStatus, string> = {
+  connected: 'text-ok',
+  connecting: 'text-live',
+  disconnected: 'text-danger',
+  ended: 'text-faint',
+}
+
+const FALLBACK_GLYPH = '❯'
+
 interface Props {
   session: SessionInfo | null
   status: ConnectionStatus
-  /** Start a fresh session with the same agent + folder as this ended one. */
   onNewSession: () => void
-  /** Same, but asking the agent to carry on its last conversation there. */
   onResume: () => void
   starting: boolean
-  /** The terminal element — owned by the parent so it survives tab switches. */
   children: ReactNode
+}
+
+function SessionTitle({ session }: { session: SessionInfo | null }) {
+  const showsFirstCommand = !!session && !session.name && !!session.firstCommand
+  return (
+    <div className="flex items-center gap-2">
+      {session && (
+        <span className="font-mono text-[13px] text-accent">
+          {PROVIDER_GLYPH[session.providerId] ?? FALLBACK_GLYPH}
+        </span>
+      )}
+      <span
+        className={`truncate text-sm ${
+          showsFirstCommand ? 'font-mono text-[13px]' : 'font-display font-semibold tracking-wide'
+        }`}
+      >
+        {session ? sessionLabel(session) : 'Orbit'}
+      </span>
+    </div>
+  )
+}
+
+function SessionSubtitle({
+  session,
+  status,
+  ended,
+}: {
+  session: SessionInfo | null
+  status: ConnectionStatus
+  ended: boolean
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] text-faint">
+      {session && (
+        <>
+          <span className="truncate font-mono">{basename(session.cwd)}</span>
+          <span>·</span>
+        </>
+      )}
+      <span className={STATUS_COLOR[status]}>{STATUS_LABEL[status]}</span>
+      {ended && (
+        <>
+          <span>·</span>
+          <span>read-only</span>
+        </>
+      )}
+    </div>
+  )
+}
+
+function EndedSessionActions({
+  resumable,
+  starting,
+  onNewSession,
+  onResume,
+}: {
+  resumable: boolean
+  starting: boolean
+  onNewSession: () => void
+  onResume: () => void
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      {resumable ? (
+        <>
+          <Button
+            variant="outline"
+            disabled={starting}
+            onClick={onResume}
+            className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
+          >
+            <IconRestart size={15} />
+            {starting ? 'Starting…' : 'Resume'}
+          </Button>
+          <IconButton
+            label="New session (same agent + folder, no history)"
+            size="lg"
+            disabled={starting}
+            onClick={onNewSession}
+            className="border border-line"
+          >
+            <IconPlus size={17} />
+          </IconButton>
+        </>
+      ) : (
+        <Button
+          variant="outline"
+          disabled={starting}
+          onClick={onNewSession}
+          className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
+        >
+          <IconPlus size={15} />
+          {starting ? 'Starting…' : 'New'}
+        </Button>
+      )}
+    </div>
+  )
 }
 
 export default function TerminalView({
@@ -40,94 +143,22 @@ export default function TerminalView({
   children,
 }: Props) {
   const ended = !!session && !session.alive
-  const statusColor = {
-    connected: 'text-ok',
-    connecting: 'text-live',
-    disconnected: 'text-danger',
-    ended: 'text-faint',
-  }[status]
 
   return (
     <div className="flex h-full flex-col">
-      {/* Which session am I in — and nothing else. What goes *into* the session
-          belongs to the key bar at the bottom, where the thumb already is.
-
-          Opaque and above the terminal: xterm's screen is a positioned element,
-          so anything it draws past its box would otherwise land on top of this. */}
       <header className="relative z-10 flex shrink-0 items-center gap-3 bg-ink px-4 py-2.5 shadow-[0_1px_0_var(--edge-lit)]">
         <OrbitMark size={26} idle={status !== 'connected'} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {session && (
-              <span className="font-mono text-[13px] text-accent">
-                {PROVIDER_GLYPH[session.providerId] ?? '❯'}
-              </span>
-            )}
-            <span
-              className={`truncate text-sm ${
-                session && !session.name && session.firstCommand
-                  ? 'font-mono text-[13px]'
-                  : 'font-display font-semibold tracking-wide'
-              }`}
-            >
-              {session ? sessionLabel(session) : 'Orbit'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-faint">
-            {session && (
-              <>
-                <span className="truncate font-mono">{basename(session.cwd)}</span>
-                <span>·</span>
-              </>
-            )}
-            <span className={statusColor}>{STATUS_LABEL[status]}</span>
-            {ended && (
-              <>
-                <span>·</span>
-                <span>read-only</span>
-              </>
-            )}
-          </div>
+          <SessionTitle session={session} />
+          <SessionSubtitle session={session} status={status} ended={ended} />
         </div>
-        {/* An ended session has no PTY — voice and image would write into nothing. */}
         {ended ? (
-          /* Resume carries the agent's own conversation over; New does not.
-             Both spelled out would leave the session's own name no room, so
-             when there are two, the fresh start keeps just its glyph. */
-          <div className="flex shrink-0 items-center gap-1">
-            {session.resumable ? (
-              <>
-                <Button
-                  variant="outline"
-                  disabled={starting}
-                  onClick={onResume}
-                  className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
-                >
-                  <IconRestart size={15} />
-                  {starting ? 'Starting…' : 'Resume'}
-                </Button>
-                <IconButton
-                  label="New session (same agent + folder, no history)"
-                  size="lg"
-                  disabled={starting}
-                  onClick={onNewSession}
-                  className="border border-line"
-                >
-                  <IconPlus size={17} />
-                </IconButton>
-              </>
-            ) : (
-              <Button
-                variant="outline"
-                disabled={starting}
-                onClick={onNewSession}
-                className="shrink-0 gap-1.5 px-3 py-1.5 text-[13px]"
-              >
-                <IconPlus size={15} />
-                {starting ? 'Starting…' : 'New'}
-              </Button>
-            )}
-          </div>
+          <EndedSessionActions
+            resumable={!!session.resumable}
+            starting={starting}
+            onNewSession={onNewSession}
+            onResume={onResume}
+          />
         ) : null}
       </header>
       <div className="min-h-0 flex-1 p-1.5">{children}</div>

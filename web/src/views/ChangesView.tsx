@@ -27,13 +27,11 @@ import {
 
 interface Props {
   active: boolean
-  /** Whose folder to look at — the repository is wherever that sits. */
   session: SessionInfo | null
   onToast: (message: string) => void
 }
 
-/** What a status letter means, in the space a row has for it. */
-const LETTER: Record<string, { label: string; className: string }> = {
+const STATUS_LETTER: Record<string, { label: string; className: string }> = {
   M: { label: 'M', className: 'text-live' },
   A: { label: 'A', className: 'text-add' },
   D: { label: 'D', className: 'text-danger' },
@@ -42,12 +40,9 @@ const LETTER: Record<string, { label: string; className: string }> = {
   U: { label: '!', className: 'text-danger' },
   '?': { label: '+', className: 'text-add' },
 }
+const UNKNOWN_STATUS_LETTER = { label: '·', className: 'text-mut' }
 
-/* The four lines every hunk is wrapped in say what the sheet's own title
-   already says, and on a 390px screen they cost a fifth of the first screenful.
-   Everything else git puts in the header — a mode change, where a rename came
-   from — is information the diff body does not repeat. */
-const NOISE = /^(diff --git |index [0-9a-f]{4,}|--- |\+\+\+ )/
+const HEADER_LINE_THE_SHEET_TITLE_ALREADY_SAYS = /^(diff --git |index [0-9a-f]{4,}|--- |\+\+\+ )/
 
 type LineKind = 'add' | 'del' | 'hunk' | 'meta' | 'context'
 
@@ -61,11 +56,6 @@ const kindOf = (line: string): LineKind => {
   return 'context'
 }
 
-/* Red out, green in — git's alphabet rather than this app's, and the one place
-   the app borrows it. See --color-add in styles.css for why the diff gets a hue
-   the rest of the screen does not. The washes are deliberately weak: on a
-   near-black field a 14% tint is enough to say which side a line is on, and the
-   line's own text carries the hue at full strength. */
 const LINE_STYLE: Record<LineKind, string> = {
   add: 'bg-add/14 text-add',
   del: 'bg-danger/12 text-danger',
@@ -74,8 +64,7 @@ const LINE_STYLE: Record<LineKind, string> = {
   context: 'text-mut',
 }
 
-/** The stronger wash the changed words themselves get, over the line's own. */
-const WORD_STYLE: Record<string, string> = {
+const CHANGED_WORD_STYLE: Record<string, string> = {
   add: 'bg-add/32 text-fore rounded-[2px]',
   del: 'bg-danger/30 text-fore rounded-[2px]',
 }
@@ -83,61 +72,61 @@ const WORD_STYLE: Record<string, string> = {
 interface Hunk {
   header: string
   lines: string[]
-  /** Exactly what goes to git if this one is staged on its own. */
   patch: string
 }
 
-/* A patch as the sheet needs it: the file header dropped, and the body cut at
-   each `@@` so a hunk can be shown — and staged — as the unit it already is. */
+const dropTrailingBlankLines = (lines: string[]) => {
+  while (lines.length && lines[lines.length - 1] === '') lines.pop()
+}
+
 const parseHunks = (patch: string) => {
-  const meta: string[] = []
+  const fileMeta: string[] = []
   const hunks: Hunk[] = []
   for (const line of patch.split('\n')) {
     if (line.startsWith('@@')) {
       hunks.push({ header: line, lines: [], patch: '' })
       continue
     }
-    const current = hunks[hunks.length - 1]
-    if (!current) {
-      if (!NOISE.test(line)) meta.push(line)
+    const currentHunk = hunks[hunks.length - 1]
+    if (!currentHunk) {
+      if (!HEADER_LINE_THE_SHEET_TITLE_ALREADY_SAYS.test(line)) fileMeta.push(line)
       continue
     }
-    current.lines.push(line)
+    currentHunk.lines.push(line)
   }
   for (const hunk of hunks) {
-    while (hunk.lines.length && hunk.lines[hunk.lines.length - 1] === '') hunk.lines.pop()
+    dropTrailingBlankLines(hunk.lines)
     hunk.patch = [hunk.header, ...hunk.lines].join('\n')
   }
-  return { meta, hunks }
+  return { meta: fileMeta, hunks }
 }
 
-/* Where the word-level marks attach: a run of removed lines and the run of
-   added ones directly after it. `pair` decides whether they are versions of
-   each other at all — this only finds the runs and keeps the answer by line. */
-const markHunk = (lines: string[]): Map<number, Span[]> => {
-  const marks = new Map<number, Span[]>()
-  let i = 0
-  while (i < lines.length) {
-    if (!lines[i].startsWith('-')) {
-      i++
+const stripSign = (line: string) => line.slice(1)
+
+const markChangedWords = (lines: string[]): Map<number, Span[]> => {
+  const spansByLine = new Map<number, Span[]>()
+  let runStart = 0
+  while (runStart < lines.length) {
+    if (!lines[runStart].startsWith('-')) {
+      runStart++
       continue
     }
-    let removedEnd = i
+    let removedEnd = runStart
     while (removedEnd < lines.length && lines[removedEnd].startsWith('-')) removedEnd++
     let addedEnd = removedEnd
     while (addedEnd < lines.length && lines[addedEnd].startsWith('+')) addedEnd++
 
     const paired = pair(
-      lines.slice(i, removedEnd).map((l) => l.slice(1)),
-      lines.slice(removedEnd, addedEnd).map((l) => l.slice(1)),
+      lines.slice(runStart, removedEnd).map(stripSign),
+      lines.slice(removedEnd, addedEnd).map(stripSign),
     )
     if (paired) {
-      paired.removed.forEach((spans, k) => spans && marks.set(i + k, spans))
-      paired.added.forEach((spans, k) => spans && marks.set(removedEnd + k, spans))
+      paired.removed.forEach((spans, k) => spans && spansByLine.set(runStart + k, spans))
+      paired.added.forEach((spans, k) => spans && spansByLine.set(removedEnd + k, spans))
     }
-    i = addedEnd > i ? addedEnd : i + 1
+    runStart = addedEnd > runStart ? addedEnd : runStart + 1
   }
-  return marks
+  return spansByLine
 }
 
 const DiffLine = ({ line, kind, spans }: { line: string; kind: LineKind; spans?: Span[] }) => (
@@ -146,7 +135,7 @@ const DiffLine = ({ line, kind, spans }: { line: string; kind: LineKind; spans?:
       <>
         {line[0]}
         {spans.map((span, i) => (
-          <span key={i} className={span.changed ? WORD_STYLE[kind] : undefined}>
+          <span key={i} className={span.changed ? CHANGED_WORD_STYLE[kind] : undefined}>
             {span.text}
           </span>
         ))}
@@ -160,7 +149,6 @@ const DiffLine = ({ line, kind, spans }: { line: string; kind: LineKind; spans?:
 function DiffSheet({
   file,
   staged,
-  /** Whether a hunk of this file can go into the index on its own — see below. */
   splittable,
   busy,
   loading,
@@ -177,30 +165,16 @@ function DiffSheet({
   onApply: (hunk: string) => void
   onClose: () => void
 }) {
-  /* Parsing and the word-level diff are the expensive part of this sheet —
-     the marks are an LCS per changed line pair — and the sheet re-renders
-     whenever the app does (a toast, a status change), not only when the
-     patch does. */
   const { meta, hunks } = useMemo(() => parseHunks(diff?.patch ?? ''), [diff?.patch])
-  const marksByHunk = useMemo(() => hunks.map((hunk) => markHunk(hunk.lines)), [hunks])
-  /* Hunks arrive; lines do not. A hunk is a unit the reader is choosing
-     between, so a short sequence down the file helps them count. Two hundred
-     lines staggering in individually is not that — it is a file that takes a
-     second and a half to become readable, and the reader is already scrolling
-     by the time the bottom of it shows up.
-
-     Keyed by header rather than by position because staging one hunk refetches
-     the diff, which tears the body down and builds it again: without this the
-     six hunks you did not touch would replay their entrance every time you
-     moved one. */
+  const marksByHunk = useMemo(() => hunks.map((hunk) => markChangedWords(hunk.lines)), [hunks])
   const arriveHunk = useArrival(hunks.map((h) => h.header))
-  /* A hunk of a truncated diff is a hunk that may have been cut in half, and
-     git would either refuse it or — worse — accept the half. */
-  const canStage = splittable && !diff?.truncated && hunks.length > 1
+  const aHunkMayBeCutInHalf = !!diff?.truncated
+  const canStageHunks = splittable && !aHunkMayBeCutInHalf && hunks.length > 1
+  const showsFullPath = file !== basename(file)
 
   return (
     <Sheet side="full" onClose={onClose} title={basename(file)}>
-      {file !== basename(file) && (
+      {showsFullPath && (
         <div className="shrink-0 truncate px-5 pb-2 font-mono text-[11px] text-faint">{file}</div>
       )}
       {loading ? (
@@ -213,8 +187,6 @@ function DiffSheet({
         <EmptyState title="Could not read the diff" hint="Close this and try again." />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
-          {/* `w-max` so a long line scrolls sideways instead of wrapping: a
-              wrapped diff on a narrow screen loses which column the + was in. */}
           <pre className="fade-in w-max min-w-full pb-6 font-mono text-[11.5px] leading-[1.55]">
             {meta.map((line, i) => (
               <DiffLine key={`m${i}`} line={line} kind={kindOf(line)} />
@@ -226,7 +198,7 @@ function DiffSheet({
                 <div key={h} style={enter.style} className={enter.className}>
                   <div className={`flex items-center gap-2 px-3 ${LINE_STYLE.hunk}`}>
                     <span className="min-w-0 flex-1 truncate">{hunk.header}</span>
-                    {canStage && (
+                    {canStageHunks && (
                       <button
                         disabled={busy}
                         onClick={() => onApply(hunk.patch)}
@@ -254,14 +226,38 @@ function DiffSheet({
   )
 }
 
+const useRefreshOnArrivalAndWake = (active: boolean, refresh: () => void) => {
+  useEffect(() => {
+    if (!active) return
+    refresh()
+    const onVisible = () => document.visibilityState === 'visible' && refresh()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [active, refresh])
+}
+
+const isInIndex = (f: FileChange) => f.staged !== ' ' && f.staged !== '?'
+const isInWorktree = (f: FileChange) => f.worktree !== ' ' && f.worktree !== '?'
+const isUntracked = (f: FileChange) => f.worktree === '?'
+
+const splitsIntoHunks = (statusLetter: string) => statusLetter === 'M'
+
+const folderOf = (path: string) => path.slice(0, path.lastIndexOf('/'))
+
+const pluralFiles = (n: number) => `${n} file${n === 1 ? '' : 's'}`
+
+interface OpenDiff {
+  file: string
+  staged: boolean
+  splittable: boolean
+}
+
 export default function ChangesView({ active, session, onToast }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState('')
-  const [open, setOpen] = useState<{ file: string; staged: boolean; splittable: boolean } | null>(
-    null,
-  )
+  const [open, setOpen] = useState<OpenDiff | null>(null)
   const [diff, setDiff] = useState<GitDiff | null>(null)
   const cwd = session?.cwd ?? null
 
@@ -278,24 +274,9 @@ export default function ChangesView({ active, session, onToast }: Props) {
     }
   }, [cwd, onToast])
 
-  /* The agent is writing files while this tab is off screen, so what was true
-     when it was last open is worth nothing. Ask on arrival, and again whenever
-     the phone comes back to it — never on a timer, since `git status` walks the
-     working tree and a repository this size is not free. */
-  useEffect(() => {
-    if (!active) return
-    refresh()
-    const onVisible = () => document.visibilityState === 'visible' && refresh()
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [active, refresh])
+  useRefreshOnArrivalAndWake(active, refresh)
 
-  /* Bumped after a hunk moves, because the diff on screen is now one hunk out
-     of date on this side — and the sheet stays open on what is left of it. */
-  const [diffNonce, setDiffNonce] = useState(0)
-  /* A fetch that failed used to leave `diff` null, which the sheet read as
-     "still loading" — a spinner with a toast behind it and no way out but
-     closing the sheet. */
+  const [diffGeneration, setDiffGeneration] = useState(0)
   const [diffFailed, setDiffFailed] = useState(false)
 
   useEffect(() => {
@@ -313,7 +294,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
     return () => {
       cancelled = true
     }
-  }, [open, cwd, onToast, diffNonce])
+  }, [open, cwd, onToast, diffGeneration])
 
   const run = async (key: string, work: () => Promise<GitStatus>) => {
     if (busy) return
@@ -330,18 +311,15 @@ export default function ChangesView({ active, session, onToast }: Props) {
   const setStaged = (files: string[], add: boolean) =>
     run(add ? `stage:${files[0]}` : `unstage:${files[0]}`, () => stageFiles(cwd!, files, add))
 
-  /* One hunk in or out. The sheet is left open on purpose — staging half of a
-     file is nearly always followed by staging another half of it, and closing
-     would send you back through the list to the row you were already on. */
   const moveHunk = async (hunk: string) => {
     if (!open || !cwd || busy) return
     setBusy('hunk')
     try {
       const next = await applyHunk(cwd, open.file, hunk, open.staged)
       setStatus(next)
-      setDiffNonce((n) => n + 1)
-      // Nothing left on this side of the file: the sheet has run out of subject.
-      if (!next.files.some((f) => f.path === open.file)) setOpen(null)
+      setDiffGeneration((n) => n + 1)
+      const fileStillHasChanges = next.files.some((f) => f.path === open.file)
+      if (!fileStillHasChanges) setOpen(null)
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'git could not apply that hunk')
     } finally {
@@ -356,9 +334,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
       const made = await commitStaged(cwd, message)
       setStatus(made.status)
       setMessage('')
-      onToast(
-        `Committed ${made.sha} · ${made.files} file${made.files === 1 ? '' : 's'}, +${made.added} −${made.removed}`,
-      )
+      onToast(`Committed ${made.sha} · ${pluralFiles(made.files)}, +${made.added} −${made.removed}`)
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'Commit refused')
     } finally {
@@ -380,19 +356,15 @@ export default function ChangesView({ active, session, onToast }: Props) {
     }
   }
 
-  const staged = status?.files.filter((f) => f.staged !== ' ' && f.staged !== '?') ?? []
-  const changed = status?.files.filter((f) => f.worktree !== ' ' && f.worktree !== '?') ?? []
-  const untracked = status?.files.filter((f) => f.worktree === '?') ?? []
-  /* Offered only where it would do something: commits the remote has not seen,
-     or a branch that has never been pushed. A repository with no remote at all
-     gets no button — the alternative is one that only ever fails. */
-  const canPush =
-    !!status?.repo && status.hasRemote && (status.ahead > 0 || (!status.upstream && !!status.head))
+  const files = status?.files ?? []
+  const staged = files.filter(isInIndex)
+  const changed = files.filter(isInWorktree)
+  const untracked = files.filter(isUntracked)
 
-  /* One sequence for the whole list rather than three, so the eye follows the
-     screen down instead of restarting at each heading. Changes re-reads after
-     every git action and on every return to the tab; `useArrival` is what keeps
-     those re-reads from replaying the arrival of rows that never left. */
+  const hasUnpushedCommits = !!status && status.ahead > 0
+  const branchNeverPushed = !!status && !status.upstream && !!status.head
+  const canPush = !!status?.repo && status.hasRemote && (hasUnpushedCommits || branchNeverPushed)
+
   const arrive = useArrival([
     ...(staged.length > 0 ? ['h:Staged', ...staged.map((f) => `i:${f.path}`)] : []),
     ...(changed.length > 0 ? ['h:Changed', ...changed.map((f) => `w:${f.path}`)] : []),
@@ -400,8 +372,11 @@ export default function ChangesView({ active, session, onToast }: Props) {
   ])
 
   const row = (f: FileChange, inIndex: boolean) => {
-    const letter = LETTER[inIndex ? f.staged : f.worktree] ?? { label: '·', className: 'text-mut' }
+    const statusLetter = inIndex ? f.staged : f.worktree
+    const letter = STATUS_LETTER[statusLetter] ?? UNKNOWN_STATUS_LETTER
     const key = `${inIndex ? 'i' : 'w'}:${f.path}`
+    const subtitle = f.from ? `${f.from} → ${f.path}` : folderOf(f.path)
+    const subtitleSaysSomething = !!f.from || f.path.includes('/')
     return (
       <div
         key={key}
@@ -409,10 +384,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
           setOpen({
             file: f.path,
             staged: inIndex,
-            /* Only a plain modification splits cleanly. A new, deleted or
-               renamed file is a whole-file decision by nature, and half an
-               untracked file in the index is a state nobody asked for. */
-            splittable: (inIndex ? f.staged : f.worktree) === 'M',
+            splittable: splitsIntoHunks(statusLetter),
           })
         }
         style={arrive(key).style}
@@ -423,12 +395,8 @@ export default function ChangesView({ active, session, onToast }: Props) {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-mono text-[13px]">{basename(f.path)}</span>
-          {/* Only where it says something the name does not: a file at the root
-              of the repository had a lone dot sitting under it. */}
-          {(f.from || f.path.includes('/')) && (
-            <span className="block truncate text-[11px] text-faint">
-              {f.from ? `${f.from} → ${f.path}` : f.path.slice(0, f.path.lastIndexOf('/'))}
-            </span>
+          {subtitleSaysSomething && (
+            <span className="block truncate text-[11px] text-faint">{subtitle}</span>
           )}
         </span>
         {f.binary ? (
@@ -456,27 +424,29 @@ export default function ChangesView({ active, session, onToast }: Props) {
     )
   }
 
-  const group = (title: string, files: FileChange[], inIndex: boolean) =>
-    files.length > 0 && (
+  const group = (title: string, groupFiles: FileChange[], inIndex: boolean) =>
+    groupFiles.length > 0 && (
       <div className="space-y-2">
         <div
           style={arrive(`h:${title}`).style}
           className={`${arrive(`h:${title}`).className} flex items-center justify-between pt-1`}
         >
           <span className="text-xs font-semibold tracking-widest text-faint uppercase">
-            {title} · {files.length}
+            {title} · {groupFiles.length}
           </span>
           <button
             disabled={!!busy}
-            onClick={() => setStaged(files.map((f) => f.path), !inIndex)}
+            onClick={() => setStaged(groupFiles.map((f) => f.path), !inIndex)}
             className="text-xs font-medium text-accent disabled:opacity-40"
           >
             {inIndex ? 'Unstage all' : 'Stage all'}
           </button>
         </div>
-        {files.map((f) => row(f, inIndex))}
+        {groupFiles.map((f) => row(f, inIndex))}
       </div>
     )
+
+  const somethingToCommitOrPush = staged.length > 0 || canPush
 
   return (
     <div className="flex h-full flex-col">
@@ -528,9 +498,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
         )}
       </div>
 
-      {/* Only once there is something to commit: an empty box above a clean
-          repository is a form asking to be filled in for no reason. */}
-      {status?.repo && (staged.length > 0 || canPush) && (
+      {status?.repo && somethingToCommitOrPush && (
         <div className="rise-in shrink-0 space-y-2 border-t border-line-subtle bg-surface px-4 py-2.5">
           {staged.length > 0 && (
             <textarea
@@ -548,9 +516,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
                 disabled={!message.trim() || !!busy}
                 onClick={doCommit}
               >
-                {busy === 'commit'
-                  ? 'Committing…'
-                  : `Commit ${staged.length} file${staged.length === 1 ? '' : 's'}`}
+                {busy === 'commit' ? 'Committing…' : `Commit ${pluralFiles(staged.length)}`}
               </Button>
             )}
             {canPush && (

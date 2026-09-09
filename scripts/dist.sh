@@ -1,42 +1,46 @@
 #!/usr/bin/env bash
-# One executable with everything in it: the server, the MCP server (`orbit mcp`),
-# the built web app and bun-pty's library. `bun build --compile` bundles the
-# JavaScript; the web app and the version go in as assets, since the server
-# reads them from disk (see WEB_DIST in server/src/index.ts).
-#
-#   scripts/dist.sh                       # this Mac's architecture → dist/orbit
-#   scripts/dist.sh bun-darwin-x64        # a named target → dist/orbit-darwin-x64
-#   scripts/dist.sh all                   # both Mac architectures
-#
-# Chrome, Tailscale and Claude Code are still the machine's own — this is the
-# thing that talks to them, not them.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+MAC_TARGETS=(bun-darwin-arm64 bun-darwin-x64)
+ENTRY_POINT=server/dist/main.js
+ASSETS_THE_SERVER_READS_FROM_DISK=(--asset=web/dist --asset=server/package.json)
+FIREFOX_ONLY_PLAYWRIGHT_REQUIRE=chromium-bidi
+
 targets=("${@:-host}")
-[ "${targets[0]}" = "all" ] && targets=(bun-darwin-arm64 bun-darwin-x64)
+[ "${targets[0]}" = "all" ] && targets=("${MAC_TARGETS[@]}")
+
+output_for() {
+  if [ "$1" = "host" ]; then echo "dist/orbit"; else echo "dist/orbit-${1#bun-}"; fi
+}
+
+compile() {
+  local target="$1" out="$2"
+  local flag=()
+  [ "$target" = "host" ] || flag=("--target=$target")
+  bun build --compile ${flag:+"${flag[@]}"} \
+    --external "$FIREFOX_ONLY_PLAYWRIGHT_REQUIRE" \
+    "${ASSETS_THE_SERVER_READS_FROM_DISK[@]}" \
+    "$ENTRY_POINT" --outfile "$out" >/dev/null
+}
+
+write_checksum_beside() {
+  (cd dist && shasum -a 256 "$(basename "$1")" > "$(basename "$1").sha256")
+}
+
+report_size() {
+  ls -la "$1" | awk '{printf "  %s  %.0f MB\n", $9, $5/1048576}'
+}
 
 echo "  Building server and web …"
 bun run build >/dev/null
 mkdir -p dist
 
 for target in "${targets[@]}"; do
-  if [ "$target" = "host" ]; then
-    out="dist/orbit"; flag=()
-  else
-    out="dist/orbit-${target#bun-}"; flag=("--target=$target")
-  fi
+  out="$(output_for "$target")"
   echo "  Compiling $out …"
-  # chromium-bidi is an optional require inside playwright-core that the
-  # bundler cannot resolve and the binary never needs (it is for Firefox).
-  bun build --compile ${flag:+"${flag[@]}"} \
-    --external chromium-bidi \
-    --asset=web/dist \
-    --asset=server/package.json \
-    server/dist/main.js --outfile "$out" >/dev/null
-  # A checksum beside each binary: the Homebrew formula names it, and a
-  # download that does not match it is not installed.
-  (cd dist && shasum -a 256 "$(basename "$out")" > "$(basename "$out").sha256")
-  ls -la "$out" | awk '{printf "  %s  %.0f MB\n", $9, $5/1048576}'
+  compile "$target" "$out"
+  write_checksum_beside "$out"
+  report_size "$out"
 done

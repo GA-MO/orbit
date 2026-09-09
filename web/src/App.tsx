@@ -43,54 +43,55 @@ import {
   type SessionInfo,
 } from './api'
 
-/** A notification, or a link, naming the session to open on arrival. */
 const OPEN_PARAM = 'session'
+const SW_OPEN_SESSION_MESSAGE = 'orbit-open-session'
+const TOAST_MS = 3000
+const NOTICE_MS = 3000
+const BOOT_RETRY_MS = 2000
+const PAIR_CODE_EXPIRED =
+  'That pairing code has expired — run `orbit pair` on the Mac for a fresh one, or type the token.'
+const TRAILING_SPACE = /\s*$/
+
+const previewRouteKey = (port: number | string) => `orbit.previewRoute.${port}`
 
 type View = 'terminal' | 'changes' | 'sessions' | 'captures'
 
-/* A notification names the session that raised it, and a phone woken by one is
-   almost never on that session already. Read at module load and cleared from
-   the address bar at once: the boot effect runs more than once, and a second
-   pass finding the parameter already gone would fall back to the stored
-   session — which is precisely the one the notification was not about. */
-let openedWith = (() => {
+const takeSessionFromAddress = (): string | null => {
   const id = new URLSearchParams(location.search).get(OPEN_PARAM)
   if (id) history.replaceState(null, '', location.pathname)
   return id
-})()
+}
 
-/* The address the phone's camera opened carries a pairing code in its
-   fragment (see server/src/pairing.ts). Taken off the address bar at once,
-   like the session above, and spent by the first boot to run: it stands in
-   for the token only until it has been exchanged for one. */
-let pairCode = (() => {
+const takePairCodeFromAddress = (): string | null => {
   const code = pairCodeIn(location.href)
   if (code) history.replaceState(null, '', location.pathname + location.search)
   return code
-})()
-/** Why the last pairing attempt from an address failed — shown on the login screen once. */
+}
+
+let openedWith = takeSessionFromAddress()
+let pairCode = takePairCodeFromAddress()
 let pairFailure: string | null = null
 
-/** A copy of `map` without `key` — how a session's word gets marked as read. */
 const omit = <T,>(map: Record<string, T>, key: string): Record<string, T> => {
   const { [key]: _read, ...rest } = map
   return rest
 }
 
+const attentionBySession = (sessions: SessionInfo[]): Record<string, Attention> =>
+  Object.fromEntries(sessions.flatMap((s) => (s.attention ? [[s.id, s.attention]] : [])))
+
+const appendWords = (text: string, words: string) =>
+  text ? `${text.replace(TRAILING_SPACE, '')} ${words}` : words
+
+const appendPath = (text: string, path: string) => `${appendWords(text, path)} `
+
 const TABS: { id: View; label: string; Icon: typeof IconTerminal }[] = [
   { id: 'terminal', label: 'Terminal', Icon: IconTerminal },
-  /* Next to the terminal because it is the other half of the same question:
-     the terminal says what the agent is doing, this says what it wrote. */
   { id: 'changes', label: 'Changes', Icon: IconBranch },
   { id: 'sessions', label: 'Sessions', Icon: IconSessions },
-  /* "Captures" named the gallery, back when the gallery was all there was.
-     The tab now publishes a dev server over https and opens it live over the
-     terminal too, and a screenshot is the thing you fall back to. */
   { id: 'captures', label: 'Preview', Icon: IconCapture },
 ]
 
-/* A capture's label carries the route, matching `captureVia` in the Preview
-   tab. `/` adds nothing to a name that already says which port it was. */
 const previewPath = (url: string): string => {
   try {
     const { pathname } = new URL(url)
@@ -100,8 +101,120 @@ const previewPath = (url: string): string => {
   }
 }
 
+const rememberPreviewRoute = (preview: PreviewRequest) => {
+  try {
+    const { pathname, search, hash } = new URL(preview.url)
+    localStorage.setItem(previewRouteKey(preview.port), pathname + search + hash)
+  } catch {
+    return
+  }
+}
+
+type Toast = { message: string; sessionId?: string | null }
+type Notice = { message: string; sessionId: string | null }
+type NoticeMeta = { sessionId?: string | null; alreadyPushed?: boolean }
+
+function useNoticeQueue(
+  setToast: (toast: Toast | null) => void,
+  refreshCurrent: () => void,
+) {
+  const queue = useRef<Notice[]>([])
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showNextOrStop = useCallback(() => {
+    const notice = queue.current.shift()
+    if (notice === undefined) {
+      timer.current = null
+      setToast(null)
+      return
+    }
+    setToast(notice)
+    timer.current = setTimeout(showNextOrStop, NOTICE_MS)
+  }, [setToast])
+
+  return useCallback(
+    (message: string, meta: NoticeMeta = {}) => {
+      const sessionId = meta.sessionId ?? null
+      queue.current.push({ message, sessionId })
+      if (document.hidden && !meta.alreadyPushed) systemNotice(message)
+      if (sessionId) refreshCurrent()
+      const alreadyShowing = timer.current !== null
+      if (alreadyShowing) return
+      showNextOrStop()
+    },
+    [refreshCurrent, showNextOrStop],
+  )
+}
+
+function AttentionBadge({ unread }: { unread: Attention[] }) {
+  const someoneIsWaiting = unread.some((a) => a.kind === 'waiting')
+  return (
+    <span
+      aria-label={`${unread.length} session(s) waiting`}
+      className={`absolute -top-1 -right-2.5 min-w-4 rounded-full px-1 text-[10px] leading-4 font-semibold ${
+        someoneIsWaiting ? 'bg-accent-strong text-white' : 'border border-line bg-raised text-mut'
+      }`}
+    >
+      {unread.length}
+    </span>
+  )
+}
+
+function TabBar({
+  view,
+  unread,
+  onSelect,
+}: {
+  view: View
+  unread: Attention[]
+  onSelect: (view: View) => void
+}) {
+  return (
+    <nav className="relative z-10 flex shrink-0 bg-surface pb-[env(safe-area-inset-bottom)] shadow-[inset_0_1px_0_var(--edge-lit)]">
+      {TABS.map(({ id, label, Icon }) => (
+        <button
+          key={id}
+          onClick={() => onSelect(id)}
+          aria-current={view === id ? 'page' : undefined}
+          className={`press flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${
+            view === id ? 'text-accent' : 'text-faint hover:text-mut'
+          }`}
+        >
+          <span className="relative">
+            <Icon size={21} />
+            {id === 'sessions' && unread.length > 0 && <AttentionBadge unread={unread} />}
+          </span>
+          {label}
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+function ToastPill({ message }: { message: string }) {
+  return (
+    <div className="lift fixed bottom-20 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-[22px] border border-line bg-overlay px-4 py-2.5 text-center text-[13px]">
+      {message}
+    </div>
+  )
+}
+
+function ToastLink({ message, onOpen }: { message: string; onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="lift fixed bottom-20 left-1/2 z-50 flex max-w-[90vw] min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-accent/60 bg-overlay py-2 pr-3 pl-4 text-left text-[13px]"
+    >
+      <span className="line-clamp-2">{message}</span>
+      <span className="shrink-0 rounded-full bg-accent-strong px-2.5 py-1 text-[11px] font-medium text-white">
+        Open
+      </span>
+    </button>
+  )
+}
+
 export default function App() {
-  const [locked, setLocked] = useState<boolean | null>(null) // null = checking
+  const [locked, setLocked] = useState<boolean | null>(null)
   const [bootNonce, setBootNonce] = useState(0)
   const [socketNonce, setSocketNonce] = useState(0)
   const [view, setView] = useState<View>('terminal')
@@ -110,29 +223,14 @@ export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
-  /* One draft, three ways in: the keyboard, dictation, and the image picker
-     all write here, and nothing reaches the PTY until Send. Held out here
-     rather than inside the sheet so that closing the sheet — to look something
-     up in the terminal it is covering — does not throw the message away. */
   const [draft, setDraft] = useState('')
   const [composeOpen, setComposeOpen] = useState(false)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
-  // Questions from the Mac queue up: each one is blocking something over there.
   const [asks, setAsks] = useState<AskRequest[]>([])
-  /* A page the agent published and asked to have looked at. Held up here, not
-     in the Preview tab that owns the other frames, because the tab in front
-     when an agent says "go and look at this" is nearly always the terminal —
-     that is where the work being described is being done. Framed from App, it
-     arrives over whatever is on screen instead of waiting behind a tab. */
   const [preview, setPreview] = useState<PreviewRequest | null>(null)
-  /* What each session is still waiting to tell someone. Held here rather than
-     in the Sessions tab because the whole point is to be visible from the other
-     two — a phone is picked up to find out whether anything wants you. */
   const [attention, setAttention] = useState<Record<string, Attention>>({})
-  const [toast, setToast] = useState<{ message: string; sessionId?: string | null } | null>(null)
+  const [toast, setToast] = useState<Toast | null>(null)
   const [startingNew, setStartingNew] = useState(false)
-  /* Whether boot has finished looking. Until it has, an empty terminal tab is
-     a tab still asking the Mac what it has — not a Mac with nothing on it. */
   const [booted, setBooted] = useState(false)
   const termHandle = useRef<TerminalHandle | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -144,62 +242,27 @@ export default function App() {
   }, [])
 
   const refreshCurrent = useCallback(async (id?: string | null) => {
-    const sid = id ?? currentId
+    const sessionId = id ?? currentId
     try {
       const all = await fetchSessions()
-      setCurrent(sid ? (all.find((s) => s.id === sid) ?? null) : null)
-      // The server's copy is the one that survived the app being closed.
-      setAttention(
-        Object.fromEntries(all.flatMap((s) => (s.attention ? [[s.id, s.attention]] : []))),
-      )
+      setCurrent(sessionId ? (all.find((s) => s.id === sessionId) ?? null) : null)
+      setAttention(attentionBySession(all))
     } catch {
-      // ignore
+      return
     }
   }, [currentId])
 
   const showToast = useCallback((message: string) => {
     setToast({ message })
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), TOAST_MS)
   }, [])
 
-  /* Notices can arrive in a batch — everything that happened while the phone
-     was asleep lands at once on reconnect. Queue them so each is actually read
-     instead of the last one winning. */
-  const noticeQueue = useRef<{ message: string; sessionId: string | null }[]>([])
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const showNotice = useCallback(
-    (message: string, meta: { sessionId?: string | null; alreadyPushed?: boolean } = {}) => {
-      const sessionId = meta.sessionId ?? null
-      noticeQueue.current.push({ message, sessionId })
-      // One that woke the phone as a push is already on its screen; queueing the
-      // toast still lets it be read in the app, but a banner would be the second.
-      if (document.hidden && !meta.alreadyPushed) systemNotice(message)
-      /* The server has already filed this against its session — ask what the
-         standing state is now rather than guessing at it from one message. */
-      if (sessionId) refreshCurrent()
-      if (noticeTimer.current) return
-
-      const next = () => {
-        const notice = noticeQueue.current.shift()
-        if (notice === undefined) {
-          noticeTimer.current = null
-          setToast(null)
-          return
-        }
-        setToast(notice)
-        noticeTimer.current = setTimeout(next, 3000)
-      }
-      next()
-    },
-    [refreshCurrent],
-  )
+  const showNotice = useNoticeQueue(setToast, refreshCurrent)
 
   const addAsk = useCallback(
     (request: AskRequest) => {
       setAsks((cur) => (cur.some((a) => a.id === request.id) ? cur : [...cur, request]))
       if (document.hidden) systemNotice(request.question)
-      // A question outlives the toast that announced it — and the app being shut.
       if (request.sessionId) refreshCurrent()
     },
     [refreshCurrent],
@@ -210,65 +273,56 @@ export default function App() {
       const answered = asks.find((a) => a.id === id)
       termHandle.current?.answer(id, choice)
       setAsks((cur) => cur.filter((a) => a.id !== id))
-      // The server drops its record on an answer; keep the badge in step.
-      const from = answered?.sessionId
-      if (from) setAttention((cur) => omit(cur, from))
+      const answeredSession = answered?.sessionId
+      if (answeredSession) setAttention((cur) => omit(cur, answeredSession))
     },
     [asks],
   )
 
-  // Boot: verify auth, then reattach to the stored session if it is still there.
   useEffect(() => {
     if (locked !== false && locked !== null) return
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
-    // Looking again: until it answers, the tab is connecting, not empty.
     setBooted(false)
+
+    const exchangePairCodeIfAny = async () => {
+      if (!pairCode) return
+      const code = pairCode
+      pairCode = null
+      if (!(await pairWithCode(code))) pairFailure = PAIR_CODE_EXPIRED
+    }
+
+    const reattachToStoredSession = async () => {
+      const asked = openedWith
+      const stored = asked ?? localStorage.getItem(SESSION_KEY)
+      const sessions = await fetchSessions()
+      const found = sessions.find((s) => s.id === stored)
+      if (cancelled) return
+      openedWith = null
+      if (found) {
+        if (asked) localStorage.setItem(SESSION_KEY, found.id)
+        setCurrentId(found.id)
+      } else {
+        localStorage.removeItem(SESSION_KEY)
+        setCurrentId(null)
+      }
+      setBooted(true)
+    }
 
     const boot = async () => {
       try {
-        if (pairCode) {
-          const code = pairCode
-          pairCode = null
-          if (!(await pairWithCode(code))) {
-            pairFailure = 'That pairing code has expired — run `orbit pair` on the Mac for a fresh one, or type the token.'
-          }
-        }
+        await exchangePairCodeIfAny()
         if (!(await checkAuth())) {
           if (!cancelled) setLocked(true)
           return
         }
         if (!cancelled) setLocked(false)
-        // Push subscriptions expire and endpoints rotate; renew on every launch.
         registerPush()
-        const asked = openedWith
-        const stored = asked ?? localStorage.getItem(SESSION_KEY)
-        const sessions = await fetchSessions()
-        // Reattach even if the session ended — its history opens read-only.
-        const found = sessions.find((s) => s.id === stored)
-        if (cancelled) return
-        /* Spent only by the run that gets to act on it. Clearing it when it was
-           read instead would hand it to the boot that `setLocked` immediately
-           cancels, and the one that follows would fall back to storage. */
-        openedWith = null
-        if (found) {
-          // Arrived from a notification: staying here across a reload is the point.
-          if (asked) localStorage.setItem(SESSION_KEY, found.id)
-          setCurrentId(found.id)
-        } else {
-          /* Nothing to reattach to. Starting one anyway would put a program on
-             someone's Mac because a tab was opened, and the shell it used to
-             start was rarely the session anyone wanted — the folder and the
-             agent are the whole point, and the sheet is where those are said.
-             So the tab stays empty and asks. */
-          localStorage.removeItem(SESSION_KEY)
-          setCurrentId(null)
-        }
-        setBooted(true)
+        await reattachToStoredSession()
       } catch (e) {
         if (cancelled) return
         if (e instanceof AuthError) setLocked(true)
-        else retryTimer = setTimeout(boot, 2000)
+        else retryTimer = setTimeout(boot, BOOT_RETRY_MS)
       }
     }
     boot()
@@ -279,33 +333,28 @@ export default function App() {
     }
   }, [locked, bootNonce])
 
-  // Keep the terminal header in sync with the active session.
   useEffect(() => {
     if (!currentId || locked !== false) return
     refreshCurrent(currentId)
   }, [currentId, locked, view, refreshCurrent])
 
-  /* Looking at the session is what reads its word — not opening the app, and
-     not tapping the toast. Anything else leaves a badge that clears itself
-     before it has been understood. */
   useEffect(() => {
     const id = currentId
-    if (view !== 'terminal' || !id || !attention[id]) return
+    const lookingAtSessionWithUnreadWord = view === 'terminal' && id && attention[id]
+    if (!lookingAtSessionWithUnreadWord) return
     setAttention((cur) => omit(cur, id))
     clearAttention(id).catch(() => {})
   }, [view, currentId, attention])
 
-  /* The app was already open when the notification was tapped, so nothing
-     navigated: the service worker hands the session id over instead. */
   useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
+    const onServiceWorkerMessage = (event: MessageEvent) => {
       const data = event.data
-      if (data?.type === 'orbit-open-session' && typeof data.sessionId === 'string') {
+      if (data?.type === SW_OPEN_SESSION_MESSAGE && typeof data.sessionId === 'string') {
         selectSession(data.sessionId)
       }
     }
-    navigator.serviceWorker?.addEventListener('message', onMessage)
-    return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
+    navigator.serviceWorker?.addEventListener('message', onServiceWorkerMessage)
+    return () => navigator.serviceWorker?.removeEventListener('message', onServiceWorkerMessage)
   }, [selectSession])
 
   const handleExit = useCallback(
@@ -315,7 +364,6 @@ export default function App() {
     [refreshCurrent],
   )
 
-  // Ended session in the terminal tab: same agent + folder, fresh or resumed.
   const startFreshSession = async (resume = false) => {
     if (!current || startingNew) return
     setStartingNew(true)
@@ -329,38 +377,32 @@ export default function App() {
     }
   }
 
-  /* The socket is refused when the session cookie is missing or stale — an
-     expired cookie, or a browser that dropped it. The token in storage may well
-     still be good, so ask for a fresh cookie before making anyone retype it. */
+  const remountTerminalWithFreshCookie = () => setSocketNonce((n) => n + 1)
+
   const handleAuthFail = useCallback(async () => {
     try {
       if (await checkAuth()) {
-        setSocketNonce((n) => n + 1) // remount the terminal; reconnect with the new cookie
+        remountTerminalWithFreshCookie()
         return
       }
     } catch {
-      // unreachable server: treat as locked, the login screen says so
+      setLocked(true)
+      return
     }
     setLocked(true)
   }, [])
 
-  /* The stored session is gone from the Mac (pruned, or ~/.orbit cleared).
-     Forget it and let boot pick up whatever is actually there. */
+  const bootAgain = () => setBootNonce((n) => n + 1)
+
   const handleGone = useCallback(() => {
     localStorage.removeItem(SESSION_KEY)
     setCurrentId(null)
     setCurrent(null)
-    setBootNonce((n) => n + 1) // boot again: reattach to something real, or to nothing
+    bootAgain()
     showToast('That session is no longer on your Mac')
   }, [showToast])
 
-  /* Un-pairing this phone. The work is here rather than in the Sessions tab
-     because signing out is a fact about the whole app: the socket, the session
-     on screen and the login gate all belong to this component, and flipping
-     `locked` is what tears the first two down. The tab owns the asking. */
   const unpair = useCallback(async () => {
-    /* Read before the request, cancelled after it: the server needs to be told
-       which endpoint is this phone while the subscription still exists. */
     await unpairPhone(await pushEndpoint())
     await dropPush()
     setCurrentId(null)
@@ -370,34 +412,19 @@ export default function App() {
 
   const pickImage = async (file: File | null) => {
     if (!file) return
-    /* Whichever sheet asked for it: the voice sheet shows its own transcript,
-       so a path appended to the message draft behind it would be invisible
-       until that sheet was next opened. Read now rather than after the upload —
-       it is the sheet that opened the picker that should receive the path. */
-    const speech = voiceSession
+    const sheetThatOpenedThePicker = voiceSession
     try {
       const { path } = await uploadImage(file)
-      /* Into the draft, not the PTY: an uploaded path is almost always the
-         middle of a sentence ("look at <path> and tell me…"), and the rest of
-         that sentence is easier to write next to it than around it. No toast:
-         the sheet is still open underneath the picker, so the path appears in
-         the field being looked at — announcing it would be telling someone
-         what they are reading. Failure still speaks, because that is the case
-         where nothing appears. */
-      const append = (text: string) =>
-        text ? `${text.replace(/\s*$/, '')} ${path} ` : `${path} `
-      /* setTranscript, not a plain assignment: it makes the path the baseline a
-         restarted run appends after, so dictation carries on past it. */
-      if (speech) speech.setTranscript(append(speech.transcript))
-      else setDraft(append)
+      if (sheetThatOpenedThePicker) {
+        sheetThatOpenedThePicker.setTranscript(appendPath(sheetThatOpenedThePicker.transcript, path))
+      } else {
+        setDraft((text) => appendPath(text, path))
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Upload failed')
     }
   }
 
-  /* `paste`, never `write`: a bare newline mid-text is read as "send" by the
-     agent's own composer, so a multi-line message written through would arrive
-     as several half-messages. See the handle in Terminal.tsx. */
   const putText = (text: string, commit: boolean) => {
     if (!text) return
     termHandle.current?.paste(text)
@@ -409,22 +436,53 @@ export default function App() {
     setView('terminal')
   }
 
+  const openPicker = () => fileInput.current?.click()
+
+  const startVoiceInsideThisTap = () => setVoiceSession(startSpeech())
+
+  const closeVoice = () => {
+    voiceSession?.dispose()
+    setVoiceSession(null)
+  }
+
+  const moveDictationIntoDraft = (text: string) => {
+    setDraft((d) => appendWords(d, text))
+    setComposeOpen(true)
+  }
+
+  const approve = () => {
+    if (!approval) return
+    termHandle.current?.approve(approval.id)
+    setApproval(null)
+  }
+
+  const deny = () => {
+    if (!approval) return
+    termHandle.current?.deny(approval.id)
+    setApproval(null)
+    showToast('Command denied')
+  }
+
+  const closePreview = () => {
+    if (preview) rememberPreviewRoute(preview)
+    setPreview(null)
+  }
+
   if (locked === true) return <Login onSuccess={() => setLocked(false)} notice={pairFailure} />
 
   const unread = Object.values(attention)
+  const headerStatus: ConnectionStatus = currentId ? status : booted ? 'connected' : 'connecting'
+  const blockedQuestionOnScreen = approval !== null || asks.length > 0
+  const toastLeadsElsewhere =
+    toast?.sessionId && !(view === 'terminal' && toast.sessionId === currentId)
 
   return (
     <div className="app-fill flex flex-col pt-[env(safe-area-inset-top)]">
       <main className="relative min-h-0 flex-1">
-        {/* Terminal stays mounted across tab switches — the PTY connection survives. */}
         <div className={`h-full ${view === 'terminal' ? '' : 'hidden'}`}>
           <TerminalView
             session={current}
-            /* With no session there is no socket to report on, and the header
-               would sit on "Connecting…" for good. Boot reached the Mac to
-               find out there was nothing to attach to, so the connection is
-               the one thing here that is fine. */
-            status={currentId ? status : booted ? 'connected' : 'connecting'}
+            status={headerStatus}
             onNewSession={() => startFreshSession(false)}
             onResume={() => startFreshSession(true)}
             starting={startingNew}
@@ -449,9 +507,7 @@ export default function App() {
                 onToast={showToast}
                 handleRef={termHandle}
                 onCompose={() => setComposeOpen(true)}
-                /* Started inside the tap — iOS refuses a recogniser begun a
-                   tick later, outside the gesture. */
-                onVoice={() => setVoiceSession(startSpeech())}
+                onVoice={startVoiceInsideThisTap}
                 voiceAvailable={speechSupported()}
                 draftPending={draft.trim().length > 0}
               />
@@ -500,37 +556,7 @@ export default function App() {
         </div>
       </main>
 
-      <nav className="relative z-10 flex shrink-0 bg-surface pb-[env(safe-area-inset-bottom)] shadow-[inset_0_1px_0_var(--edge-lit)]">
-        {TABS.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            aria-current={view === id ? 'page' : undefined}
-            className={`press flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${
-              view === id ? 'text-accent' : 'text-faint hover:text-mut'
-            }`}
-          >
-            <span className="relative">
-              <Icon size={21} />
-              {/* The one thing on screen that says a session wants you while you
-                  are looking at something else. */}
-              {id === 'sessions' && unread.length > 0 && (
-                <span
-                  aria-label={`${unread.length} session(s) waiting`}
-                  className={`absolute -top-1 -right-2.5 min-w-4 rounded-full px-1 text-[10px] leading-4 font-semibold ${
-                    unread.some((a) => a.kind === 'waiting')
-                      ? 'bg-accent-strong text-white'
-                      : 'border border-line bg-raised text-mut'
-                  }`}
-                >
-                  {unread.length}
-                </span>
-              )}
-            </span>
-            {label}
-          </button>
-        ))}
-      </nav>
+      <TabBar view={view} unread={unread} onSelect={setView} />
 
       <input
         ref={fileInput}
@@ -558,120 +584,46 @@ export default function App() {
           onChange={setDraft}
           onInsert={(text) => putText(text, false)}
           onSend={(text) => putText(text, true)}
-          onImage={() => fileInput.current?.click()}
+          onImage={openPicker}
           onClose={() => setComposeOpen(false)}
         />
       )}
       {voiceSession && (
         <VoiceSheet
           session={voiceSession}
-          onImage={() => fileInput.current?.click()}
-          /* Into the draft, not the prompt: a recogniser mishears, and the
-             message sheet is where a mishearing can be fixed before it goes. */
-          onInsert={(text) => {
-            setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${text}` : text))
-            setComposeOpen(true)
-          }}
+          onImage={openPicker}
+          onInsert={moveDictationIntoDraft}
           onSend={(text) => putText(text, true)}
-          onClose={() => {
-            voiceSession.dispose()
-            setVoiceSession(null)
-          }}
+          onClose={closeVoice}
         />
       )}
-      {approval && (
-        <ApprovalModal
-          request={approval}
-          onApprove={() => {
-            termHandle.current?.approve(approval.id)
-            setApproval(null)
-          }}
-          onDeny={() => {
-            termHandle.current?.deny(approval.id)
-            setApproval(null)
-            showToast('Command denied')
-          }}
-        />
-      )}
-      {/* Approval comes first: it is holding a keystroke the user just sent. */}
+      {approval && <ApprovalModal request={approval} onApprove={approve} onDeny={deny} />}
       {!approval && asks.length > 0 && (
         <AskModal
           request={asks[0]}
           onAnswer={(choice) => answerAsk(asks[0].id, choice)}
         />
       )}
-      {/* Taking the screen is the intended behaviour here, not a cost to be
-         apologised for: a notice is the agent talking unprompted, whereas this
-         only goes out because someone asked to be shown something, so it opens
-         rather than queueing behind a toast. Two things still come first.
-
-         A second preview replaces the first rather than stacking on it. The
-         agent sends one when it has just changed the page it names, so the
-         newer URL is the one that was asked for, and a pile of frames would
-         only have to be dismissed one at a time on the way back to a terminal
-         nobody chose to leave. A frame already open from the Preview tab or
-         from a link tapped in the terminal is left where it is underneath —
-         it belongs to another component, this one paints over it, and closing
-         this puts the user back where they were rather than on a screen that
-         quietly threw their page away.
-
-         A blocked question is the one thing that outranks it. An `ask` or an
-         approval is holding something open on the Mac, and covering it with a
-         frame would leave the agent waiting on a tap nobody can see to make.
-         The preview is kept rather than dropped, the way the notice queue
-         keeps notices, and appears the moment the question is answered — the
-         z-index says the same thing, so even a render in the wrong order
-         cannot get it in front. */}
-      {preview && !approval && asks.length === 0 && (
+      {preview && !blockedQuestionOnScreen && (
         <PageViewer
           uri={preview.url}
-          /* Same shape the Preview tab files a capture under, path included:
-             now that a preview can land anywhere, two shots of one port are
-             told apart by the only thing that differs between them. */
           label={`localhost:${preview.port}${previewPath(preview.url)}`}
-          onClose={() => {
-            /* Where the agent left this port is where the Preview tab should
-               reopen it. That tab writes the same key on its own frames; both
-               entrances lead to one page, so both have to remember it, or
-               coming back the other way silently lands on `/` again. Keyed by
-               the local port, not the public one, which `tailscale serve`
-               reassigns freely. */
-            try {
-              const { pathname, search, hash } = new URL(preview.url)
-              localStorage.setItem(`orbit.previewRoute.${preview.port}`, pathname + search + hash)
-            } catch {
-              // A URL we cannot parse is a route not worth remembering.
-            }
-            setPreview(null)
-          }}
+          onClose={closePreview}
           onInsertPath={insertPath}
           onToast={showToast}
         />
       )}
-      {/* A notice from a session you are not looking at is the one worth acting
-          on, and reading it is not the action — so it is the way there. Plain
-          toasts (upload failed, session stopped) stay a plain div: nothing to go
-          to, and a button that does nothing reads as a broken one. */}
       {toast &&
-        (toast.sessionId && !(view === 'terminal' && toast.sessionId === currentId) ? (
-          <button
-            onClick={() => {
+        (toastLeadsElsewhere ? (
+          <ToastLink
+            message={toast.message}
+            onOpen={() => {
               selectSession(toast.sessionId!)
               setToast(null)
             }}
-            className="lift fixed bottom-20 left-1/2 z-50 flex max-w-[90vw] min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-accent/60 bg-overlay py-2 pr-3 pl-4 text-left text-[13px]"
-          >
-            <span className="line-clamp-2">{toast.message}</span>
-            <span className="shrink-0 rounded-full bg-accent-strong px-2.5 py-1 text-[11px] font-medium text-white">
-              Open
-            </span>
-          </button>
+          />
         ) : (
-          /* A pill while it fits on one line, a box once it does not: a
-             four-line message inside `rounded-full` is a blob. */
-          <div className="lift fixed bottom-20 left-1/2 z-50 max-w-[90vw] -translate-x-1/2 rounded-[22px] border border-line bg-overlay px-4 py-2.5 text-center text-[13px]">
-            {toast.message}
-          </div>
+          <ToastPill message={toast.message} />
         ))}
     </div>
   )

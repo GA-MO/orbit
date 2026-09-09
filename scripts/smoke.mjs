@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * End-to-end smoke test for everything the phone cannot be asked to prove:
- * capture, the Mac→phone channel, the MCP server, and the approval hook.
- *
- * Runs against a *throwaway* Orbit server, because it creates and kills
- * sessions and writes captures. `make test-smoke` does the whole dance — build,
- * a spare port, its own data directory, and taking the server down again:
- *
- *   make test-smoke
- *
- * By hand, if you want the server left running to poke at:
- *
- *   bun run build
- *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 bun server/dist/index.js &
- *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 bun scripts/smoke.mjs
- *
- * Every line prints what happened; read them, do not just look for a zero exit.
- */
 import { execFileSync, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
@@ -30,11 +12,13 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(REPO, 'package.json'))
 const WebSocket = require('ws')
 
+const LIVE_ORBIT_PORT = 3001
 const PORT = Number(process.env.ORBIT_PORT ?? 3099)
 const BASE = `http://127.0.0.1:${PORT}`
+const WS_URL = `ws://127.0.0.1:${PORT}/ws`
 const HOME = os.homedir()
 
-if (PORT === 3001 && !process.env.SMOKE_FORCE) {
+if (PORT === LIVE_ORBIT_PORT && !process.env.SMOKE_FORCE) {
   console.error('Refusing to run against port 3001 — that is the real server, and this kills')
   console.error('sessions. Start a throwaway one (see the header) or set SMOKE_FORCE=1.')
   process.exit(1)
@@ -42,7 +26,18 @@ if (PORT === 3001 && !process.env.SMOKE_FORCE) {
 
 const TOKEN = JSON.parse(fs.readFileSync(path.join(HOME, '.orbit', 'config.json'), 'utf8')).token
 const H = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' }
+const BEARER = { headers: { Authorization: `Bearer ${TOKEN}` } }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const LOOPBACK = '127.0.0.1'
+const PORT_NOBODY_LISTENS_ON = 4321
+const WEB_STUB_PORT = 3097
+const TCP_ONLY_STUB_PORT = 3096
+const PREVIEW_STUB_PORT = 3098
+const HANGUP_STUB_PORT = 3095
+
+const listen = (server, port) => new Promise((r) => server.listen(port, LOOPBACK, r))
+const closeServer = (server) => new Promise((r) => server.close(r))
 
 let failures = 0
 const check = (label, ok, detail = '') => {
@@ -61,65 +56,60 @@ const api = async (route, body, method = 'POST') => {
   }
 }
 
-/**
- * A stand-in for the phone: one socket, answering whatever it is asked.
- * `viewing` is the session it claims to have on screen — which the server uses
- * to decide whether a `quiet` message would be telling someone what they can
- * already see.
- */
-const phone = (answerWith, viewing) => {
+const listSessions = async () => (await api('/api/sessions', null, 'GET')).body
+const endSession = (id) => api(`/api/sessions/${id}`, null, 'DELETE')
+const endThenForget = async (id, settleMs) => {
+  await endSession(id)
+  await wait(settleMs)
+  await endSession(id)
+}
+const listPreviews = async () => (await api('/api/previews', undefined, 'GET')).body
+const livePorts = async (ports) => (await api(`/api/previews/live?ports=${ports}`, undefined, 'GET')).body
+
+const phone = (chooseAnswer, viewingSessionId) => {
   const seen = []
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
-  })
+  const ws = new WebSocket(WS_URL, BEARER)
   ws.on('message', (raw) => {
     const msg = JSON.parse(raw.toString())
     seen.push(msg)
-    if (msg.type === 'ask' && answerWith) {
-      ws.send(JSON.stringify({ type: 'answer', id: msg.id, choice: answerWith(msg) }))
+    if (msg.type === 'ask' && chooseAnswer) {
+      ws.send(JSON.stringify({ type: 'answer', id: msg.id, choice: chooseAnswer(msg) }))
     }
   })
   const open = new Promise((r) => ws.on('open', r)).then(() => {
-    if (viewing !== undefined) ws.send(JSON.stringify({ type: 'viewing', sessionId: viewing }))
+    if (viewingSessionId !== undefined) ws.send(JSON.stringify({ type: 'viewing', sessionId: viewingSessionId }))
   })
   return { ws, seen, open }
 }
 
-// ---------------------------------------------------------------- captures
-
 section('captures')
-for (const [preset, expected] of [['phone', 780], ['tablet', 1668], ['desktop', 1440]]) {
+const PRESET_WIDTHS = [['phone', 780], ['tablet', 1668], ['desktop', 1440]]
+for (const [preset, expectedWidth] of PRESET_WIDTHS) {
   const r = await api('/api/screenshot', { url: BASE, preset })
-  check(`${preset} preset`, r.body.width === expected, `${r.body.width}×${r.body.height}`)
+  check(`${preset} preset`, r.body.width === expectedWidth, `${r.body.width}×${r.body.height}`)
 }
 const labelled = await api('/api/screenshot', { url: `${BASE}/healthz` })
 check('capture carries a label', labelled.body.label?.includes('healthz'), labelled.body.file)
 
-/* A published dev server is rendered through its tailnet address, so the URL
-   says `…ts.net:8443` while the picture is of `localhost:3000`. */
 const relabelled = await api('/api/screenshot', { url: BASE, label: 'localhost:3000' })
 check(
   'a capture can be filed under something other than where it was fetched',
   relabelled.body.label === 'localhost:3000',
   relabelled.body.file,
 )
-const nasty = await api('/api/screenshot', { url: BASE, label: '../../etc/passwd' })
-check('…and that label cannot leave the directory', !nasty.body.file?.includes('/'), nasty.body.file)
+const traversingLabel = await api('/api/screenshot', { url: BASE, label: '../../etc/passwd' })
+check('…and that label cannot leave the directory', !traversingLabel.body.file?.includes('/'), traversingLabel.body.file)
 
-const deadPort = await api('/api/screenshot', { url: 'http://127.0.0.1:4321' })
+const deadPort = await api('/api/screenshot', { url: `http://127.0.0.1:${PORT_NOBODY_LISTENS_ON}` })
 check('a dead dev server is an error, not a picture of one', deadPort.status === 502, deadPort.body.error)
 check(
   'an unknown preset is refused',
   (await api('/api/screenshot', { url: BASE, preset: 'watch' })).status === 400,
 )
 
+const NO_SCREEN_RECORDING_PERMISSION = /could not create image from display/i
 const screen = await api('/api/screenshot', { source: 'screen' })
-/* macOS answers "could not create image from display" when the process that
-   started the server has no Screen Recording permission — which is the normal
-   state for a server launched from an editor, a CI job or an agent's shell.
-   That is the machine refusing, not the feature breaking, and failing the run
-   for it teaches everyone to ignore a red line. */
-if (/could not create image from display/i.test(screen.body.error ?? '')) {
+if (NO_SCREEN_RECORDING_PERMISSION.test(screen.body.error ?? '')) {
   console.log('  skip  mac screen capture — this process has no Screen Recording permission')
   console.log('        (grant it to the app that launched the server to cover this one)')
 } else {
@@ -130,50 +120,46 @@ if (/could not create image from display/i.test(screen.body.error ?? '')) {
   console.log('        macOS reports no error for that, so no test can catch it)')
 }
 
-// ------------------------------------------------------------- dev servers
-
 section('dev servers on this Mac')
 {
-  /* Something that answers HTTP, and something that answers with anything but
-     — the second is the whole reason the probe exists rather than a bare TCP
-     connect, since a database on a round-numbered port is the noise it removes. */
-  const web = http.createServer((_, res) => res.end('ok'))
-  await new Promise((r) => web.listen(3097, '127.0.0.1', r))
-  const mute = net.createServer((s) => s.on('data', () => {}))
-  await new Promise((r) => mute.listen(3096, '127.0.0.1', r))
+  const webStub = http.createServer((_, res) => res.end('ok'))
+  await listen(webStub, WEB_STUB_PORT)
+  const tcpOnlyStub = net.createServer((s) => s.on('data', () => {}))
+  await listen(tcpOnlyStub, TCP_ONLY_STUB_PORT)
 
   const found = await api('/api/ports', undefined, 'GET')
-  const at = (p) => found.body.find?.((d) => d.port === p)
-  check('a listening web server is offered', !!at(3097), JSON.stringify(found.body))
-  check('…named after the program holding it', typeof at(3097)?.command === 'string')
-  check('something that does not speak HTTP is not', !at(3096))
-  check('Orbit itself is not offered — it is already on screen', !at(PORT))
+  const offeredOn = (port) => found.body.find?.((d) => d.port === port)
+  check('a listening web server is offered', !!offeredOn(WEB_STUB_PORT), JSON.stringify(found.body))
+  check('…named after the program holding it', typeof offeredOn(WEB_STUB_PORT)?.command === 'string')
+  check('something that does not speak HTTP is not', !offeredOn(TCP_ONLY_STUB_PORT))
+  check('Orbit itself is not offered — it is already on screen', !offeredOn(PORT))
 
-  await new Promise((r) => web.close(r))
-  await new Promise((r) => mute.close(r))
+  await closeServer(webStub)
+  await closeServer(tcpOnlyStub)
   check(
     'a dev server that stopped drops off the list',
-    !(await api('/api/ports', undefined, 'GET')).body.find?.((d) => d.port === 3097),
+    !(await api('/api/ports', undefined, 'GET')).body.find?.((d) => d.port === WEB_STUB_PORT),
   )
 }
 
-// ---------------------------------------------------------------- previews
-
 section('previews')
-const previewState = await api('/api/previews', undefined, 'GET')
-if (!previewState.body.available) {
-  console.log(`       skipped — ${previewState.body.reason}`)
+const FRONT_DOOR_PUBLIC_PORT = 443
+const LOWEST_PREVIEW_PUBLIC_PORT = 8443
+const LIVE_POLL_CAP = 32
+const PORT_SCAN_SIZE = 60
+const PORT_SCAN_FROM = 9000
+const previewState = await listPreviews()
+if (!previewState.available) {
+  console.log(`       skipped — ${previewState.reason}`)
 } else {
-  /* A port that is really listening, so the `listening` flag has something to
-     be right about. Anything that accepts a connection will do. */
-  const stub = net.createServer((s) => s.end())
-  await new Promise((r) => stub.listen(3098, '127.0.0.1', r))
+  const devServerStub = net.createServer((s) => s.end())
+  await listen(devServerStub, PREVIEW_STUB_PORT)
 
-  const front = previewState.body.previews.find((p) => p.publicPort === 443)
-  check('the way in is never listed as a preview', front === undefined)
+  const frontDoor = previewState.previews.find((p) => p.publicPort === FRONT_DOOR_PUBLIC_PORT)
+  check('the way in is never listed as a preview', frontDoor === undefined)
   check(
     'refusing to unpublish the way in',
-    (await api('/api/previews/443', undefined, 'DELETE')).status === 400,
+    (await api(`/api/previews/${FRONT_DOOR_PUBLIC_PORT}`, undefined, 'DELETE')).status === 400,
   )
   check(
     "refusing to publish Orbit's own port",
@@ -181,58 +167,54 @@ if (!previewState.body.available) {
   )
   check('a nonsense port is refused', (await api('/api/previews', { port: 0 })).status === 400)
 
-  const made = await api('/api/previews', { port: 3098 })
+  const made = await api('/api/previews', { port: PREVIEW_STUB_PORT })
   check(
     'a local port is published over https',
-    made.status === 201 && made.body.url?.startsWith('https://') && made.body.publicPort >= 8443,
+    made.status === 201 && made.body.url?.startsWith('https://') && made.body.publicPort >= LOWEST_PREVIEW_PUBLIC_PORT,
     made.body.error ?? made.body.url,
   )
   check('…and knows the dev server is up', made.body.listening === true)
 
-  const again = await api('/api/previews', { port: 3098 })
+  const again = await api('/api/previews', { port: PREVIEW_STUB_PORT })
   check(
     'publishing twice returns the same address',
     again.body.publicPort === made.body.publicPort,
     `${made.body.publicPort} → ${again.body.publicPort}`,
   )
 
-  const listed = await api('/api/previews', undefined, 'GET')
+  const listed = await listPreviews()
   check(
     'it shows up in the list',
-    listed.body.previews.some((p) => p.publicPort === made.body.publicPort && p.port === 3098),
+    listed.previews.some((p) => p.publicPort === made.body.publicPort && p.port === PREVIEW_STUB_PORT),
   )
 
-  /* The half the phone polls: no `tailscale` process, so a tab left open does
-     not spawn one every few seconds. */
-  const live = await api('/api/previews/live?ports=3098,4321', undefined, 'GET')
-  check('liveness answers per port', live.body['3098'] === true && live.body['4321'] === false,
-    JSON.stringify(live.body))
-  const scan = await api(`/api/previews/live?ports=${Array.from({ length: 60 }, (_, i) => 9000 + i)}`,
-    undefined, 'GET')
-  check('…and will not be turned into a port scan', Object.keys(scan.body).length <= 32,
-    `${Object.keys(scan.body).length} ports`)
+  const live = await livePorts(`${PREVIEW_STUB_PORT},${PORT_NOBODY_LISTENS_ON}`)
+  check('liveness answers per port', live[PREVIEW_STUB_PORT] === true && live[PORT_NOBODY_LISTENS_ON] === false,
+    JSON.stringify(live))
+  const scanPorts = Array.from({ length: PORT_SCAN_SIZE }, (_, i) => PORT_SCAN_FROM + i)
+  const scan = await livePorts(scanPorts)
+  check('…and will not be turned into a port scan', Object.keys(scan).length <= LIVE_POLL_CAP,
+    `${Object.keys(scan).length} ports`)
 
-  /* Down goes the dev server, but not the mapping — the phone must be told the
-     difference between an empty frame and a wrong address. */
-  await new Promise((r) => stub.close(r))
-  const orphaned = await api('/api/previews', undefined, 'GET')
+  await closeServer(devServerStub)
+  const orphaned = await listPreviews()
   check(
     'a published port outlives its dev server, and says so',
-    orphaned.body.previews.find((p) => p.publicPort === made.body.publicPort)?.listening === false,
+    orphaned.previews.find((p) => p.publicPort === made.body.publicPort)?.listening === false,
   )
   check(
     '…and the cheap poll agrees',
-    (await api('/api/previews/live?ports=3098', undefined, 'GET')).body['3098'] === false,
+    (await livePorts(PREVIEW_STUB_PORT))[PREVIEW_STUB_PORT] === false,
   )
 
   check(
     'unpublishing',
     (await api(`/api/previews/${made.body.publicPort}`, undefined, 'DELETE')).status === 200,
   )
-  const after = await api('/api/previews', undefined, 'GET')
+  const after = await listPreviews()
   check(
     '…leaves nothing behind',
-    !after.body.previews.some((p) => p.publicPort === made.body.publicPort),
+    !after.previews.some((p) => p.publicPort === made.body.publicPort),
   )
   check(
     'unpublishing what was never published is an error',
@@ -240,25 +222,18 @@ if (!previewState.body.available) {
   )
 }
 
-// ------------------------------------------- the agent opening a preview
-
-/* `POST /api/preview` is the agent saying "go and look at this yourself", and
-   until now nothing tested the route itself — only `previewUrl`, the pure
-   function inside it. What is left is everything that decides whether the
-   phone gets a frame or a consolation prize: the HTTP probe on the port, the
-   path arriving as part of the URL, and what happens when nobody is there. */
 section('agent → preview')
-if (!(await api('/api/previews', undefined, 'GET')).body.available) {
+if (!(await listPreviews()).available) {
   console.log('       skipped — no usable tailscale')
 } else {
   const app = http.createServer((_req, res) => res.end('hi'))
-  await new Promise((r) => app.listen(3097, '127.0.0.1', r))
+  await listen(app, WEB_STUB_PORT)
 
   const watcher = phone()
   await watcher.open
   await wait(200)
 
-  const shown = await api('/api/preview', { port: 3097, path: '/settings?tab=1' })
+  const shown = await api('/api/preview', { port: WEB_STUB_PORT, path: '/settings?tab=1' })
   check(
     'the agent publishes a port and names the route',
     shown.status === 200 && shown.body.url?.endsWith('/settings?tab=1'),
@@ -269,11 +244,11 @@ if (!(await api('/api/previews', undefined, 'GET')).body.available) {
   const frame = watcher.seen.find((m) => m.type === 'preview')
   check(
     '…as a preview message carrying the whole URL',
-    frame?.url === shown.body.url && frame?.port === 3097,
+    frame?.url === shown.body.url && frame?.port === WEB_STUB_PORT,
     JSON.stringify(frame ?? null),
   )
 
-  const escaped = await api('/api/preview', { port: 3097, path: '//evil.com/x' })
+  const escaped = await api('/api/preview', { port: WEB_STUB_PORT, path: '//evil.com/x' })
   check(
     'a path that reads as a host stays on the preview host',
     escaped.status === 200 && new URL(escaped.body.url).host === new URL(shown.body.url).host,
@@ -281,61 +256,52 @@ if (!(await api('/api/previews', undefined, 'GET')).body.available) {
   )
   check(
     'a whole URL is refused rather than mangled into a path',
-    (await api('/api/preview', { port: 3097, path: 'http://evil.com' })).status === 400,
+    (await api('/api/preview', { port: WEB_STUB_PORT, path: 'http://evil.com' })).status === 400,
   )
 
-  /* The probe, which is where this route deliberately parts company with the
-     phone's: a person tapping a chip can read "nothing there yet" and wait, and
-     an agent handing over a blank frame cannot. */
+  const closedByNow = TCP_ONLY_STUB_PORT
   check(
     'a port with nothing behind it is refused, not published',
-    (await api('/api/preview', { port: 3096 })).status === 400,
+    (await api('/api/preview', { port: closedByNow })).status === 400,
   )
-  /* Destroyed rather than ended: the probe half-closes too, and two half-closed
-     ends leave a socket the server still counts, so `close` would wait for a
-     connection nobody is going to finish. */
-  const notHttp = net.createServer((c) => c.destroy())
-  await new Promise((r) => notHttp.listen(3095, '127.0.0.1', r))
+  const hangupStub = net.createServer((c) => c.destroy())
+  await listen(hangupStub, HANGUP_STUB_PORT)
   check(
     '…and so is one that answers but not in HTTP',
-    (await api('/api/preview', { port: 3095 })).status === 400,
+    (await api('/api/preview', { port: HANGUP_STUB_PORT })).status === 400,
   )
-  notHttp.close()
+  hangupStub.close()
 
-  /* Nobody there. A frame cannot be opened retroactively, so what is kept is a
-     notice naming the port and path — through the same queue that catches a
-     phone up on everything else it slept through. */
   watcher.ws.close()
   await wait(500)
-  const alone = await api('/api/preview', { port: 3097, path: '/orders' })
+  const alone = await api('/api/preview', { port: WEB_STUB_PORT, path: '/orders' })
   check('with no phone connected, nothing is delivered', alone.body.delivered === 0)
-  const later = phone()
-  await later.open
+  const latecomer = phone()
+  await latecomer.open
   await wait(400)
   check(
     '…and a notice says which port and path were meant',
-    later.seen.some(
-      (m) => m.type === 'notice' && m.message.includes('3097') && m.message.includes('/orders'),
+    latecomer.seen.some(
+      (m) => m.type === 'notice' && m.message.includes(String(WEB_STUB_PORT)) && m.message.includes('/orders'),
     ),
-    JSON.stringify(later.seen.filter((m) => m.type === 'notice').map((n) => n.message)),
+    JSON.stringify(latecomer.seen.filter((m) => m.type === 'notice').map((n) => n.message)),
   )
-  later.ws.close()
+  latecomer.ws.close()
   await wait(400)
 
-  await api(`/api/previews/${(await api('/api/previews', undefined, 'GET')).body.previews.find((p) => p.port === 3097)?.publicPort}`, null, 'DELETE')
-  await new Promise((r) => app.close(r))
+  const publishedFor = (await listPreviews()).previews.find((p) => p.port === WEB_STUB_PORT)?.publicPort
+  await api(`/api/previews/${publishedFor}`, null, 'DELETE')
+  await closeServer(app)
 }
 
-// ------------------------------------------------------------ mac → phone
-
 section('mac → phone')
-const p1 = phone((ask) => ask.options[0])
-await p1.open
+const answeringPhone = phone((ask) => ask.options[0])
+await answeringPhone.open
 await wait(200)
 check('notify reaches a connected phone', (await api('/api/notify', { message: 'smoke' })).body.delivered === 1)
 const answered = await api('/api/ask', { question: 'Deploy?', options: ['Yes', 'No'], timeoutSeconds: 10 })
 check('ask blocks until the phone answers', answered.body.answer === 'Yes', JSON.stringify(answered.body))
-p1.ws.close()
+answeringPhone.ws.close()
 await wait(300)
 
 const lonely = await api('/api/ask', { question: 'Anyone?', timeoutSeconds: 5 })
@@ -343,16 +309,10 @@ check('ask with no phone times out rather than hanging', lonely.body.timedOut ==
 
 const pending = api('/api/ask', { question: 'Still there?', timeoutSeconds: 15 })
 await wait(300)
-const p2 = phone(() => 'Allow')
+const joinedMidQuestion = phone(() => 'Allow')
 check('a phone joining mid-question is caught up', (await pending).body.answer === 'Allow')
-p2.ws.close()
+joinedMidQuestion.ws.close()
 
-/* The one route that takes no token: a notification tapped on a locked phone
-   is handled by a service worker that has none. What stands in its place is a
-   capability for one open question, so the interesting thing to prove here is
-   what the open door does *without* one — it has to be reachable (a 404, not a
-   401) and it has to refuse (a 404, not a 200). The capability's own rules are
-   `make test-ask`, which can hold the token in its hand. */
 const noCredential = await fetch(`${BASE}/api/ask/answer`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -368,10 +328,7 @@ check(
   (await fetch(`${BASE}/api/sessions`)).status === 401,
 )
 
-// ------------------------------------------------------------------- push
-
 section('push (the phone is asleep)')
-// The socket closed just above takes a moment to leave the server's set.
 await wait(500)
 const missedNotice = await api('/api/notify', { message: 'while you were away' })
 check(
@@ -388,10 +345,10 @@ const keyRes = await api('/api/push/key', null, 'GET')
 check('a VAPID key is served', typeof keyRes.body.publicKey === 'string' && keyRes.body.publicKey.length > 80)
 check('a malformed subscription is refused', (await api('/api/push/subscribe', { endpoint: 'x' })).status === 400)
 
-const late = phone()
-await late.open
+const wokenPhone = phone()
+await wokenPhone.open
 await wait(400)
-const replayed = late.seen.filter((m) => m.type === 'notice')
+const replayed = wokenPhone.seen.filter((m) => m.type === 'notice')
 check(
   'the missed notice is replayed to the phone that turns up',
   replayed.some((n) => n.message === 'while you were away' && n.missed),
@@ -400,51 +357,39 @@ check(
 const liveNotice = await api('/api/notify', { message: 'delivered live' })
 await wait(300)
 check('a live notice needs no push', liveNotice.body.delivered === 1 && liveNotice.body.pushed === 0)
-late.ws.close()
+wokenPhone.ws.close()
 await wait(500)
-const second = phone()
-await second.open
+const nextPhone = phone()
+await nextPhone.open
 await wait(400)
 check(
   'nothing is replayed twice',
-  second.seen.filter((m) => m.type === 'notice').length === 0,
+  nextPhone.seen.filter((m) => m.type === 'notice').length === 0,
 )
-second.ws.close()
+nextPhone.ws.close()
 await wait(400)
-
-// --------------------------------------------------------------- sessions
 
 section('sessions')
-const stale = new WebSocket(`ws://127.0.0.1:${PORT}/ws?session=not-a-real-id`, {
-  headers: { Authorization: `Bearer ${TOKEN}` },
-})
+const stale = new WebSocket(`${WS_URL}?session=not-a-real-id`, BEARER)
 const staleMsgs = []
 stale.on('message', (m) => staleMsgs.push(JSON.parse(m.toString())))
-/* Armed before anything is awaited: under Bun the socket opens, is told
-   "gone" and is closed inside three milliseconds, which is before the fetch
-   below comes back — a listener attached after that waits forever. */
 const staleClosed = new Promise((r) => stale.on('close', r))
-const countBefore = (await api('/api/sessions', null, 'GET')).body.length
+const countBefore = (await listSessions()).length
 await staleClosed
 await wait(400)
-const countAfter = (await api('/api/sessions', null, 'GET')).body.length
+const countAfter = (await listSessions()).length
 check('a stale session id is reported gone', staleMsgs[0]?.type === 'gone')
 check('…and conjures no replacement shell', countBefore === countAfter, `${countBefore} → ${countAfter}`)
 
 const shell = (await api('/api/sessions', { provider: 'shell', cwd: HOME })).body
 check('a shell is not resumable', shell.resumable === false)
-await api(`/api/sessions/${shell.id}`, null, 'DELETE')
+await endSession(shell.id)
 await wait(400)
 check(
   'resuming one is refused',
   (await api(`/api/sessions/${shell.id}/restart`, { resume: true })).status === 404,
 )
 
-/* Asked of the provider list, not of a session. A *live* session is never
-   resumable — `list()` says so by design, since resuming one would put a second
-   agent into the conversation it is holding — so gating this on the new
-   session's own `resumable` skipped it on every machine ever, and said "Claude
-   Code is not installed" while it was installed. */
 const started = [shell.id]
 const providers = (await api('/api/providers', null, 'GET')).body
 const claudeThere = providers.find?.((p) => p.id === 'claude')?.available === true
@@ -454,9 +399,9 @@ if (!claudeThere) {
   const agent = (await api('/api/sessions', { provider: 'claude', cwd: HOME, name: 'smoke' })).body
   started.push(agent.id)
   check('an agent session is launched holding a conversation of its own', !!agent.conversationId, agent.conversationId)
-  await api(`/api/sessions/${agent.id}`, null, 'DELETE')
+  await endSession(agent.id)
   await wait(400)
-  const ended = (await api('/api/sessions', null, 'GET')).body.find((s) => s.id === agent.id)
+  const ended = (await listSessions()).find((s) => s.id === agent.id)
   check('…and once it ends, that conversation is on offer', ended?.resumable === true, JSON.stringify(ended?.conversationId))
   const resumed = await api(`/api/sessions/${agent.id}/restart`, { resume: true })
   check('an agent session resumes', resumed.status === 201, resumed.body.error ?? resumed.body.id)
@@ -465,32 +410,12 @@ if (!claudeThere) {
     resumed.body.conversationId === agent.conversationId,
     `${agent.conversationId} → ${resumed.body.conversationId}`,
   )
-  if (resumed.body.id) {
-    await api(`/api/sessions/${resumed.body.id}`, null, 'DELETE')
-    await wait(300)
-    await api(`/api/sessions/${resumed.body.id}`, null, 'DELETE')
-  }
+  if (resumed.body.id) await endThenForget(resumed.body.id, 300)
 }
 
-/* ---- a conversation of its own ----
- *
- * Which ended session Resume reaches is bookkeeping, and bookkeeping is exactly
- * what a machine without the agent installed can still be held to. It runs in a
- * child with a data directory of its own: a second PtyManager pointed at the
- * same ~/.orbit would be two writers of one sessions.json.
- *
- * Every session here is killed the moment it exists — the point is the record
- * left behind, and on a machine that *does* have Claude Code these would
- * otherwise be real agents sitting in a scratch folder.
- */
 const CONV_HOME = path.join(HOME, 'conversation-smoke')
 fs.mkdirSync(CONV_HOME, { recursive: true })
-const conv = await new Promise((resolve) => {
-  const child = spawn(
-    process.execPath,
-    [
-      '-e',
-      `
+const CONVERSATION_BOOKKEEPING_SCRIPT = `
       const { PtyManager } = await import(${JSON.stringify(path.join(REPO, 'server/dist/pty-manager.js'))})
       const { getProvider } = await import(${JSON.stringify(path.join(REPO, 'server/dist/providers.js'))})
       const claude = getProvider('claude')
@@ -517,8 +442,6 @@ const conv = await new Promise((resolve) => {
       const again = m.restart(first.id, true)
       out.reopened = !!again
       out.sameConversation = info(again?.id)?.conversationId === conversation
-      /* The resumed session takes the old row's place instead of standing
-         beside it, so the conversation is one row, not two. */
       out.oldRowGone = info(first.id) === undefined
       out.oneRow = rowsFor(conversation).length === 1
       out.notWhileLive = rowsFor(conversation).every((s) => s.resumable === false)
@@ -526,8 +449,6 @@ const conv = await new Promise((resolve) => {
       out.freeAgain = info(again.id)?.resumable === true
       out.offeredOnce = rowsFor(conversation).filter((s) => s.resumable).length === 1
 
-      /* ＋ is not a resume: it mints a conversation of its own, and the session
-         it was opened from is still there to go back to. */
       const fresh = m.restart(second.id, false)
       await end(fresh)
       out.plusKeepsOld = !!info(second.id)
@@ -539,20 +460,24 @@ const conv = await new Promise((resolve) => {
       m.killAll()
       console.log(JSON.stringify(out))
       process.exit(0)
-      `,
-    ],
-    { env: { ...process.env, HOME: CONV_HOME }, stdio: ['ignore', 'pipe', 'pipe'] },
-  )
-  let out = ''
-  child.stdout.on('data', (d) => (out += d))
-  child.on('close', () => {
-    try {
-      resolve(JSON.parse(out.trim().split('\n').pop()))
-    } catch {
-      resolve({ error: out.slice(0, 200) })
-    }
+      `
+const runInOwnDataDir = (script, home) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', script], {
+      env: { ...process.env, HOME: home },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d))
+    child.on('close', () => {
+      try {
+        resolve(JSON.parse(out.trim().split('\n').pop()))
+      } catch {
+        resolve({ error: out.slice(0, 200) })
+      }
+    })
   })
-})
+const conv = await runInOwnDataDir(CONVERSATION_BOOKKEEPING_SCRIPT, CONV_HOME)
 
 check('an agent session is launched holding a conversation it named', conv.named, conv.error)
 check('…a different one each time', conv.distinct)
@@ -568,106 +493,100 @@ check('one conversation is offered once', conv.offeredOnce)
 check('＋ leaves the session it was opened from where it was', conv.plusKeepsOld)
 check('…and starts a conversation of its own', conv.plusIsNew)
 check('a shell has no conversation to name', conv.shellUnnamed)
-// ------------------------------------------------------- attaching quietly
 
-/* Three rounds were spent making the terminal stop jumping, and each one ended
-   at the same mechanism: telling the PTY a size it already had, so the server
-   could walk it down one row and back and buy a SIGWINCH out of it. That does
-   redraw the screen — as two frames at two heights, which is the jump itself.
-   Nothing forces a redraw now, and this is the guard on that: only a size that
-   really moved may reach the process.
-
-   The shell says when it hears one. A WINCH trap fires between commands, which
-   is exactly the state a session sits in while a phone attaches to it — and the
-   marker is split so the echo of the command that sets the trap cannot be
-   mistaken for the trap firing. */
 section('attaching quietly (a size the PTY already has is not news)')
+const REPLAY_SIZE = { cols: 90, rows: 30 }
+const ANOTHER_SIZE = { cols: 100, rows: 34 }
+const ANOTHER_SIZE_TALLER = { cols: 100, rows: 36 }
+const WINCH_MARKER = 'WINCH-HIT'
+const ARM_WINCH_TRAP = `trap 'echo W""INCH-HIT' WINCH\r`
+
 const winch = (await api('/api/sessions', { provider: 'shell', cwd: HOME, name: 'winch' })).body
 started.push(winch.id)
 
-const attach = (cols, rows) => {
-  const ws = new WebSocket(
-    `ws://127.0.0.1:${PORT}/ws?session=${winch.id}&cols=${cols}&rows=${rows}`,
-    { headers: { Authorization: `Bearer ${TOKEN}` } },
+const attachAt = ({ cols, rows }) => {
+  const ws = new WebSocket(`${WS_URL}?session=${winch.id}&cols=${cols}&rows=${rows}`, BEARER)
+  const ready = new Promise((r) =>
+    ws.on('message', function untilReady(m) {
+      if (JSON.parse(m.toString()).type === 'ready') {
+        ws.off('message', untilReady)
+        r()
+      }
+    }),
   )
-  const out = { text: '', ws, ready: new Promise((r) => ws.on('message', function first(m) {
-    if (JSON.parse(m.toString()).type === 'ready') { ws.off('message', first); r() }
-  })) }
+  const attached = { text: '', ws, ready }
   ws.on('message', (m) => {
     const msg = JSON.parse(m.toString())
-    if (msg.type === 'output') out.text += msg.data
+    if (msg.type === 'output') attached.text += msg.data
   })
   ws.on('error', () => {})
-  return out
+  return attached
 }
 
-const held = attach(90, 30)
+const held = attachAt(REPLAY_SIZE)
 await held.ready
-held.ws.send(JSON.stringify({ type: 'input', data: `trap 'echo W""INCH-HIT' WINCH\r` }))
+held.ws.send(JSON.stringify({ type: 'input', data: ARM_WINCH_TRAP }))
 await wait(600)
-const heard = () => held.text.includes('WINCH-HIT')
+const heard = () => held.text.includes(WINCH_MARKER)
 check('the shell is armed to say when it is resized', !heard(), held.text.slice(-40))
 
-const sameSize = attach(90, 30)
+const sameSize = attachAt(REPLAY_SIZE)
 await sameSize.ready
 await wait(600)
 check('attaching at the size the replay was drawn for disturbs nothing', !heard())
 sameSize.ws.close()
 
-/* And the case the replay genuinely cannot cover: a phone arriving at another
-   size is looking at frames laid out for the old one, so it must be told. */
-const otherSize = attach(100, 34)
+const otherSize = attachAt(ANOTHER_SIZE)
 await otherSize.ready
 await wait(600)
 check('…while attaching at a different size does tell the process', heard(), held.text.slice(-40))
 otherSize.ws.close()
 
 held.text = ''
-held.ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 34 }))
+held.ws.send(JSON.stringify({ type: 'resize', ...ANOTHER_SIZE }))
 await wait(600)
 check('a resize to the size it is already at is dropped', !heard())
-held.ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 36 }))
+held.ws.send(JSON.stringify({ type: 'resize', ...ANOTHER_SIZE_TALLER }))
 await wait(600)
 check('…and one that moves goes through', heard(), held.text.slice(-40))
 held.ws.close()
 await wait(200)
 
-// Forget every session this section made, whichever branches it took.
-for (const id of started) await api(`/api/sessions/${id}`, null, 'DELETE')
+for (const id of started) await endSession(id)
 
-/* ---- conversations from a terminal on the Mac ----
- *
- * Nothing here started them, which is the point: the fixtures are transcripts
- * written straight into `~/.claude/projects`, the way Claude Code leaves them
- * behind. The isolated HOME this runs under means the only ones on disk are the
- * ones written next.
- */
 section('conversations from the Mac')
 
 const MAC_FOLDER = path.join(HOME, 'mac-smoke')
+const CLAUDE_PROJECT_DIR = path.join(HOME, '.claude', 'projects', '-mac-smoke')
+const EXTERNAL_ROW_CAP = 10
+const MORE_THAN_THE_CAP = 12
 fs.mkdirSync(MAC_FOLDER, { recursive: true })
-const transcript = (id, entries) => {
-  const dir = path.join(HOME, '.claude', 'projects', '-mac-smoke')
-  fs.mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, `${id}.jsonl`)
+
+const writeTranscript = (id, entries) => {
+  fs.mkdirSync(CLAUDE_PROJECT_DIR, { recursive: true })
+  const file = path.join(CLAUDE_PROJECT_DIR, `${id}.jsonl`)
   fs.writeFileSync(file, entries.map((e) => JSON.stringify(e)).join('\n') + '\n')
   return file
 }
-const at = (min) => new Date(Date.UTC(2026, 0, 1, 12, min)).toISOString()
-const said = (cwd, text, min) => ({
+const minutesPastNoon = (min) => new Date(Date.UTC(2026, 0, 1, 12, min)).toISOString()
+const userTurn = (cwd, text, min) => ({
   type: 'user',
   cwd,
-  timestamp: at(min),
+  timestamp: minutesPastNoon(min),
   message: { role: 'user', content: text },
 })
 
 const MAC_ID = '11111111-1111-4111-8111-111111111111'
-const macFile = transcript(MAC_ID, [
+const NOTHING_SAID_ID = '22222222-2222-4222-8222-222222222222'
+const OUTSIDE_HOME_ID = '33333333-3333-4333-8333-333333333333'
+const FOLDER_GONE_ID = '44444444-4444-4444-8444-444444444444'
+
+const macFile = writeTranscript(MAC_ID, [
   { type: 'mode', mode: 'normal' },
-  said(MAC_FOLDER, 'fix the header on mobile', 0),
+  userTurn(MAC_FOLDER, 'fix the header on mobile', 0),
   {
     type: 'assistant',
-    timestamp: at(1),
+    timestamp: minutesPastNoon(1),
     message: {
       role: 'assistant',
       content: [
@@ -678,20 +597,17 @@ const macFile = transcript(MAC_ID, [
   },
 ])
 
-/* Opened, closed, nothing said: no history to read and nothing to call the row. */
-transcript('22222222-2222-4222-8222-222222222222', [
+writeTranscript(NOTHING_SAID_ID, [
   { type: 'mode', mode: 'normal' },
-  { ...said(MAC_FOLDER, '<command-name>/clear</command-name>', 0) },
-  { ...said(MAC_FOLDER, 'a subagent said this', 0), isSidechain: true },
+  { ...userTurn(MAC_FOLDER, '<command-name>/clear</command-name>', 0) },
+  { ...userTurn(MAC_FOLDER, 'a subagent said this', 0), isSidechain: true },
 ])
-/* Outside the home directory, where the rest of Orbit refuses to work. */
-transcript('33333333-3333-4333-8333-333333333333', [said('/etc', 'poke around', 0)])
-/* A folder that has since been deleted cannot be resumed into. */
-transcript('44444444-4444-4444-8444-444444444444', [
-  said(path.join(HOME, 'gone-for-good'), 'in a folder that no longer exists', 0),
+writeTranscript(OUTSIDE_HOME_ID, [userTurn('/etc', 'poke around', 0)])
+writeTranscript(FOLDER_GONE_ID, [
+  userTurn(path.join(HOME, 'gone-for-good'), 'in a folder that no longer exists', 0),
 ])
 
-const listed = (await api('/api/sessions', null, 'GET')).body
+const listed = await listSessions()
 const mac = listed.find((s) => s.id === MAC_ID)
 check('a conversation from the Mac shows up on the phone', !!mac, mac?.cwd)
 check('…labelled with what was actually asked', mac?.firstCommand === 'fix the header on mobile', mac?.firstCommand)
@@ -700,57 +616,46 @@ check('…marked as one Orbit does not own', mac?.external === true)
 check('…and reachable, because the transcript is named after the conversation', mac?.resumable === true && mac?.conversationId === MAC_ID)
 
 const seen = (id) => listed.some((s) => s.id === id)
-check('a transcript with nothing the user said is not a row', !seen('22222222-2222-4222-8222-222222222222'))
-check('…nor is one from outside the home directory', !seen('33333333-3333-4333-8333-333333333333'))
-check('…nor one whose folder is gone', !seen('44444444-4444-4444-8444-444444444444'))
+check('a transcript with nothing the user said is not a row', !seen(NOTHING_SAID_ID))
+check('…nor is one from outside the home directory', !seen(OUTSIDE_HOME_ID))
+check('…nor one whose folder is gone', !seen(FOLDER_GONE_ID))
 
-const macHistory = await new Promise((resolve) => {
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws?session=${MAC_ID}`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
+const readyMessageFor = (sessionId) =>
+  new Promise((resolve) => {
+    const ws = new WebSocket(`${WS_URL}?session=${sessionId}`, BEARER)
+    ws.on('message', (m) => {
+      const msg = JSON.parse(m.toString())
+      if (msg.type === 'ready') {
+        ws.close()
+        resolve(msg)
+      }
+    })
+    ws.on('error', () => resolve(null))
+    setTimeout(() => resolve(null), 3000)
   })
-  ws.on('message', (m) => {
-    const msg = JSON.parse(m.toString())
-    if (msg.type === 'ready') {
-      ws.close()
-      resolve(msg)
-    }
-  })
-  ws.on('error', () => resolve(null))
-  setTimeout(() => resolve(null), 3000)
-})
+const macHistory = await readyMessageFor(MAC_ID)
 check('opening one replays the conversation, read-only', macHistory?.readOnly === true)
 check('…rebuilt from the transcript, since nothing drew it on Orbit\'s screen', macHistory?.replay?.includes('fix the header on mobile'))
 check('…with what the agent said back', macHistory?.replay?.includes('The header is fixed.'))
 check('…and one line for each tool it ran', macHistory?.replay?.includes('⚙ Bash · npm test'))
 
-const deleted = await api(`/api/sessions/${MAC_ID}`, null, 'DELETE')
+const deleted = await endSession(MAC_ID)
 check('the phone may not delete a transcript that belongs to the Mac', deleted.status === 400, deleted.body.error)
 check('…and the file is still there', fs.existsSync(macFile))
 
-/* The disk holds hundreds of these on a machine that is used, nearly all of
-   them touched in the last week, so what keeps the tab about *Orbit's* sessions
-   is the cap rather than any age cutoff. Twelve fresh transcripts, all valid,
-   all newer than the fixtures above: ten of them reach the phone. */
-for (let i = 0; i < 12; i++) {
-  transcript(`${String(i).padStart(2, '0')}555555-5555-4555-8555-555555555555`, [said(MAC_FOLDER, `one of many ${i}`, i)])
+for (let i = 0; i < MORE_THAN_THE_CAP; i++) {
+  writeTranscript(`${String(i).padStart(2, '0')}555555-5555-4555-8555-555555555555`, [userTurn(MAC_FOLDER, `one of many ${i}`, i)])
 }
-const capped = (await api('/api/sessions', null, 'GET')).body.filter((s) => s.external)
-check('the list stays about a thumb-flick long however many are on disk', capped.length === 10, `${capped.length} rows`)
-
-// ------------------------------------------------------------- attention
+const capped = (await listSessions()).filter((s) => s.external)
+check('the list stays about a thumb-flick long however many are on disk', capped.length === EXTERNAL_ROW_CAP, `${capped.length} rows`)
 
 section('attention (what a session is still waiting to tell you)')
-const attentionOf = async (id) =>
-  (await api('/api/sessions', null, 'GET')).body.find((s) => s.id === id)?.attention ?? null
+const attentionOf = async (id) => (await listSessions()).find((s) => s.id === id)?.attention ?? null
 
-/* Its own folder, because a bare `/ws` connection opens a shell in the home
-   directory and several of those are still around by now — the folder fallback
-   below is about whether *this* folder names one session, not the busiest one
-   on the machine. */
-const FOLDER = path.join(HOME, 'attention-smoke')
-fs.mkdirSync(FOLDER, { recursive: true })
-const one = (await api('/api/sessions', { provider: 'shell', cwd: FOLDER, name: 'one' })).body
-const two = (await api('/api/sessions', { provider: 'shell', cwd: FOLDER, name: 'two' })).body
+const ATTENTION_FOLDER = path.join(HOME, 'attention-smoke')
+fs.mkdirSync(ATTENTION_FOLDER, { recursive: true })
+const one = (await api('/api/sessions', { provider: 'shell', cwd: ATTENTION_FOLDER, name: 'one' })).body
+const two = (await api('/api/sessions', { provider: 'shell', cwd: ATTENTION_FOLDER, name: 'two' })).body
 
 const filed = await api('/api/notify', { message: 'Claude is waiting', sessionId: one.id, kind: 'waiting' })
 check('a notice is filed against the session that sent it', filed.body.sessionId === one.id)
@@ -766,8 +671,6 @@ check(
 check('reading it clears it', (await api(`/api/sessions/${one.id}/attention`, null, 'DELETE')).body.cleared)
 check('…and it stays cleared', (await attentionOf(one.id)) === null)
 
-/* The rule this whole feature turns on: `quiet` means "they can see this", and
-   what they can see is one session — not "Orbit is open somewhere". */
 const watcher = phone(null, one.id)
 await watcher.open
 await wait(200)
@@ -785,15 +688,15 @@ check(
 watcher.ws.close()
 await wait(300)
 
-const guessed = await api('/api/notify', { message: 'from a folder', source: FOLDER })
+const guessed = await api('/api/notify', { message: 'from a folder', source: ATTENTION_FOLDER })
 check(
   'two sessions in one folder make the folder no answer at all',
   guessed.body.sessionId === null,
   JSON.stringify(guessed.body),
 )
-await api(`/api/sessions/${two.id}`, null, 'DELETE')
+await endSession(two.id)
 await wait(400)
-const lone = await api('/api/notify', { message: 'from the only one left', source: FOLDER })
+const lone = await api('/api/notify', { message: 'from the only one left', source: ATTENTION_FOLDER })
 check('…but one of them is', lone.body.sessionId === one.id, JSON.stringify(lone.body))
 
 check(
@@ -812,12 +715,8 @@ await wait(500)
 const ignored = await api('/api/ask', { question: 'Ship it anyway?', sessionId: one.id, timeoutSeconds: 5 })
 check('one nobody answered does', ignored.body.timedOut && (await attentionOf(one.id))?.kind === 'waiting')
 
-await api(`/api/sessions/${one.id}`, null, 'DELETE')
-await wait(400)
-await api(`/api/sessions/${one.id}`, null, 'DELETE') // forget it entirely
+await endThenForget(one.id, 400)
 check('a forgotten session takes its record with it', (await attentionOf(one.id)) === null)
-
-// -------------------------------------------------------------------- git
 
 section('changes (what the agent wrote)')
 const REPO_DIR = path.join(HOME, 'git-smoke')
@@ -840,6 +739,16 @@ git(['remote', 'add', 'origin', BARE])
 const gitApi = (route, body, method = 'POST') => api(`/api/git/${route}`, body, method)
 const statusOf = async () =>
   (await gitApi(`status?cwd=${encodeURIComponent(REPO_DIR)}`, null, 'GET')).body
+const readDiff = (file, { staged = false } = {}) =>
+  gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=${file}${staged ? '&staged=1' : ''}`, null, 'GET')
+
+const FILE_HEADER_LINE = /^(diff --git |index |--- |\+\+\+ )/
+const splitHunks = (patch) =>
+  patch.split('\n').reduce((hunks, line) => {
+    if (line.startsWith('@@')) hunks.push([line])
+    else if (hunks.length && !FILE_HEADER_LINE.test(line) && line !== '') hunks[hunks.length - 1].push(line)
+    return hunks
+  }, [])
 
 check('a folder with no history says so, rather than erroring', (await gitApi(`status?cwd=${encodeURIComponent(HOME)}`, null, 'GET')).body.repo === false)
 check('a folder outside home is refused', (await gitApi('status?cwd=%2Fetc', null, 'GET')).status === 400)
@@ -857,34 +766,26 @@ const fresh = st.files.find((f) => f.path === 'fresh.txt')
 check('a modified file is listed with its line counts', kept?.worktree === 'M' && kept.added === 2 && kept.removed === 1, JSON.stringify(kept))
 check('an untracked file is listed as one', fresh?.worktree === '?' && fresh.added === 1, JSON.stringify(fresh))
 
-const unstagedDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=kept.txt`, null, 'GET')).body
+const unstagedDiff = (await readDiff('kept.txt')).body
 check('its diff shows both sides of the change', unstagedDiff.patch.includes('-two') && unstagedDiff.patch.includes('+TWO'))
-const newDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=fresh.txt`, null, 'GET')).body
+const newDiff = (await readDiff('fresh.txt')).body
 check('an untracked file still has a diff to read', newDiff.patch.includes('+brand new'), newDiff.patch.slice(0, 60))
 check(
   'a path climbing out of the repository is refused',
-  (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=..%2F..%2F.orbit%2Fconfig.json`, null, 'GET')).status === 400,
+  (await readDiff('..%2F..%2F.orbit%2Fconfig.json')).status === 400,
 )
 
-/* ---- one hunk at a time ----
-   A file with two changes far enough apart to be two hunks, which is the case
-   the whole feature exists for: the agent's edit and something else, in one
-   file, and only one of them ready to be committed. */
 const SPLIT = 'split.txt'
-fs.writeFileSync(path.join(REPO_DIR, SPLIT), Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n') + '\n')
+const twentyLines = () => Array.from({ length: 20 }, (_, i) => `line ${i}`)
+fs.writeFileSync(path.join(REPO_DIR, SPLIT), twentyLines().join('\n') + '\n')
 git(['add', SPLIT])
 git(['commit', '-m', 'twenty lines'])
-const twoChanges = Array.from({ length: 20 }, (_, i) => `line ${i}`)
+const twoChanges = twentyLines()
 twoChanges[1] = 'TOP CHANGE'
 twoChanges[18] = 'BOTTOM CHANGE'
 fs.writeFileSync(path.join(REPO_DIR, SPLIT), twoChanges.join('\n') + '\n')
 
-const splitDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=${SPLIT}`, null, 'GET')).body
-const hunks = splitDiff.patch.split('\n').reduce((acc, line) => {
-  if (line.startsWith('@@')) acc.push([line])
-  else if (acc.length && !/^(diff --git |index |--- |\+\+\+ )/.test(line) && line !== '') acc[acc.length - 1].push(line)
-  return acc
-}, [])
+const hunks = splitHunks((await readDiff(SPLIT)).body.patch)
 check('two changes far apart are two hunks', hunks.length === 2, `${hunks.length}`)
 
 const afterFirst = (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: hunks[0].join('\n') })).body
@@ -898,36 +799,31 @@ check(
 check('…and leaves the other in the working tree', git(['diff', '--', SPLIT]).includes('BOTTOM CHANGE'))
 check('…without touching the file on disk', fs.readFileSync(path.join(REPO_DIR, SPLIT), 'utf8').includes('BOTTOM CHANGE'))
 
-const stagedHunks = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=${SPLIT}&staged=1`, null, 'GET')).body.patch
-  .split('\n')
-  .reduce((acc, line) => {
-    if (line.startsWith('@@')) acc.push([line])
-    else if (acc.length && !/^(diff --git |index |--- |\+\+\+ )/.test(line) && line !== '') acc[acc.length - 1].push(line)
-    return acc
-  }, [])
+const stagedHunks = splitHunks((await readDiff(SPLIT, { staged: true })).body.patch)
 await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: stagedHunks[0].join('\n'), staged: true })
 check('taking it back out empties the index again', !git(['diff', '--cached', '--', SPLIT]))
 check('…and the change is still in the working tree', git(['diff', '--', SPLIT]).includes('TOP CHANGE'))
 
+const stageHunkStatus = async (hunk) => (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk })).status
 check(
   'a hunk that no longer fits is refused, not forced',
-  (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,3 +1,3 @@\n-nothing like this\n+at all\n context' })).status === 400,
+  (await stageHunkStatus('@@ -1,3 +1,3 @@\n-nothing like this\n+at all\n context')) === 400,
 )
 check(
   'a patch cannot smuggle in a second file',
-  (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,1 +1,1 @@\ndiff --git a/kept.txt b/kept.txt\n-one\n+two' })).status === 400,
+  (await stageHunkStatus('@@ -1,1 +1,1 @@\ndiff --git a/kept.txt b/kept.txt\n-one\n+two')) === 400,
 )
-check('and something that is not a hunk at all is refused', (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: 'rm -rf /' })).status === 400)
+check('and something that is not a hunk at all is refused', (await stageHunkStatus('rm -rf /')) === 400)
 check(
   '…nor a file header dressed as a removal',
-  (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,1 +1,1 @@\n-one\n+two\n--- a/kept.txt\n+++ b/kept.txt\n@@ -1,1 +1,1 @@\n-x\n+y' })).status === 400,
+  (await stageHunkStatus('@@ -1,1 +1,1 @@\n-one\n+two\n--- a/kept.txt\n+++ b/kept.txt\n@@ -1,1 +1,1 @@\n-x\n+y')) === 400,
 )
 
 git(['checkout', '--', SPLIT])
 
 st = (await gitApi('stage', { cwd: REPO_DIR, files: ['kept.txt'], add: true })).body
 check('staging moves it to the index', st.files.find((f) => f.path === 'kept.txt')?.staged === 'M')
-const stagedDiff = (await gitApi(`diff?cwd=${encodeURIComponent(REPO_DIR)}&file=kept.txt&staged=1`, null, 'GET')).body
+const stagedDiff = (await readDiff('kept.txt', { staged: true })).body
 check('…and the staged diff is the one that would be committed', stagedDiff.patch.includes('+TWO'))
 st = (await gitApi('stage', { cwd: REPO_DIR, files: ['kept.txt'], add: false })).body
 check('unstaging puts it back', st.files.find((f) => f.path === 'kept.txt')?.staged === ' ')
@@ -954,9 +850,9 @@ check('the bare repository actually received it', git(['log', '-1', '--format=%s
 fs.rmSync(REPO_DIR, { recursive: true, force: true })
 fs.rmSync(BARE, { recursive: true, force: true })
 
-// ------------------------------------------------------------------- auth
-
 section('auth')
+const SESSION_COOKIE = 'orbit_session'
+const WS_CLOSE_UNAUTHORISED = 4001
 const checkRes = await fetch(`${BASE}/api/auth/check`, { headers: H })
 const setCookie = checkRes.headers.get('set-cookie') ?? ''
 const cookie = setCookie.split(';')[0]
@@ -975,7 +871,7 @@ check(
 )
 check(
   'a forged cookie is rejected',
-  (await fetch(`${BASE}/api/sessions`, { headers: { cookie: `orbit_session=${'a'.repeat(64)}` } })).status === 401,
+  (await fetch(`${BASE}/api/sessions`, { headers: { cookie: `${SESSION_COOKIE}=${'a'.repeat(64)}` } })).status === 401,
 )
 const shot = (await api('/api/screenshots', null, 'GET')).body[0]
 check('images need the cookie', (await fetch(`${BASE}/api/screenshots/${shot.file}`)).status === 401)
@@ -985,8 +881,6 @@ check(
   (await fetch(`${BASE}/api/screenshots/${shot.file}?token=${TOKEN}`)).status === 401,
 )
 
-/* Pairing in one scan: a code in the address the camera opens, exchanged
-   here for the token — never the token itself in the address. */
 const minted = await api('/api/auth/pair-code', {})
 check('the token holder can mint a pairing code', minted.status === 200 && !!minted.body.code, JSON.stringify(minted.body).slice(0, 80))
 check('…as an address with the code in its fragment, not its query', /\/#pair=[A-Za-z0-9_-]+$/.test(minted.body.url ?? ''), minted.body.url)
@@ -995,12 +889,13 @@ const pair = (code) =>
   fetch(`${BASE}/api/auth/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
 const paired = await pair(minted.body.code)
 check('the code buys the token without any other credential', paired.status === 200 && (await paired.json()).token === TOKEN)
-check('…and a session cookie with it', (paired.headers.get('set-cookie') ?? '').includes('orbit_session='))
+check('…and a session cookie with it', (paired.headers.get('set-cookie') ?? '').includes(`${SESSION_COOKIE}=`))
 check('the same code works again — Safari and the home-screen app both need it', (await pair(minted.body.code)).status === 200)
 check('a wrong code does not', (await pair('nope-not-a-code')).status === 401)
 check('nor an empty one', (await pair('')).status === 401)
 
-const socket = (url, opts, label) =>
+const SOCKET_VERDICT_MS = 1200
+const socketVerdict = (url, opts) =>
   new Promise((resolve) => {
     const ws = new WebSocket(url, opts)
     let closed = null
@@ -1010,35 +905,31 @@ const socket = (url, opts, label) =>
     ws.on('error', () => {})
     setTimeout(() => {
       ws.close()
-      resolve({ label, closed, ready })
-    }, 1200)
+      resolve({ closed, ready })
+    }, SOCKET_VERDICT_MS)
   })
 
-const wsUrl = `ws://127.0.0.1:${PORT}/ws`
-const withCookieWs = await socket(wsUrl, { headers: { cookie } })
+const withCookieWs = await socketVerdict(WS_URL, { headers: { cookie } })
 check('the socket accepts the cookie', withCookieWs.ready && !withCookieWs.closed)
-const bare = await socket(wsUrl, {})
-check('…and refuses no credential', bare.closed === 4001, `close ${bare.closed}`)
-const queryWs = await socket(`${wsUrl}?token=${TOKEN}`, {})
-check('…and refuses a query token', queryWs.closed === 4001, `close ${queryWs.closed}`)
-/* The cookie ignores the port, so a page on another port of this host — a
-   published preview, a Vite dev server — is same-site and gets it attached.
-   The Origin header is what tells those apart. */
-const crossOrigin = await socket(wsUrl, { headers: { cookie, origin: `http://127.0.0.1:${PORT + 1}` } })
-check('…and refuses the cookie from another origin', crossOrigin.closed === 4001, `close ${crossOrigin.closed}`)
-const sameOriginWs = await socket(wsUrl, { headers: { cookie, origin: `http://127.0.0.1:${PORT}` } })
+const bare = await socketVerdict(WS_URL, {})
+check('…and refuses no credential', bare.closed === WS_CLOSE_UNAUTHORISED, `close ${bare.closed}`)
+const queryWs = await socketVerdict(`${WS_URL}?token=${TOKEN}`, {})
+check('…and refuses a query token', queryWs.closed === WS_CLOSE_UNAUTHORISED, `close ${queryWs.closed}`)
+const anotherPortOfThisHost = `http://127.0.0.1:${PORT + 1}`
+const crossOrigin = await socketVerdict(WS_URL, { headers: { cookie, origin: anotherPortOfThisHost } })
+check('…and refuses the cookie from another origin', crossOrigin.closed === WS_CLOSE_UNAUTHORISED, `close ${crossOrigin.closed}`)
+const sameOriginWs = await socketVerdict(WS_URL, { headers: { cookie, origin: BASE } })
 check('…but takes it from its own', sameOriginWs.ready && !sameOriginWs.closed)
 
-/* Frames that are not messages. Each of these used to throw past the switch
-   with nothing catching it, and the process — every session in it — exited. */
+const MALFORMED_FRAMES = ['null', 'garbage', '[]', '{"type":"resize"}', '{"type":"resize","cols":"x","rows":24}',
+  '{"type":"resize","cols":0,"rows":-1}', '{"type":"input","data":123}', '{"type":"approve"}', '{"type":42}']
 const survives = await new Promise((resolve) => {
-  const ws = new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${TOKEN}` } })
+  const ws = new WebSocket(WS_URL, BEARER)
   let pong = false
   ws.on('message', (m) => {
     const msg = JSON.parse(m.toString())
     if (msg.type === 'ready') {
-      for (const frame of ['null', 'garbage', '[]', '{"type":"resize"}', '{"type":"resize","cols":"x","rows":24}',
-        '{"type":"resize","cols":0,"rows":-1}', '{"type":"input","data":123}', '{"type":"approve"}', '{"type":42}']) ws.send(frame)
+      for (const frame of MALFORMED_FRAMES) ws.send(frame)
       ws.send(JSON.stringify({ type: 'ping' }))
     }
     if (msg.type === 'pong') pong = true
@@ -1047,15 +938,11 @@ const survives = await new Promise((resolve) => {
   setTimeout(() => {
     ws.close()
     resolve(pong)
-  }, 1200)
+  }, SOCKET_VERDICT_MS)
 })
 check('malformed frames are dropped and the server answers on', survives)
 check('…and it is still serving', (await fetch(`${BASE}/healthz`)).status === 200)
 
-/* Signing out. The browser is the one that acts on an expiring cookie, so what
-   is provable from here is that the server sends one that says to — matching
-   name and path, or the browser keeps the live cookie and stores this beside
-   it — and that its replacement value opens nothing. */
 const fakeEndpoint = `https://web.push.apple.com/smoke-${Date.now()}`
 const subscribed = await api('/api/push/subscribe', {
   endpoint: fakeEndpoint,
@@ -1073,61 +960,51 @@ const unpaired = await fetch(`${BASE}/api/auth/unpair`, {
 })
 const goodbye = unpaired.headers.get('set-cookie') ?? ''
 check('unpairing expires the session cookie', goodbye.includes('Max-Age=0'), goodbye)
-check('…the same cookie, or the browser would keep the live one', goodbye.startsWith('orbit_session=') && goodbye.includes('Path=/'))
+check('…the same cookie, or the browser would keep the live one', goodbye.startsWith(`${SESSION_COOKIE}=`) && goodbye.includes('Path=/'))
 check(
   '…and what it replaces it with opens nothing',
-  (await fetch(`${BASE}/api/sessions`, { headers: { cookie: 'orbit_session=' } })).status === 401,
+  (await fetch(`${BASE}/api/sessions`, { headers: { cookie: `${SESSION_COOKIE}=` } })).status === 401,
 )
 check(
   '…and this phone stops being pushed to',
   (await unpaired.json()).devices === subscribed.body.devices - 1,
 )
-/* The token is untouched on purpose — unpairing a phone is not rotating the
-   credential, which would sign out every device and cost a server restart. */
 check('…while the token still works', (await fetch(`${BASE}/api/auth/check`, { headers: H })).status === 200)
 
-// -------------------------------------------------------------------- mcp
-
 section('mcp server')
-/* With `ORBIT_SESSION_ID` set, the way the real thing runs: the MCP server is a
-   grandchild of the PTY and inherits the id of the session it belongs to. Its
-   own session, because the attention section forgets the ones it made. */
+const MCP_TOOLS = ['orbit_capture', 'orbit_screen', 'orbit_notify', 'orbit_preview', 'orbit_ask']
 const mcpSession = (await api('/api/sessions', { provider: 'shell', name: 'mcp' })).body
 const mcp = spawn(process.execPath, [path.join(REPO, 'server/dist/mcp.js')], {
   env: { ...process.env, ORBIT_SESSION_ID: mcpSession.id },
 })
-let out = ''
-mcp.stdout.on('data', (d) => (out += d))
+let mcpOut = ''
+mcp.stdout.on('data', (d) => (mcpOut += d))
 const rpc = (msg) => mcp.stdin.write(`${JSON.stringify(msg)}\n`)
+const callTool = (id, name, args) =>
+  rpc({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } })
 rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } })
 rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
 await wait(500)
-rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'orbit_capture', arguments: { url: BASE } } })
+callTool(3, 'orbit_capture', { url: BASE })
 await wait(8000)
-rpc({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'orbit_capture', arguments: { url: 'http://127.0.0.1:4321' } } })
+callTool(4, 'orbit_capture', { url: `http://127.0.0.1:${PORT_NOBODY_LISTENS_ON}` })
 await wait(3000)
-/* The agent saying it has stopped, which it had no way to say before: every
-   message it sent counted as "done" and sat below any question in the list. */
-rpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'orbit_notify', arguments: { message: 'finished the migration' } } })
+callTool(5, 'orbit_notify', { message: 'finished the migration' })
 await wait(500)
 const afterDone = await attentionOf(mcpSession.id)
-rpc({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'orbit_notify', arguments: { message: 'which database?', kind: 'waiting' } } })
+callTool(6, 'orbit_notify', { message: 'which database?', kind: 'waiting' })
 await wait(500)
 const afterWaiting = await attentionOf(mcpSession.id)
 mcp.kill()
-await api(`/api/sessions/${mcpSession.id}`, null, 'DELETE')
+await endSession(mcpSession.id)
 
-const replies = new Map(out.trim().split('\n').filter(Boolean).map((l) => {
+const replies = new Map(mcpOut.trim().split('\n').filter(Boolean).map((l) => {
   const m = JSON.parse(l)
   return [m.id, m]
 }))
 check('initialize', !!replies.get(1)?.result?.serverInfo)
-/* By name rather than by count: a count says "5" when a tool was renamed to
-   nothing anybody calls, and has to be edited every time one is added — which
-   is how it came to be wrong about orbit_preview. */
 const toolNames = replies.get(2)?.result?.tools?.map((t) => t.name) ?? []
-const expected = ['orbit_capture', 'orbit_screen', 'orbit_notify', 'orbit_preview', 'orbit_ask']
-check('every tool the agent is told about', expected.every((n) => toolNames.includes(n)), toolNames.join(', '))
+check('every tool the agent is told about', MCP_TOOLS.every((n) => toolNames.includes(n)), toolNames.join(', '))
 const image = replies.get(3)?.result?.content?.find((c) => c.type === 'image')
 check('a capture comes back as an image, not a path', !!image?.data, `${image?.data?.length ?? 0} base64 chars`)
 check('a failed capture is an error the agent can read', replies.get(4)?.result?.isError === true)
@@ -1144,8 +1021,6 @@ check(
   replies.get(6)?.result?.content?.[0]?.text,
 )
 
-// ------------------------------------------------------------------- hook
-
 section('approval hook')
 const runHook = (input, env = {}) =>
   new Promise((resolve) => {
@@ -1159,10 +1034,11 @@ const runHook = (input, env = {}) =>
   })
 
 const bash = (command) => ({ tool_name: 'Bash', tool_input: { command }, cwd: HOME })
+const PORT_WITH_NO_ORBIT = '3999'
 check('a safe command passes silently', (await runHook(bash('ls -la'))) === '')
 check(
   'orbit being down does not block the agent',
-  (await runHook(bash('rm -rf /tmp/x'), { ORBIT_PORT: '3999' })) === '',
+  (await runHook(bash('rm -rf /tmp/x'), { ORBIT_PORT: PORT_WITH_NO_ORBIT })) === '',
 )
 const blocker = phone(() => 'Block')
 await blocker.open

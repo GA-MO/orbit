@@ -2,24 +2,22 @@ import { useState } from 'react'
 import { enableNotices, noticePermission } from '../notice'
 import { Button } from './ui'
 
-/**
- * Offers to turn on notifications, and exists mainly because iOS will only
- * grant them from a real tap inside an installed PWA — asking on page load is
- * refused outright. Disappears once answered either way.
- */
+const GRANTED_MESSAGE = 'Notifications on — your Mac can reach you now'
+const DENIED_MESSAGE = 'Notifications blocked — turn them on in Settings'
+
 export default function NoticeOptIn({ onToast }: { onToast: (message: string) => void }) {
   const [permission, setPermission] = useState(noticePermission)
   const [busy, setBusy] = useState(false)
 
   if (permission !== 'default') return null
 
-  const enable = async () => {
+  const enableFromThisTap = async () => {
     setBusy(true)
     const result = await enableNotices()
     setPermission(result)
     setBusy(false)
-    if (result === 'granted') onToast('Notifications on — your Mac can reach you now')
-    else if (result === 'denied') onToast('Notifications blocked — turn them on in Settings')
+    if (result === 'granted') onToast(GRANTED_MESSAGE)
+    else if (result === 'denied') onToast(DENIED_MESSAGE)
   }
 
   return (
@@ -30,7 +28,7 @@ export default function NoticeOptIn({ onToast }: { onToast: (message: string) =>
           An agent finishing, or asking something, reaches you with the phone locked
         </p>
       </div>
-      <Button disabled={busy} onClick={enable} className="shrink-0 px-3 py-1.5 text-[13px]">
+      <Button disabled={busy} onClick={enableFromThisTap} className="shrink-0 px-3 py-1.5 text-[13px]">
         {busy ? 'Asking…' : 'Turn on'}
       </Button>
     </div>

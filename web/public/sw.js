@@ -1,10 +1,15 @@
-/* Stamped per build (see vite.config.ts): a new build is a new cache, and the
-   activate step below throws the old one away — otherwise every deploy's
-   hashed bundle stayed cached for the life of the install. */
 const CACHE = 'orbit-__BUILD__'
+const APP_SHELL = '/'
+const ICON = '/icon-192.png'
+const ASK_TAG = 'orbit-ask'
+const NOTICE_TAG = 'orbit-notice'
+const ANSWER_ACTION_PREFIX = 'answer:'
+const BANNER_ACTION_LIMIT = 2
+const UNCACHED_PATHS = ['/ws', '/healthz']
+const API_PREFIX = '/api/'
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.add('/')))
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.add(APP_SHELL)))
   self.skipWaiting()
 })
 
@@ -17,118 +22,104 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-/* A push wakes this worker with the app closed and the phone locked — the one
-   path that survives iOS freezing the page and dropping its WebSocket. */
-self.addEventListener('push', (event) => {
+const readPushPayload = (data) => {
   let payload = { title: 'Orbit', body: '', sessionId: null, ask: null }
   try {
-    payload = { ...payload, ...event.data.json() }
+    payload = { ...payload, ...data.json() }
   } catch {
-    payload.body = event.data ? event.data.text() : ''
+    payload.body = data ? data.text() : ''
   }
-  /* A question arrives with the means to answer it, so the two obvious answers
-     are buttons here rather than four steps away in the app. Two because that
-     is all a banner shows; the rest are in the modal, which the tap opens.
-     Where the platform ignores actions — iOS shows none — this degrades to
-     exactly what it was before: a banner that opens the question. */
-  const ask = payload.ask && payload.ask.id && payload.ask.token ? payload.ask : null
-  const actions = (ask?.options ?? []).slice(0, 2).map((option) => ({
-    action: `answer:${option}`,
+  return payload
+}
+
+const answerableAsk = (ask) => (ask && ask.id && ask.token ? ask : null)
+
+const bannerActionsFor = (ask) =>
+  (ask?.options ?? []).slice(0, BANNER_ACTION_LIMIT).map((option) => ({
+    action: `${ANSWER_ACTION_PREFIX}${option}`,
     title: option,
   }))
+
+self.addEventListener('push', (event) => {
+  const payload = readPushPayload(event.data)
+  const ask = answerableAsk(payload.ask)
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      /* A question is not a notice: replacing one with the other would drop
-         whichever arrived first, and only one of them is still waiting. */
-      tag: ask ? 'orbit-ask' : 'orbit-notice',
-      // Each notice replaces the last, but should still announce itself.
+      icon: ICON,
+      badge: ICON,
+      tag: ask ? ASK_TAG : NOTICE_TAG,
       renotify: true,
-      actions,
-      // Carried through to the tap — see below.
+      actions: bannerActionsFor(ask),
       data: { sessionId: payload.sessionId ?? null, ask },
     }),
   )
 })
 
-/* Tapping it should land in Orbit, reusing the open window if there is one —
-   and on the session that raised it. A phone woken by this notification is by
-   definition not on that session already, and dropping it wherever it was last
-   left turns "Claude is waiting" into a hunt through the Sessions tab.
-   A window that already exists cannot be navigated from here (WebKit ignores
-   `navigate` on a standalone PWA client), so it is told instead. */
+const postAnswer = (ask, choice) =>
+  fetch('/api/ask/answer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: ask.id, token: ask.token, choice }),
+  })
+
+const showAnswerFailed = (sessionId, ask) =>
+  self.registration.showNotification('Orbit could not answer', {
+    body: 'The Mac did not take it. Open Orbit to answer.',
+    icon: ICON,
+    badge: ICON,
+    tag: ASK_TAG,
+    data: { sessionId, ask },
+  })
+
+const sessionUrl = (sessionId) =>
+  sessionId ? `/?session=${encodeURIComponent(sessionId)}` : APP_SHELL
+
+const postSessionInsteadOfNavigateForWebKit = (openWindow, sessionId) => {
+  if (sessionId) openWindow.postMessage({ type: 'orbit-open-session', sessionId })
+  return openWindow.focus()
+}
+
+const openOrFocusSession = (sessionId) =>
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+    const openWindow = windows.find((w) => 'focus' in w)
+    if (!openWindow) return self.clients.openWindow(sessionUrl(sessionId))
+    return postSessionInsteadOfNavigateForWebKit(openWindow, sessionId)
+  })
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const sessionId = event.notification.data?.sessionId ?? null
   const ask = event.notification.data?.ask ?? null
 
-  /* Answered from the banner: say so and stop. Nothing is opened, because
-     nothing needs to be — the point of the buttons is the app staying shut.
-     The capability travels in the body; this request carries no credential and
-     the route accepts none. */
-  if (ask && event.action?.startsWith('answer:')) {
-    event.waitUntil(
-      fetch('/api/ask/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: ask.id,
-          token: ask.token,
-          choice: event.action.slice('answer:'.length),
-        }),
-      }).catch(() => {
-        /* The Mac is unreachable — asleep, off the tailnet. Put the question
-           back on screen rather than swallowing the tap: it is still waiting
-           over there, and the person just said something about it. */
-        return self.registration.showNotification('Orbit could not answer', {
-          body: 'The Mac did not take it. Open Orbit to answer.',
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
-          tag: 'orbit-ask',
-          data: { sessionId, ask },
-        })
-      }),
-    )
+  if (ask && event.action?.startsWith(ANSWER_ACTION_PREFIX)) {
+    const choice = event.action.slice(ANSWER_ACTION_PREFIX.length)
+    event.waitUntil(postAnswer(ask, choice).catch(() => showAnswerFailed(sessionId, ask)))
     return
   }
 
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
-      const open = windows.find((w) => 'focus' in w)
-      if (!open) {
-        return self.clients.openWindow(sessionId ? `/?session=${encodeURIComponent(sessionId)}` : '/')
-      }
-      if (sessionId) open.postMessage({ type: 'orbit-open-session', sessionId })
-      return open.focus()
-    }),
-  )
+  event.waitUntil(openOrFocusSession(sessionId))
 })
 
-// Network-first for everything; cached shell only as an offline fallback.
-// API and WebSocket traffic is never cached.
+const isUncacheable = (url) =>
+  url.pathname.startsWith(API_PREFIX) || UNCACHED_PATHS.includes(url.pathname)
+
+const isCacheableResponse = (response) => response.ok && response.type === 'basic'
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
   if (request.method !== 'GET') return
-  const url = new URL(request.url)
-  if (url.pathname.startsWith('/api/') || url.pathname === '/ws' || url.pathname === '/healthz') return
+  if (isUncacheable(new URL(request.url))) return
 
   event.respondWith(
     fetch(request)
       .then((response) => {
-        /* Only a good answer from this server. A 502 from the proxy while the
-           server restarts, or the server's own plain-text "web build not
-           found", would otherwise replace the cached shell and be what the
-           next offline launch shows. */
-        if (response.ok && response.type === 'basic') {
+        if (isCacheableResponse(response)) {
           const copy = response.clone()
           caches.open(CACHE).then((cache) => cache.put(request, copy))
         }
         return response
       })
-      .catch(() =>
-        caches.match(request).then((match) => match ?? caches.match('/')),
-      ),
+      .catch(() => caches.match(request).then((match) => match ?? caches.match(APP_SHELL))),
   )
 })

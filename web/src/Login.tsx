@@ -5,75 +5,77 @@ import QrScanner, { qrScanSupported, qrScanUnavailable } from './QrScanner'
 
 interface Props {
   onSuccess: () => void
-  /** Something the boot found out on the way here — an expired pairing code. */
   notice?: string | null
 }
+
+const SERVER_UNREACHABLE = 'Cannot reach the Orbit server on your Mac'
+const TOKEN_REJECTED = 'That token doesn’t match — check the server console'
+const PAIR_CODE_EXPIRED =
+  'That pairing code has expired — run `orbit pair` on the Mac for a fresh one'
 
 export default function Login({ onSuccess, notice = null }: Props) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(notice)
   const [scanning, setScanning] = useState(false)
-  // The scanner's onResult must not change between renders or its effect tears
-  // the camera down and starts it again; the in-flight guard therefore lives in
-  // a ref rather than in the memoised callback's dependencies.
-  const busyRef = useRef(false)
+  const attemptInFlight = useRef(false)
+
+  const beginAttempt = useCallback((): boolean => {
+    if (attemptInFlight.current) return false
+    attemptInFlight.current = true
+    setBusy(true)
+    setError(null)
+    return true
+  }, [])
+
+  const endAttempt = useCallback(() => {
+    attemptInFlight.current = false
+    setBusy(false)
+  }, [])
 
   const connect = useCallback(
     async (token: string) => {
       const trimmed = token.trim()
-      if (!trimmed || busyRef.current) return
-      busyRef.current = true
-      setBusy(true)
-      setError(null)
+      if (!trimmed || !beginAttempt()) return
       setToken(trimmed)
       try {
         if (await checkAuth()) onSuccess()
-        else setError('That token doesn’t match — check the server console')
+        else setError(TOKEN_REJECTED)
       } catch {
-        setError('Cannot reach the Orbit server on your Mac')
+        setError(SERVER_UNREACHABLE)
       } finally {
-        busyRef.current = false
-        setBusy(false)
+        endAttempt()
       }
     },
-    [onSuccess],
+    [onSuccess, beginAttempt, endAttempt],
   )
 
-  /* A successful decode connects on its own instead of filling the field and
-     waiting for a tap. There is nothing for the user to confirm: the token is
-     random base64 shown in a password field, so reading it back tells them
-     nothing, and the QR came from the very server they are pairing with. A bad
-     scan costs one error message and leaves the field editable, which is
-     cheaper than a confirmation step every single pairing has to pass. */
-  const onScanned = useCallback(
-    (text: string) => {
-      setScanning(false)
-      /* The same picture the camera app reads: an address with a pairing code.
-         The home-screen app has storage of its own on iOS, so it pairs here
-         with the code still on the Mac's screen. A bare token still works. */
-      const code = pairCodeIn(text)
-      if (!code) {
-        setValue(text)
-        void connect(text)
-        return
-      }
-      if (busyRef.current) return
-      busyRef.current = true
-      setBusy(true)
-      setError(null)
+  const pairWithScannedCode = useCallback(
+    (code: string) => {
+      if (!beginAttempt()) return
       void pairWithCode(code)
         .then((ok) => {
           if (ok) onSuccess()
-          else setError('That pairing code has expired — run `orbit pair` on the Mac for a fresh one')
+          else setError(PAIR_CODE_EXPIRED)
         })
-        .catch(() => setError('Cannot reach the Orbit server on your Mac'))
-        .finally(() => {
-          busyRef.current = false
-          setBusy(false)
-        })
+        .catch(() => setError(SERVER_UNREACHABLE))
+        .finally(endAttempt)
     },
-    [connect, onSuccess],
+    [onSuccess, beginAttempt, endAttempt],
+  )
+
+  const onScanned = useCallback(
+    (text: string) => {
+      setScanning(false)
+      const code = pairCodeIn(text)
+      if (code) {
+        pairWithScannedCode(code)
+        return
+      }
+      setValue(text)
+      void connect(text)
+    },
+    [connect, pairWithScannedCode],
   )
 
   return (
@@ -107,9 +109,6 @@ export default function Login({ onSuccess, notice = null }: Props) {
             Scan QR code
           </Button>
         ) : (
-          /* Saying why beats a button that cannot work: over plain http on the
-             LAN the camera is refused outright, and that is not the user's fault
-             to guess at. */
           <p className="text-center text-xs leading-relaxed text-faint">
             {qrScanUnavailable()} — until then, type the token.
           </p>
