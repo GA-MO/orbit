@@ -1058,11 +1058,12 @@ wss.on('connection', async (ws: WebSocket, req) => {
   })
 
   /* Replay only reproduces frames the agent drew for the size it had then, so a
-     phone that reattaches at a different size — or after the frame on screen
-     went stale — sees a mangled composer. Ask for the whole screen again now
-     that the stream above is carrying it; the redraw lands after the replay.
-     A session created just now is already drawing at this size. */
-  if (existing) session.repaint(cols, rows)
+     phone that reattaches at a different size — or onto a screen the agent was
+     halfway through — sees a mangled composer. Ask for the whole screen again
+     in those two cases, now that the stream above is carrying it; the redraw
+     lands after the replay. A session created just now is already drawing at
+     this size, and one sitting still at it has already sent its whole screen. */
+  if (existing) session.repaintOnAttach(cols, rows)
 
   // Dangerous chunks (paste/voice/automation) are held until the user approves.
   const pendingApprovals = new Map<string, string>()

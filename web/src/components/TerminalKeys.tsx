@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { IconButton, IconChevronDown, IconEdit } from './ui'
+import { useRef, useState } from 'react'
+import { IconButton, IconEdit } from './ui'
 
 /**
  * Modifier state. `once` fires for the next key then clears (the common case);
@@ -19,9 +19,6 @@ interface Props {
      from it. Dictation is not here: it fills the same draft, so it belongs
      inside the sheet that shows the draft. */
   onCompose: () => void
-  /** Say that the next resize comes from folding this bar, which happens in one
-      step — so the terminal need not wait to see whether more is coming. */
-  onLayoutStep: () => void
   /** Something written and not yet sent, so the pen can say so. */
   draftPending: boolean
   /** Ctrl lives in the parent: it also rewrites what the soft keyboard types. */
@@ -46,13 +43,19 @@ type KeyDef = {
  * Two fixed rows rather than one scrolling strip: at a 44px touch target only
  * five keys fit across a phone, so a single row hides the rest behind a swipe.
  *
- * The bottom row is the one that survives collapsing — the keyboard button and
- * the Keys toggle keep the same slot in both states, so expanding grows the bar
- * upward and nothing under the thumb moves. Everything else lives in the row
- * above, except the arrows, which hold the inverted-T of a real keyboard on the
- * right: ↑ over ← ↓ →, because that shape is read by muscle memory rather than
- * by looking. The T only needs one bare corner to read, so the other one pays
- * for the / key — see SLASH.
+ * Both rows are always up. They used to fold behind a Keys toggle, and folding
+ * them is a resize: the agent is told a new height, answers with one frame, and
+ * if it was mid-draw when the fold came that frame is the half-written one that
+ * stays on screen — the composer gone until something else moves. Three rounds
+ * of chasing that from the client did not close it, and the bar is 50pt against
+ * a screen that is otherwise all terminal. So the height never changes, and the
+ * bug has nothing to stand on.
+ *
+ * The bottom row holds what the thumb reaches for; everything else lives in the
+ * row above, except the arrows, which hold the inverted-T of a real keyboard on
+ * the right: ↑ over ← ↓ →, because that shape is read by muscle memory rather
+ * than by looking. The T only needs one bare corner to read, so the other one
+ * pays for the / key — see SLASH.
  */
 const ROW_UPPER: KeyDef[] = [
   { label: 'Esc', data: '\x1b' },
@@ -94,7 +97,6 @@ const ARROW_W = 'w-10'
 const FLEX_KEY = 'min-w-10 flex-1'
 const GLYPH_TEXT = 'text-[15px]'
 
-const EXPANDED_KEY = 'orbit.keysExpanded'
 const TAP_SLOP_PX = 10
 const HOLD_MS = 400
 const REPEAT_MS = 80
@@ -219,7 +221,6 @@ function Key({
 
 export default function TerminalKeys({
   keyboardOpen,
-  onLayoutStep,
   onCompose,
   draftPending,
   ctrl,
@@ -228,12 +229,7 @@ export default function TerminalKeys({
   onFocus,
   onBlur,
 }: Props) {
-  const [expanded, setExpanded] = useState(() => localStorage.getItem(EXPANDED_KEY) === '1')
   const [shift, setShift] = useState<ModState>('off')
-
-  useEffect(() => {
-    localStorage.setItem(EXPANDED_KEY, expanded ? '1' : '0')
-  }, [expanded])
 
   const pressCtrl = () => {
     const next = cycleMod(ctrl)
@@ -276,7 +272,8 @@ export default function TerminalKeys({
      They share a slot because the bar has no room for two. Every fixed key in
      this row is at least 40px wide and `⏎`/`⌫` cannot shrink past that, so a
      permanent extra button pushes the arrow cluster off the right edge on a
-     390pt screen — measured, not guessed. */
+     390pt screen — measured, not guessed. The Keys toggle leaving freed one
+     slot, and this row spent it on the breathing room it was short of. */
   const writeButton = keyboardOpen ? (
     <IconButton
       label="Hide keyboard"
@@ -301,35 +298,11 @@ export default function TerminalKeys({
     </IconButton>
   )
 
-  /* Same button, same width, same slot whether open or shut — only the chevron
-     turns over. A separate "hide" control elsewhere in the bar would move the
-     target out from under the thumb that just opened it. */
-  const keysToggle = (
-    <button
-      type="button"
-      aria-expanded={expanded}
-      aria-label={expanded ? 'Hide keys' : 'Show keys'}
-      onClick={() => {
-        // A locked shift the user can no longer see is a shift they will forget.
-        if (expanded) setShift('off')
-        onLayoutStep()
-        setExpanded(!expanded)
-      }}
-      className={`flex h-11 shrink-0 items-center gap-1 rounded-lg border px-2.5 font-mono text-[13px] transition-colors active:bg-overlay ${
-        expanded ? 'border-accent/50 bg-accent/15 text-accent' : 'border-line bg-raised text-mut'
-      }`}
-    >
-      Keys
-      <IconChevronDown size={16} className={expanded ? '' : 'rotate-180'} />
-    </button>
-  )
-
   return (
     // z-10: the terminal's screen is positioned, so it paints over a static bar.
     <div className="relative z-10 shrink-0 touch-manipulation">
       <div className="flex flex-col gap-1 border-t border-line-subtle bg-surface px-1.5 py-1">
-        {expanded && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
             <div className="flex flex-1 items-center gap-1">
               <Key
                 label="⇧"
@@ -344,31 +317,22 @@ export default function TerminalKeys({
             {/* Top of the inverted-T: ↑ centred over ↓, its left corner bare so the
                 shape still reads; / takes the right corner, out at the edge where
                 a thumb reaching for ↑ does not pass through it. */}
-            <div className="flex shrink-0 items-center gap-1">
-              <span className={ARROW_W} aria-hidden />
-              {arrowOf(ARROWS.up)}
-              {keyOf(SLASH, ARROW_W)}
-            </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <span className={ARROW_W} aria-hidden />
+            {arrowOf(ARROWS.up)}
+            {keyOf(SLASH, ARROW_W)}
           </div>
-        )}
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-1">
             {writeButton}
-            {keysToggle}
-            {expanded && ROW_LOWER.map((key) => keyOf(key))}
-            {!expanded && ctrl !== 'off' && (
-              <span className="rounded-md border border-accent/50 bg-accent/15 px-2 py-1 font-mono text-[11px] text-accent">
-                Ctrl{ctrl === 'lock' ? ' ⇩' : ''}
-              </span>
-            )}
+            {ROW_LOWER.map((key) => keyOf(key))}
           </div>
-          {expanded && (
-            <div className="flex shrink-0 items-center gap-1">
-              {arrowOf(ARROWS.left)}
-              {arrowOf(ARROWS.down)}
-              {arrowOf(ARROWS.right)}
-            </div>
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {arrowOf(ARROWS.left)}
+            {arrowOf(ARROWS.down)}
+            {arrowOf(ARROWS.right)}
+          </div>
         </div>
       </div>
     </div>

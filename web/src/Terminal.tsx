@@ -136,11 +136,6 @@ const TOUCH_SLOP_PX = 8
 const PROBE_TIMEOUT_MS = 3000
 /** Quiet spell that marks the end of a burst of layout changes. */
 const RESIZE_SETTLE_MS = 180
-/** How long after a deliberate, one-step layout change its resize still counts
-    as that change, and skips the wait meant for bursts. Long enough to cover a
-    frame or two of React and layout; short enough that the keyboard sliding in
-    a moment later is not mistaken for it. */
-const DELIBERATE_WINDOW_MS = 500
 /** Quiet spell after a resize that says the agent has finished answering it. */
 const POST_RESIZE_QUIET_MS = 150
 /** How recently the agent must have written for a resize to count as landing
@@ -243,8 +238,6 @@ export default function Terminal({
   const refreshRef = useRef<() => void>(() => {})
   /** Ask the agent to finish the screen, but only if it was drawing one. */
   const settleOnReturnRef = useRef<() => void>(() => {})
-  /** Told by the key bar that the size about to change is changing once. */
-  const layoutStepRef = useRef<() => void>(() => {})
   /* Whether this session is the one on screen — not merely the one connected.
      The terminal stays mounted behind the other two tabs, and a phone in a
      pocket holds its socket open until iOS gets round to freezing it. The
@@ -667,36 +660,26 @@ export default function Terminal({
     let pendingSize: { cols: number; rows: number } | null = null
     // The socket handshake carries the size it opened with, so start in step.
     let sentSize = `${term.cols}x${term.rows}`
-    /* Set by a control that changes the layout in one step — the key bar
-       folding. The wait below is there for sizes that are still moving, and a
-       fold is not moving: it lands on its final height in one frame, and every
-       millisecond spent waiting to say so is a millisecond of the agent's last
-       frame sitting at the wrong height, which is what reads as lag. Kept as a
-       deadline rather than a flag so that a fold which changed no rows at all
-       cannot leave it armed for whatever moves next. */
-    let deliberateUntil = 0
-    layoutStepRef.current = () => {
-      deliberateUntil = performance.now() + DELIBERATE_WINDOW_MS
-    }
+    /* Every size left that moves is one that keeps moving — the keyboard
+       sliding in, a rotation — so this waits for the burst to end. The key bar
+       used to jump the queue here, being one step and done; it no longer
+       changes height at all. */
     const resizeSub = term.onResize((size) => {
       pendingSize = size
       if (sizeTimer) clearTimeout(sizeTimer)
-      const deliberate = performance.now() < deliberateUntil
-      deliberateUntil = 0
       sizeTimer = setTimeout(() => {
         sizeTimer = null
         if (!pendingSize) return
         const next = `${pendingSize.cols}x${pendingSize.rows}`
-        /* Back where it began — the bar was folded and unfolded inside one
-           settle window — so there is no new size to tell the agent. There is
-           still a screen to put right, though, and that is what made toggling
-           the keys repeatedly leave the prompt hidden behind the bar: xterm
-           was resized down and up for real, and an app that owns the screen
-           has no reflow to survive it, so its last frame is now laid out for a
-           height the terminal no longer has. Nothing else will redraw it,
-           because from the agent's side nothing happened. Asking for the
-           repaint is exactly the same message; the server answers every
-           `resize` by walking one row down and back. */
+        /* Back where it began — the keyboard came and went inside one settle
+           window — so there is no new size to tell the agent. There is still a
+           screen to put right, though: xterm was resized down and up for real,
+           and an app that owns the screen has no reflow to survive it, so its
+           last frame is laid out for a height the terminal no longer has.
+           Nothing else will redraw it, because from the agent's side nothing
+           happened. Asking for the repaint is exactly the same message; the
+           server answers a size it has already heard by walking one row down
+           and back. */
         if (next === sentSize) return askRedraw()
         sentSize = next
         send({ type: 'resize', ...pendingSize })
@@ -705,7 +688,7 @@ export default function Terminal({
            asking for a second one would only make the screen flash twice. */
         if (repaintTimer) clearTimeout(repaintTimer)
         repaintTimer = null
-      }, deliberate ? 0 : RESIZE_SETTLE_MS)
+      }, RESIZE_SETTLE_MS)
     })
 
     const refit = (scrollToBottom = false) => {
@@ -1189,7 +1172,6 @@ export default function Terminal({
       {showKeys && !readOnly && (
         <TerminalKeys
           keyboardOpen={keyboardOpen}
-          onLayoutStep={() => layoutStepRef.current()}
           onCompose={onCompose}
           draftPending={draftPending}
           ctrl={ctrl}
