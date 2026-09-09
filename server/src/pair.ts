@@ -42,7 +42,11 @@ export async function runPair(): Promise<number> {
   say()
   console.log(qrBlock(url, '    '))
   say()
-  say("Point the phone's camera at it — good for 10 minutes. The token, for typing:")
+  say("1. Point the phone's camera at it — Orbit opens, already paired.")
+  say('2. Share → Add to Home Screen.')
+  say('3. Open that app, tap Scan QR code, point it at this same code.')
+  say()
+  say('Good for 10 minutes. The token, for typing instead:')
   say(token)
   say()
   return 0

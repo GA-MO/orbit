@@ -158,13 +158,19 @@ export function banner(facts: BannerFacts): string {
        trade a scannable code for a preference about text. NO_COLOR asks for
        plain text; this is a picture. */
     out.push(qr, '')
-    out.push(
-      `${INDENT}${dim(
-        facts.pairUrl
-          ? "Point the phone's camera at it — good for 10 minutes; `orbit pair` prints a fresh one."
-          : "Scan it from Orbit's login screen, or type the token.",
-      )}`,
-    )
+    if (facts.pairUrl) {
+      /* Three steps, because the second is the one nobody guesses: iOS gives
+         a home-screen app storage of its own, so it pairs separately — with
+         the same picture, from the app's own login screen. */
+      out.push(
+        `${INDENT}${dim("1. Point the phone's camera at it — Orbit opens, already paired.")}`,
+        `${INDENT}${dim('2. Share → Add to Home Screen.')}`,
+        `${INDENT}${dim('3. Open that app, tap Scan QR code, point it at this same code.')}`,
+        `${INDENT}${dim('Good for 10 minutes; `orbit pair` prints a fresh one.')}`,
+      )
+    } else {
+      out.push(`${INDENT}${dim("Scan it from Orbit's login screen, or type the token.")}`)
+    }
   } else {
     out.push(`${INDENT}${dim('Widen this window to show the pairing code.')}`)
   }
