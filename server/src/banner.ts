@@ -58,12 +58,17 @@ export interface BannerFacts {
    path resolves the same from `src` under tsx and from `dist` under node, since
    both sit one directory below the package. */
 export function packageVersion(): string {
-  try {
-    const url = new URL('../package.json', import.meta.url)
-    return JSON.parse(fs.readFileSync(url, 'utf8')).version ?? '?'
-  } catch {
-    return '?'
+  /* Two places: beside the package in a checkout, and where
+     `scripts/dist.sh` embeds it in a compiled binary (`--asset=server/package.json`
+     keeps only the file's own name). */
+  for (const candidate of [new URL('../package.json', import.meta.url), '/$bunfs/root/package.json']) {
+    try {
+      return JSON.parse(fs.readFileSync(candidate, 'utf8')).version ?? '?'
+    } catch {
+      // try the next
+    }
   }
+  return '?'
 }
 
 const ANSI = /\x1b\[[0-9;]*m/g

@@ -74,8 +74,15 @@ REAL_PATH="$(/bin/zsh -lic 'printf %s "$PATH"' 2>/dev/null)"
 # yourself before running this to aim at the real CLI instead.
 export ORBIT_TAILSCALE="${ORBIT_TAILSCALE:-$REPO/scripts/fake-tailscale.mjs}"
 
-HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
-  bun "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
+# The thing under test is the built server, or — `ORBIT_BIN=dist/orbit` — the
+# compiled executable, which has to serve the same suites from what it embeds.
+if [ -n "${ORBIT_BIN:-}" ]; then
+  HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
+    "$REPO/$ORBIT_BIN" >"$LOG" 2>&1 &
+else
+  HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
+    bun "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
+fi
 SERVER_PID=$!
 
 # Kill it however we leave — a failed suite, a Ctrl-C, or the end of the script.

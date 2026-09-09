@@ -29,7 +29,12 @@ import { banner, plainBanner } from './banner.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
-const WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url))
+/* Inside a `bun build --compile` binary the module lives on Bun's virtual
+   filesystem, and so does everything `scripts/dist.sh` embedded beside it:
+   `--asset=web/dist` lands at /$bunfs/root/dist, keeping the directory's own
+   name and dropping the path above it. A checkout serves the real folder. */
+const COMPILED = import.meta.url.startsWith('file:///$bunfs/')
+const WEB_DIST = COMPILED ? '/$bunfs/root/dist' : fileURLToPath(new URL('../../web/dist', import.meta.url))
 
 const TOKEN = getToken()
 const manager = new PtyManager()
@@ -276,6 +281,13 @@ async function serveStatic(url: URL, res: http.ServerResponse) {
     'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream',
     'Content-Length': stat.size,
   })
+  /* Bun's virtual filesystem answers stat and readFile but not a read
+     stream — `open` on it is ENOENT — and the app is half a megabyte, so
+     the embedded copy is read whole. A checkout still streams from disk. */
+  if (COMPILED) {
+    res.end(await fsp.readFile(file))
+    return
+  }
   fs.createReadStream(file).pipe(res)
 }
 

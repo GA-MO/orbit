@@ -76,6 +76,19 @@ bun run start
 
 Then open `http://<mac-ip>:3001` from your phone. That is enough for the terminal, but voice input and Add to Home Screen need a secure context — for those, put it behind HTTPS with `bun run remote:on` (see [docs/TAILSCALE.md](docs/TAILSCALE.md)) and open `https://<machine>.<tailnet>.ts.net` instead.
 
+One executable, for a Mac that has no checkout:
+
+```sh
+make dist                 # → dist/orbit for this Mac (make dist TARGETS=all: arm64 + x64)
+ORBIT_PORT=3001 dist/orbit
+dist/orbit mcp            # the MCP server — what `claude mcp add orbit -- /path/to/orbit mcp` runs
+```
+
+The server, the MCP server, the built web app and bun-pty's library are all
+inside it (`scripts/dist.sh`); Chrome, Tailscale and Claude Code stay the
+machine's own. `ORBIT_BIN=dist/orbit bash scripts/test.sh smoke` runs the
+suites against it. The hooks and `make setup` still come from a checkout.
+
 On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; to rotate it, remove the `token` key from that file rather than the file itself — the same file holds the push keypair, and losing that silently unsubscribes every phone).
 
 ## Testing

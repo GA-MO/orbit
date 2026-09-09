@@ -1,4 +1,4 @@
-.PHONY: help install setup unsetup dev build start stop clean icons shots \
+.PHONY: help install setup unsetup dev build start stop clean icons shots dist \
 	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-setup test-clean \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
@@ -47,6 +47,9 @@ build: ## Build server + web for production
 
 start: build ## Build and run production on :3001 (no Tailscale)
 	bun run start
+
+dist: ## One executable with everything in it → dist/orbit (make dist TARGETS=all for both Mac archs)
+	@scripts/dist.sh $(TARGETS)
 
 stop: ## Stop Orbit on :3001 and Tailscale HTTPS (443)
 	@PIDS=$$(lsof -tiTCP:$(PORT) -sTCP:LISTEN 2>/dev/null || true); \
