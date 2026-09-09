@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="th">
+<html lang="en">
 <meta charset="utf-8">
-<title>Orbit — MacBook ของคุณ คือ AI dev server ที่สั่งจากมือถือ</title>
+<title>Orbit — Your MacBook is an AI dev server you drive from your phone</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Orbit เปลี่ยน MacBook เป็น AI development server ส่วนตัว — terminal ตัวจริงที่ต่อกับ zsh บนเครื่องคุณ เปิดจากมือถือ โค้ดไม่เคยออกจากเครื่อง">
+<meta name="description" content="Orbit turns your MacBook into a personal AI development server — a real terminal attached to zsh on your own machine, opened from your phone. Code never leaves the machine.">
 <style>
   /* ---------------------------------------------------------------------
      Orbit — one page, one file, no network at open time.
@@ -322,12 +322,13 @@
   <div class="wrap">
     <span class="brand"><span class="mark"></span>Orbit</span>
     <nav>
-      <a href="#what">คืออะไร</a>
-      <a href="#path">เส้นทาง</a>
-      <a href="#tour">พาชม</a>
-      <a href="#agent">ฝั่ง agent</a>
-      <a href="#safety">ความปลอดภัย</a>
-      <a href="#start">เริ่มใช้</a>
+      <a href="#what">What it is</a>
+      <a href="#path">The path</a>
+      <a href="#tour">Tour</a>
+      <a href="#agent">Agent side</a>
+      <a href="#safety">Safety</a>
+      <a href="#start">Get started</a>
+      <a href="th/" hreflang="th" lang="th">ไทย</a>
     </nav>
   </div>
 </header>
@@ -337,15 +338,15 @@
   <div class="wrap hero-grid">
     <div>
       <div class="eyebrow">Local AI coding hub · macOS</div>
-      <h1>agent รันอยู่บน MacBook<br><span class="dim">คุณสั่งจากในกระเป๋า</span></h1>
+      <h1>The agent runs on your MacBook<br><span class="dim">You drive it from your pocket</span></h1>
       <p class="hero-sub">
-        Orbit เปลี่ยน MacBook เป็น AI development server ส่วนตัว — terminal ตัวจริงที่ต่อกับ
-        zsh บนเครื่องคุณ เปิดผ่านเบราว์เซอร์มือถือ ไม่ใช่ chat wrapper ไม่ใช่ cloud IDE
-        และโค้ดไม่เคยออกจากเครื่อง
+        Orbit turns your MacBook into a personal AI development server — a real terminal attached to
+        zsh on your own machine, opened in your phone's browser. Not a chat wrapper, not a cloud IDE,
+        and code never leaves the machine.
       </p>
       <div class="cta">
-        <a class="btn solid" href="#start">ติดตั้งใน 2 คำสั่ง</a>
-        <a class="btn" href="#tour">ดูของจริง</a>
+        <a class="btn solid" href="#start">Install in 2 commands</a>
+        <a class="btn" href="#tour">See the real thing</a>
       </div>
       <div class="chips">
         <span class="chip"><span class="dot"></span>Claude Code</span>
@@ -357,18 +358,18 @@
 
     <div>
       <div class="phone tilt">
-        <img src="{{SHOT:02-terminal}}" alt="Orbit บนมือถือ — dev server ของโปรเจกต์ storefront กำลังรันอยู่ในเทอร์มินัลจริง">
+        <img src="{{SHOT:02-terminal}}" alt="Orbit on a phone — the storefront project's dev server running in a real terminal">
       </div>
-      <p class="shot-caption">ทุกภาพในหน้านี้มาจากแอปจริง ถ่ายด้วย <code>make shots</code></p>
+      <p class="shot-caption">Every image on this page comes from the real app, captured with <code>make shots</code></p>
     </div>
   </div>
 
   <div class="wrap">
     <div class="stats">
-      <div class="stat"><b>4</b><span>agent ที่เลือกได้</span></div>
-      <div class="stat"><b>0</b><span>พอร์ตที่เปิดสู่อินเทอร์เน็ต</span></div>
-      <div class="stat"><b>2</b><span>ด่านกรองคำสั่งอันตราย</span></div>
-      <div class="stat"><b>5</b><span>MCP tools ให้ agent เรียกเอง</span></div>
+      <div class="stat"><b>4</b><span>agents to choose from</span></div>
+      <div class="stat"><b>0</b><span>ports open to the internet</span></div>
+      <div class="stat"><b>2</b><span>gates that catch dangerous commands</span></div>
+      <div class="stat"><b>5</b><span>MCP tools the agent calls on its own</span></div>
     </div>
   </div>
 </section>
@@ -377,44 +378,44 @@
 <section id="what">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">01 — Orbit คืออะไร</div>
-      <h2>ไม่ใช่แอปแชทที่คุยกับ AI แต่คือรีโมทของเครื่องคุณเอง</h2>
+      <div class="eyebrow">01 — What Orbit is</div>
+      <h2>Not a chat app for talking to an AI. A remote for your own machine.</h2>
       <p class="lede">
-        สิ่งที่เห็นบนมือถือคือ terminal ตัวเดียวกับที่รันอยู่บน Mac — ANSI สี, TUI,
-        prompt ที่ต้องกดตอบ, Ctrl+C, scrollback ครบ ไม่มีการแปลงเป็นข้อความสวย ๆ ระหว่างทาง
+        What you see on the phone is the same terminal running on the Mac — ANSI color, TUIs,
+        prompts that need an answer, Ctrl+C, full scrollback. Nothing is reformatted into pretty text along the way.
       </p>
     </div>
 
     <div class="grid">
       <div class="card">
         <div class="k">01</div>
-        <h3>MacBook คือ source of truth</h3>
+        <h3>The MacBook is the source of truth</h3>
         <p>
-          ไฟล์ กิต เครื่องมือ และ agent ทั้งหมดอยู่บนเครื่องคุณ Orbit ไม่ซิงก์โค้ดขึ้นที่ไหน
-          และไม่มีบัญชีให้สมัคร — single-user, local-first
+          Files, git, tools and every agent live on your machine. Orbit does not sync code anywhere,
+          and there is no account to sign up for — single-user, local-first.
         </p>
       </div>
       <div class="card">
         <div class="k">02</div>
-        <h3>Session ไม่ตายเมื่อจอดับ</h3>
+        <h3>Sessions survive the screen going dark</h3>
         <p>
-          PTY อยู่ฝั่ง Mac มือถือเป็นแค่จอ ปิดเบราว์เซอร์ สลับแอป เน็ตหลุด
-          กลับมาแล้วงานยังเดินอยู่ พร้อมประวัติที่เล่นย้อนให้ครบ
+          The PTY lives on the Mac; the phone is only a screen. Close the browser, switch apps, lose the connection.
+          Come back and the work is still running, with the full history replayed.
         </p>
       </div>
       <div class="card">
         <div class="k">03</div>
-        <h3>มือถือเห็น ก็สั่งได้</h3>
+        <h3>If the phone can see it, it can drive it</h3>
         <p>
-          พิมพ์ พูด แนบรูป ดูดิฟฟ์ เปิดแอปที่รันอยู่จริง — จบในจอเดียว
-          โดยไม่ต้องเดินไปเปิดฝาโน้ตบุ๊ก
+          Type, speak, attach an image, review the diff, open the app that is actually running — all on one screen,
+          without walking over to open the laptop lid.
         </p>
       </div>
     </div>
 
     <div class="note">
-      <b>เส้นแบ่งที่ชัดเจน:</b> Orbit ไม่ได้แทน agent และไม่ได้เขียนโค้ดเอง —
-      มันคือชั้นที่ทำให้ agent ซึ่งออกแบบมาสำหรับจอ 27 นิ้ว ใช้งานได้จริงบนจอ 6 นิ้วในมือคุณ
+      <b>A clear line:</b> Orbit does not replace the agent and does not write code itself —
+      it is the layer that makes an agent designed for a 27-inch screen usable on the 6-inch one in your hand.
     </div>
   </div>
 </section>
@@ -423,25 +424,25 @@
 <section id="path">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">02 — เส้นทางของหนึ่งคีย์สโตรก</div>
-      <h2>จากนิ้วคุณถึง zsh ผ่านห้าชั้น</h2>
+      <div class="eyebrow">02 — The path of one keystroke</div>
+      <h2>From your finger to zsh, through five layers</h2>
       <p class="lede">
-        ไม่มีคลาวด์อยู่ในเส้นนี้ ตัวอักษรที่พิมพ์เดินทางในอุโมงค์ WireGuard ของ Tailscale
-        เข้า Node บนเครื่องคุณ แล้วลงไปที่ PTY ตัวจริง
+        There is no cloud on this path. Each character you type travels through Tailscale's WireGuard tunnel
+        into Node on your own machine, then down to a real PTY.
       </p>
     </div>
 
     <div class="path">
-      <div class="hop"><b>มือถือ</b><span>xterm.js ใน Safari หรือ PWA บนหน้าจอโฮม</span></div>
-      <div class="hop"><b>tailnet</b><span>HTTPS 443 <em>tailscale serve</em> ไม่แตะเราเตอร์</span></div>
-      <div class="hop"><b>Orbit</b><span>Node บน <em>:3001</em> — auth, WebSocket, REST</span></div>
-      <div class="hop"><b>node-pty</b><span>เทอร์มินัลจริง ขนาดจอเท่ากับของมือถือ</span></div>
-      <div class="hop"><b>zsh + agent</b><span>PATH ของคุณเอง ในโฟลเดอร์ของคุณเอง</span></div>
+      <div class="hop"><b>Phone</b><span>xterm.js in Safari, or the PWA on your home screen</span></div>
+      <div class="hop"><b>tailnet</b><span>HTTPS 443 via <em>tailscale serve</em>, without touching the router</span></div>
+      <div class="hop"><b>Orbit</b><span>Node on <em>:3001</em> — auth, WebSocket, REST</span></div>
+      <div class="hop"><b>node-pty</b><span>A real terminal, sized to match the phone's screen</span></div>
+      <div class="hop"><b>zsh + agent</b><span>Your own PATH, in your own folder</span></div>
     </div>
 
     <div class="note live">
-      PTY อยู่ฝั่ง Mac ทั้งหมด มือถือจึงเป็นแค่จอกับคีย์บอร์ด — นั่นคือเหตุผลที่จอดับแล้ว
-      งานไม่หยุด และเป็นเหตุผลเดียวกับที่ประวัติย้อนหลังกลับมาครบเมื่อเปิดใหม่
+      The PTY lives entirely on the Mac, so the phone is only a screen and a keyboard. That is why work keeps
+      going when the display sleeps, and why the full scrollback comes back when you reopen the app.
     </div>
   </div>
 </section>
@@ -450,11 +451,11 @@
 <section id="tour">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">03 — พาชมของจริง</div>
-      <h2>ทุกอย่างที่เคยต้องเดินไปหน้าเครื่อง ถูกย้ายมาไว้ในมือ</h2>
+      <div class="eyebrow">03 — The tour</div>
+      <h2>Everything that used to mean walking to the machine now sits in your hand</h2>
       <p class="lede">
-        ภาพทั้งหมดถ่ายจาก Orbit ที่รันอยู่จริง ไม่ใช่ mockup — สคริปต์เดินแอปทีละหน้าจอ
-        แล้วบันทึกภาพเอง เพื่อให้คู่มือไม่แก่กว่าโค้ด
+        Every image is captured from a running Orbit, not a mockup. A script walks the app screen by screen
+        and takes the shots itself, so the guide never falls behind the code.
       </p>
     </div>
 
@@ -463,107 +464,107 @@
       <div class="row">
         <div class="text">
           <div class="eyebrow">Terminal</div>
-          <h3>agent ตอบคุณบนจอ 6 นิ้ว โดยไม่ต้องย่ออะไรเลย</h3>
+          <h3>The agent answers you on a 6-inch screen, with nothing cut down</h3>
           <p>
-            Claude Code, Codex หรือ Gemini รันในเทอร์มินัลจริง สีครบ กล่องคำถามครบ
-            กด Enter ตอบได้ กด Ctrl+C หยุดได้ แถบปุ่มด้านล่างมีคีย์ที่คีย์บอร์ดมือถือไม่มี —
-            Esc, Tab, Ctrl, ลูกศร และ ^C
+            Claude Code, Codex or Gemini runs in a real terminal, with full color and every prompt box intact.
+            Press Enter to answer, press Ctrl+C to stop. The key bar at the bottom carries the keys a phone keyboard lacks —
+            Esc, Tab, Ctrl, the arrows and ^C.
           </p>
         </div>
-        <div class="phone"><img src="{{SHOT:06-claude-code}}" alt="Claude Code ตอบคำถามเรื่องฟังก์ชัน total ในเทอร์มินัลบนมือถือ"></div>
+        <div class="phone"><img src="{{SHOT:06-claude-code}}" alt="Claude Code answering a question about the total function in the terminal on a phone"></div>
       </div>
 
       <div class="row flip">
         <div class="text">
-          <div class="eyebrow">พิมพ์ · พูด · แนบรูป</div>
-          <h3>พิมพ์ยาว ๆ บนจอสัมผัสไม่สนุก จึงมีอีกสองทาง</h3>
+          <div class="eyebrow">Type · Speak · Attach</div>
+          <h3>Long typing on a touchscreen is no fun, so there are two other ways</h3>
           <p>
-            ปุ่มปากกาเปิดกล่องข้อความที่แก้ได้ก่อนส่ง ปุ่มไมค์เปิด dictation ไทย/อังกฤษ
-            ที่ถอดเสียงมาให้แก้ก่อนเช่นกัน — เพราะเครื่องถอดเสียงฟังผิดได้
-            และที่ที่ควรแก้คำผิดคือก่อนกดส่ง ไม่ใช่ในพรอมป์ตของ agent
+            The pen button opens a text box you can edit before sending. The mic button opens Thai/English dictation
+            that also hands you the transcript to edit first — because speech recognition mishears,
+            and the place to fix a wrong word is before you send it, not inside the agent's prompt.
           </p>
-          <div class="note">รูปจากกล้องหรืออัลบั้มอัปโหลดขึ้น Mac แล้ววาง path ลงเทอร์มินัลให้เอง</div>
+          <div class="note">Photos from the camera or your library upload to the Mac, and the path is pasted into the terminal for you</div>
         </div>
         <div class="pair sheets">
-          <div class="phone"><img src="{{SHOT:12-message}}" alt="กล่องข้อความสำหรับพิมพ์ก่อนส่งเข้าเทอร์มินัล"></div>
-          <div class="phone"><img src="{{SHOT:07-voice}}" alt="สั่งงานด้วยเสียงภาษาไทย พร้อม transcript ที่แก้ได้"></div>
+          <div class="phone"><img src="{{SHOT:12-message}}" alt="Text box for composing a message before sending it to the terminal"></div>
+          <div class="phone"><img src="{{SHOT:07-voice}}" alt="Voice dictation in Thai, with an editable transcript"></div>
         </div>
       </div>
 
       <div class="row">
         <div class="text">
           <div class="eyebrow">Changes</div>
-          <h3>เทอร์มินัลบอกว่า agent ทำอะไร แท็บนี้บอกว่ามันเขียนอะไร</h3>
+          <h3>The terminal tells you what the agent did. This tab tells you what it wrote</h3>
           <p>
-            สถานะ git ของโฟลเดอร์ที่ session นั้นอยู่ — ไฟล์ที่แก้ จำนวนบรรทัดเข้าออก
-            และไฟล์ที่ยังไม่เคยถูก track เปิดดูดิฟฟ์ทีละ hunk ได้ stage ได้ commit ได้
-            โดยไม่ต้องพิมพ์คำสั่ง git บนจอสัมผัส
+            The git status of the folder that session lives in — modified files, lines added and removed,
+            and files not yet tracked. Open the diff hunk by hunk, stage, and commit,
+            without typing a single git command on a touchscreen.
           </p>
         </div>
-        <div class="phone"><img src="{{SHOT:11-changes}}" alt="แท็บ Changes แสดงไฟล์ที่แก้พร้อมจำนวนบรรทัด"></div>
+        <div class="phone"><img src="{{SHOT:11-changes}}" alt="The Changes tab showing modified files with line counts"></div>
       </div>
 
       <div class="row flip">
         <div class="text">
           <div class="eyebrow">Preview</div>
-          <h3>ดูงานที่เพิ่งแก้ ทั้งแบบภาพนิ่งและแบบกดได้จริง</h3>
+          <h3>See what you just changed, as a still image or as a page you can actually tap</h3>
           <p>
-            Orbit หา dev server ที่รันอยู่บนเครื่องเอง แล้วให้เลือกสองอย่าง: capture เป็นภาพ
-            (เรนเดอร์ด้วย Chrome จริงที่ขนาดจอมือถือ แท็บเล็ต หรือเดสก์ท็อป) หรือเผยแพร่พอร์ตนั้น
-            เข้า tailnet แล้วเปิดเป็นเฟรมทับเทอร์มินัล — แตะได้ กรอกฟอร์มได้ โดย session ไม่หลุด
+            Orbit finds the dev servers running on the machine and offers two options: capture an image
+            (rendered by real Chrome at phone, tablet or desktop size), or publish that port
+            to the tailnet and open it as a frame over the terminal — tap it, fill in forms, and the session stays put.
           </p>
         </div>
         <div class="pair">
-          <div class="phone"><img src="{{SHOT:03-captures}}" alt="แท็บ Preview แสดงพอร์ตที่รันอยู่และภาพที่ capture ไว้"></div>
-          <div class="phone"><img src="{{SHOT:04-capture-viewer}}" alt="ดูภาพ capture เต็มจอ"></div>
+          <div class="phone"><img src="{{SHOT:03-captures}}" alt="The Preview tab showing running ports and saved captures"></div>
+          <div class="phone"><img src="{{SHOT:04-capture-viewer}}" alt="Viewing a capture full screen"></div>
         </div>
       </div>
 
       <div class="row">
         <div class="text">
           <div class="eyebrow">Sessions</div>
-          <h3>หลาย session พร้อมกัน และรู้ว่าอันไหนกำลังรอคุณ</h3>
+          <h3>Several sessions at once, and you know which one is waiting on you</h3>
           <p>
-            แถวที่มีชีวิตเรืองแสงจากข้างใน แถวที่รอคำตอบมีขอบสว่าง — สองอย่างนี้อยู่คนละช่อง
-            ของสายตา จึงไม่กลืนกัน session ที่จบแล้วเปิดย้อนดูได้แบบอ่านอย่างเดียว
-            และกด Resume ให้ agent คุยต่อจากบทสนทนาเดิมได้
+            A live row glows from within. A row waiting for an answer has a bright edge. The two signals sit in
+            different channels of your eye, so they never blur together. An ended session opens read-only,
+            and Resume lets the agent pick up the earlier conversation where it left off.
           </p>
         </div>
         <div class="pair">
-          <div class="phone"><img src="{{SHOT:09-sessions}}" alt="รายการ session พร้อมแถวที่กำลังรอคำตอบ"></div>
-          <div class="phone"><img src="{{SHOT:10-ended-readonly}}" alt="เปิดดูประวัติของ session ที่จบแล้วแบบอ่านอย่างเดียว"></div>
+          <div class="phone"><img src="{{SHOT:09-sessions}}" alt="The session list, with a row that is waiting for an answer"></div>
+          <div class="phone"><img src="{{SHOT:10-ended-readonly}}" alt="Viewing the history of an ended session read-only"></div>
         </div>
       </div>
 
       <div class="row flip">
         <div class="text">
-          <div class="eyebrow">การอนุมัติ</div>
-          <h3>คำสั่งที่ทำลายของได้ ต้องผ่านนิ้วคุณก่อน</h3>
+          <div class="eyebrow">Approvals</div>
+          <h3>A command that can destroy things goes through your finger first</h3>
           <p>
-            ทุกก้อนข้อความที่ถูกวาง พูด หรือส่งมาจากอัตโนมัติ ถูกกรองที่ฝั่งเซิร์ฟเวอร์ด้วยชุด
-            pattern เดียวกับที่ใช้กรองคำสั่งของ agent — ลบทั้งโฟลเดอร์, ยกสิทธิ์เป็น root,
-            force push, เขียนดิสก์ดิบ, fork bomb เจอแล้วหยุดค้างไว้ พร้อมแสดงคำสั่งเต็ม ๆ
+            Every block of text that is pasted, spoken or sent by automation is screened server-side with the same
+            set of patterns used to screen the agent's own commands — deleting a whole folder, escalating to root,
+            force push, raw disk writes, fork bombs. A match holds the command and shows it to you in full.
           </p>
           <div class="note warn">
-            ตัวเลือกแรกคือตัวเลือกที่ปลอดภัยเสมอ และไม่มีใครตอบ = ปฏิเสธ
+            The first option is always the safe one, and no answer means no.
           </div>
         </div>
-        <div class="phone"><img src="{{SHOT:08-approval}}" alt="กล่องยืนยันคำสั่งอันตรายบนมือถือ"></div>
+        <div class="phone"><img src="{{SHOT:08-approval}}" alt="Confirmation dialog for a dangerous command on a phone"></div>
       </div>
 
       <div class="row">
         <div class="text">
-          <div class="eyebrow">เริ่ม session</div>
-          <h3>เลือก agent เลือกโฟลเดอร์ แล้วเริ่ม</h3>
+          <div class="eyebrow">Start a session</div>
+          <h3>Pick an agent, pick a folder, and go</h3>
           <p>
-            agent ที่ติดตั้งไว้จริงบนเครื่องเท่านั้นที่กดได้ — ตัวที่ยังไม่มีจะบอกตรง ๆ ว่า
-            not installed ตัวเลือกโฟลเดอร์จำที่ที่คุณเพิ่งทำงานไว้ให้ ทำเครื่องหมาย repo ที่เป็น git
-            และเตือนเมื่อคุณกำลังจะปล่อย agent ลงในโฟลเดอร์ที่กว้างเกินไป
+            Only agents actually installed on the machine can be selected — the ones that are missing say
+            not installed, plainly. The folder picker remembers where you last worked, marks the repos that are git,
+            and warns you when you are about to drop an agent into a folder that is too broad.
           </p>
         </div>
         <div class="pair">
-          <div class="phone"><img src="{{SHOT:05-new-session}}" alt="หน้าจอสร้าง session ใหม่ เลือก agent และโฟลเดอร์"></div>
-          <div class="phone"><img src="{{SHOT:01-login}}" alt="หน้า login ใส่ access token"></div>
+          <div class="phone"><img src="{{SHOT:05-new-session}}" alt="The new session screen, choosing an agent and a folder"></div>
+          <div class="phone"><img src="{{SHOT:01-login}}" alt="The login page, entering an access token"></div>
         </div>
       </div>
 
@@ -575,42 +576,42 @@
 <section id="agent">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">04 — ฝั่ง agent</div>
-      <h2>ให้ agent มองเห็นงานตัวเอง และเรียกหาคุณเป็น</h2>
+      <div class="eyebrow">04 — The agent side</div>
+      <h2>Let the agent see its own work, and reach you</h2>
       <p class="lede">
-        ที่ผ่านมาคือมือถือสั่ง Mac ส่วนนี้คือทางกลับกัน — MCP server ที่มากับ Orbit
-        ทำให้ agent ที่รันอยู่ใน session เห็นภาพงานของตัวเอง และส่งเสียงถึงคนถือมือถือได้
+        So far it has been the phone driving the Mac. This is the other direction. The MCP server that ships with Orbit
+        lets the agent running in a session see its own work, and speak to whoever is holding the phone.
       </p>
     </div>
 
     <div class="tools">
-      <div class="tool"><b>orbit_capture</b><p>เรนเดอร์เว็บที่รันอยู่แล้วส่งภาพกลับให้ agent เห็นเอง ไม่ใช่ path</p></div>
-      <div class="tool"><b>orbit_screen</b><p>จับหน้าจอ Mac จริง — Simulator, Xcode, แอป native ที่ headless Chrome มองไม่เห็น</p></div>
-      <div class="tool"><b>orbit_preview</b><p>เปิดแอปที่รันอยู่จริงบนมือถือ ตรงหน้าที่ agent ระบุ แตะกดได้จริง</p></div>
-      <div class="tool"><b>orbit_notify</b><p>ส่งข้อความสั้นขึ้นมือถือ — "เสร็จแล้ว" หรือ "กำลังรอคุณอยู่"</p></div>
-      <div class="tool"><b>orbit_ask</b><p>ถามคำถามขึ้นมือถือแล้วรอ จนกว่าจะมีคนกดตอบ</p></div>
+      <div class="tool"><b>orbit_capture</b><p>Renders the web app that is already running and hands the image back to the agent. The image, not a path.</p></div>
+      <div class="tool"><b>orbit_screen</b><p>Captures the real Mac screen. Simulator, Xcode, native apps that headless Chrome cannot see.</p></div>
+      <div class="tool"><b>orbit_preview</b><p>Opens the actual running app on your phone, at the page the agent names. You can tap it for real.</p></div>
+      <div class="tool"><b>orbit_notify</b><p>Sends a short message to your phone. "Done", or "Waiting on you."</p></div>
+      <div class="tool"><b>orbit_ask</b><p>Puts a question on your phone and waits, until someone taps an answer.</p></div>
     </div>
 
     <div class="grid">
       <div class="card">
-        <h3>รู้ว่า agent กำลังรอคุณอยู่</h3>
+        <h3>Know when the agent is waiting on you</h3>
         <p>
-          กล่องคำถามของ Claude Code วาดอยู่ใน terminal เท่านั้น — จากมือถือที่คว่ำอยู่บนโต๊ะ
-          มันหน้าตาเหมือน session ที่กำลังคิด และรอได้ทั้งคืน hook ส่งจังหวะพวกนั้นมาที่ Orbit
+          Claude Code draws its question box in the terminal, and nowhere else. From a phone lying face down on the desk,
+          it looks like a session that is thinking, and it will wait all night. The hooks send those moments to Orbit.
         </p>
       </div>
       <div class="card">
-        <h3>ปลุกมือถือที่หลับอยู่</h3>
+        <h3>Wake a sleeping phone</h3>
         <p>
-          iOS หยุดหน้าเว็บและตัดซ็อกเก็ตเมื่อล็อกจอ ข้อความที่ส่งตอนนั้นจึงไม่ถึงใคร
-          Orbit เก็บไว้ส่งซ้ำให้เครื่องที่ต่อเข้ามาทีหลัง และมี Web Push ปลุกตอนแอปปิดสนิท
+          iOS suspends the page and drops the socket when the screen locks, so a message sent right then reaches no one.
+          Orbit keeps it and re-sends it to the next device that connects, and Web Push wakes the phone when the app is fully closed.
         </p>
       </div>
       <div class="card">
-        <h3>เงียบเมื่อคุณเห็นอยู่แล้ว</h3>
+        <h3>Quiet when you are already looking</h3>
         <p>
-          ทุกข้อความจาก hook ส่งแบบ quiet — เปิด Orbit ดูอยู่จะไม่เด้งอะไรเลย
-          จะแจ้งก็ต่อเมื่อคุณไม่ได้ดู
+          Every message from a hook is sent quiet. With Orbit open on screen, nothing pops up at all.
+          It only notifies you when you are not looking.
         </p>
       </div>
     </div>
@@ -621,40 +622,40 @@
 <section id="safety">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">05 — ความปลอดภัย</div>
-      <h2>มันคุมคอมพิวเตอร์ส่วนตัวคุณ จึงต้องคิดเรื่องนี้ก่อน</h2>
+      <div class="eyebrow">05 — Security</div>
+      <h2>It controls your personal computer, so this comes first</h2>
     </div>
 
     <div class="grid">
       <div class="card">
-        <h3>Token ที่ไม่เคยโผล่ใน URL</h3>
+        <h3>A token that never appears in a URL</h3>
         <p>
-          access token ถูกสร้างลง <code>~/.orbit/config.json</code> และส่งเป็น Authorization
-          header เท่านั้น — ไม่เคยอยู่ใน URL ที่จะไปโผล่ใน log ของ proxy หรือประวัติเบราว์เซอร์
-          ซ็อกเก็ตกับ <code>&lt;img&gt;</code> ซึ่งพก header ไม่ได้ ใช้คุกกี้ HttpOnly
-          ที่เก็บ hash ของ token และอนุญาตเฉพาะการอ่าน
+          The access token is generated into <code>~/.orbit/config.json</code> and sent only as an Authorization
+          header. It is never in a URL that would end up in a proxy log or browser history.
+          The socket and <code>&lt;img&gt;</code>, which cannot carry a header, use an HttpOnly cookie
+          that holds a hash of the token and permits reads only.
         </p>
       </div>
       <div class="card">
-        <h3>สองด่าน สองแหล่งที่มา</h3>
+        <h3>Two gates, two sources</h3>
         <p>
-          คำสั่งที่ <b>คุณ</b> วางลงเทอร์มินัลถูกกรองที่เซิร์ฟเวอร์ ส่วนคำสั่งที่
-          <b>agent</b> รันเองผ่าน Bash tool ถูกกรองด้วย hook ตัวที่สอง ด้วย pattern ชุดเดียวกัน
-          — เพราะสองทางนี้ไม่ได้ผ่านโค้ดเส้นเดียวกัน
+          Commands <b>you</b> paste into the terminal are screened at the server. Commands the
+          <b>agent</b> runs itself through the Bash tool are screened by a second hook, with the same set of patterns.
+          The two paths do not go through the same code.
         </p>
       </div>
       <div class="card">
-        <h3>ไม่มีอะไรโผล่สู่อินเทอร์เน็ต</h3>
+        <h3>Nothing exposed to the internet</h3>
         <p>
-          Tailscale สร้างเครือข่ายส่วนตัวระหว่างอุปกรณ์ของคุณเอง ไม่ต้องเปิดพอร์ตที่เราเตอร์
-          ไม่ต้องทำ DDNS และไม่มีที่อยู่สาธารณะให้ใครสแกนเจอ
+          Tailscale builds a private network between your own devices. No port to open on the router,
+          no DDNS to set up, and no public address for anyone to find by scanning.
         </p>
       </div>
       <div class="card">
-        <h3>ขอบเขตที่บังคับไว้ในโค้ด</h3>
+        <h3>Boundaries enforced in code</h3>
         <p>
-          session เริ่มได้เฉพาะในโฟลเดอร์ใต้ home ของคุณ การเผยแพร่พอร์ตต้องมีอะไรตอบ HTTP
-          บนพอร์ตนั้นอยู่ก่อน และ path ที่ agent ส่งมาต้องเป็น path บนโฮสต์ของเราเอง
+          A session can only start in a folder under your home. Publishing a port requires something already answering HTTP
+          on that port. And a path the agent sends must be a path on our own host.
         </p>
       </div>
     </div>
@@ -665,35 +666,35 @@
 <section id="start">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">06 — เริ่มใช้</div>
-      <h2>จากศูนย์ถึงสั่งงานจากมือถือ</h2>
+      <div class="eyebrow">06 — Get started</div>
+      <h2>From zero to driving it from your phone</h2>
       <p class="lede">
-        ไฟล์ executable ไฟล์เดียวจาก GitHub release ตรวจ checksum ก่อนติดตั้ง
-        และ <code>orbit setup</code> รันซ้ำได้เสมอโดยไม่เกิดของซ้อน
+        One executable from a GitHub release, checksum verified before it installs.
+        And <code>orbit setup</code> can be run again at any time without leaving duplicates behind.
       </p>
     </div>
 
-<pre><span class="c"># หนึ่งครั้งต่อเครื่อง — ไฟล์เดียว ไม่ต้องลง runtime</span>
+<pre><span class="c"># Once per machine — one file, no runtime to install</span>
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
-orbit doctor      <span class="c"># เครื่องนี้มีอะไร ขาดอะไร</span>
-orbit setup       <span class="c"># ลงทะเบียน MCP + ติดตั้ง hook ใน Claude Code</span>
+orbit doctor      <span class="c"># what this Mac has, and what it is missing</span>
+orbit setup       <span class="c"># register the MCP server + install the Claude Code hooks</span>
 
-<span class="c"># เปิดใช้งาน</span>
-orbit phone       <span class="c"># รัน + Tailscale HTTPS แล้วเปิดลิงก์บนมือถือ</span>
-orbit phone off   <span class="c"># ปิดประตูหน้า</span></pre>
+<span class="c"># Turn it on</span>
+orbit phone       <span class="c"># run + Tailscale HTTPS, then open the link on your phone</span>
+orbit phone off   <span class="c"># close the front door</span></pre>
 
     <div class="grid">
       <div class="card">
-        <h3>ต้องมีอะไรบ้าง</h3>
-        <p>macOS (Apple silicon หรือ Intel), Claude Code บน PATH, Google Chrome สำหรับ capture และ Tailscale เมื่ออยากใช้จากนอกบ้าน ไม่ต้องมี Node หรือ Bun</p>
+        <h3>What you need</h3>
+        <p>macOS (Apple silicon or Intel), Claude Code on PATH, Google Chrome for captures, and Tailscale when you want to use it away from home. No Node or Bun required.</p>
       </div>
       <div class="card">
-        <h3>ครั้งแรกจะเจออะไร</h3>
-        <p>คอนโซลพิมพ์ access token ออกมา — เอาไปกรอกในหน้า login บนมือถือ ลบ key <code>token</code> ใน <code>~/.orbit/config.json</code> เมื่ออยากเปลี่ยน token ใหม่</p>
+        <h3>What happens on first run</h3>
+        <p>The console prints an access token. Enter it on the login page on your phone. Remove the <code>token</code> key in <code>~/.orbit/config.json</code> when you want a new one.</p>
       </div>
       <div class="card">
-        <h3>เอกสารต่อจากนี้</h3>
-        <p><a href="https://github.com/GA-MO/orbit">GitHub</a> · <code>docs/SETUP.md</code> ติดตั้งแบบละเอียด · <code>docs/MCP.md</code> ฝั่ง agent · <code>docs/TAILSCALE.md</code> ใช้จากนอกบ้าน · <code>docs/USER-GUIDE.md</code> คู่มือใช้งาน</p>
+        <h3>Where to go next</h3>
+        <p><a href="https://github.com/GA-MO/orbit">GitHub</a> · <code>docs/SETUP.md</code> full install guide · <code>docs/MCP.md</code> the agent side · <code>docs/TAILSCALE.md</code> using it away from home · <code>docs/USER-GUIDE.md</code> user guide</p>
       </div>
     </div>
   </div>
@@ -701,8 +702,8 @@ orbit phone off   <span class="c"># ปิดประตูหน้า</span><
 
 <footer>
   <div class="wrap">
-    <span>Orbit — local AI coding hub สำหรับ macOS</span>
-    <span>ภาพสร้างใหม่ด้วย <code>make shots</code> · หน้านี้สร้างด้วย <code>bun docs/site/build.mjs</code></span>
+    <span>Orbit — a local AI coding hub for macOS</span>
+    <span>Images regenerated with <code>make shots</code> · this page built with <code>bun docs/site/build.mjs</code></span>
   </div>
 </footer>
 </html>

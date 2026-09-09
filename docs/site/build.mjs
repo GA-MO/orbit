@@ -85,24 +85,34 @@ function shots() {
   return out
 }
 
-const template = fs.readFileSync(path.join(here, 'template.html'), 'utf8')
 const images = shots()
 
-const html = template
-  .replace('{{FONT}}', () => fontDataUri(FONT))
-  .replace('{{FONT_THAI}}', () => fontDataUri(FONT_THAI))
-  .replace('{{SHOTS_JSON}}', () => JSON.stringify(images))
-  .replace(/\{\{SHOT:([\w-]+)\}\}/g, (_, name) => {
-    if (!images[name]) throw new Error(`no screenshot named ${name} in docs/images`)
-    return images[name]
-  })
+/* Two pages from two templates: English at the root, Thai at /th/. The
+   screenshots and fonts are embedded once each and shared by both. */
+const PAGES = [
+  { template: 'template.html', out: 'index.html' },
+  { template: 'template.th.html', out: path.join('th', 'index.html') },
+]
 
-if (html.includes('{{')) throw new Error('unsubstituted placeholder left in the page')
+for (const page of PAGES) {
+  const template = fs.readFileSync(path.join(here, page.template), 'utf8')
+  const html = template
+    .replace('{{FONT}}', () => fontDataUri(FONT))
+    .replace('{{FONT_THAI}}', () => fontDataUri(FONT_THAI))
+    .replace('{{SHOTS_JSON}}', () => JSON.stringify(images))
+    .replace(/\{\{SHOT:([\w-]+)\}\}/g, (_, name) => {
+      if (!images[name]) throw new Error(`no screenshot named ${name} in docs/images`)
+      return images[name]
+    })
 
-const dest = path.join(here, 'index.html')
-fs.writeFileSync(dest, html)
+  if (html.includes('{{')) throw new Error(`unsubstituted placeholder left in ${page.out}`)
 
-console.log(
-  `[site] ${path.relative(root, dest)} — ${(html.length / 1024).toFixed(0)}KB, ` +
-    `${Object.keys(images).length} screenshots embedded`,
-)
+  const dest = path.join(here, page.out)
+  fs.mkdirSync(path.dirname(dest), { recursive: true })
+  fs.writeFileSync(dest, html)
+
+  console.log(
+    `[site] ${path.relative(root, dest)} — ${(html.length / 1024).toFixed(0)}KB, ` +
+      `${Object.keys(images).length} screenshots embedded`,
+  )
+}
