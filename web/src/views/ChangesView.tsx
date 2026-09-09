@@ -35,12 +35,12 @@ interface Props {
 /** What a status letter means, in the space a row has for it. */
 const LETTER: Record<string, { label: string; className: string }> = {
   M: { label: 'M', className: 'text-live' },
-  A: { label: 'A', className: 'text-ok' },
+  A: { label: 'A', className: 'text-add' },
   D: { label: 'D', className: 'text-danger' },
   R: { label: 'R', className: 'text-accent' },
   C: { label: 'C', className: 'text-accent' },
   U: { label: '!', className: 'text-danger' },
-  '?': { label: '+', className: 'text-ok' },
+  '?': { label: '+', className: 'text-add' },
 }
 
 /* The four lines every hunk is wrapped in say what the sheet's own title
@@ -61,8 +61,13 @@ const kindOf = (line: string): LineKind => {
   return 'context'
 }
 
+/* Red out, green in — git's alphabet rather than this app's, and the one place
+   the app borrows it. See --color-add in styles.css for why the diff gets a hue
+   the rest of the screen does not. The washes are deliberately weak: on a
+   near-black field a 14% tint is enough to say which side a line is on, and the
+   line's own text carries the hue at full strength. */
 const LINE_STYLE: Record<LineKind, string> = {
-  add: 'bg-ok/12 text-ok',
+  add: 'bg-add/14 text-add',
   del: 'bg-danger/12 text-danger',
   hunk: 'bg-raised text-accent',
   meta: 'text-faint italic',
@@ -71,7 +76,7 @@ const LINE_STYLE: Record<LineKind, string> = {
 
 /** The stronger wash the changed words themselves get, over the line's own. */
 const WORD_STYLE: Record<string, string> = {
-  add: 'bg-ok/30 text-fore rounded-[2px]',
+  add: 'bg-add/32 text-fore rounded-[2px]',
   del: 'bg-danger/30 text-fore rounded-[2px]',
 }
 
@@ -414,7 +419,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
           <span className="shrink-0 text-[11px] text-faint">binary</span>
         ) : (
           <span className="shrink-0 font-mono text-[11px]">
-            {f.added > 0 && <span className="text-ok">+{f.added}</span>}
+            {f.added > 0 && <span className="text-add">+{f.added}</span>}
             {f.added > 0 && f.removed > 0 && ' '}
             {f.removed > 0 && <span className="text-danger">−{f.removed}</span>}
           </span>

@@ -14,7 +14,7 @@ const read = (name: string) =>
 
 const SURFACES = ['ink', 'surface', 'raised', 'overlay', 'line-subtle', 'line']
 const INKS = ['fore', 'mut', 'faint']
-const SIGNALS = ['accent', 'accent-strong', 'glow', 'live', 'ok', 'danger']
+const SIGNALS = ['accent', 'accent-strong', 'glow', 'live', 'ok', 'add', 'danger']
 
 function Swatch({ name }: { name: string }) {
   const value = read(`--color-${name}`)

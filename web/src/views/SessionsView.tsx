@@ -17,9 +17,11 @@ import {
   IconChevronDown,
   IconClose,
   IconEdit,
+  IconPhone,
   IconPlus,
   IconTrash,
   PROVIDER_GLYPH,
+  Sheet,
   basename,
   sessionLabel,
   timeAgo,
@@ -52,7 +54,7 @@ export default function SessionsView({
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
-  const [confirmUnpair, setConfirmUnpair] = useState(false)
+  const [phoneOpen, setPhoneOpen] = useState(false)
   /* Conversations from the Mac are collapsed by default. There are hundreds of
      transcripts on a machine that is used, and the tab exists to answer "which
      of my sessions wants me" — a question sixty borrowed rows drown. */
@@ -106,7 +108,7 @@ export default function SessionsView({
       /* Left paired on purpose: nothing was cleared, so saying so is the whole
          recovery — the phone is exactly as it was and the tap can be repeated. */
       setUnpairing(false)
-      setConfirmUnpair(false)
+      setPhoneOpen(false)
       onToast('Could not reach your Mac — still paired')
     }
   }
@@ -316,12 +318,23 @@ export default function SessionsView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center justify-between px-5 pt-4 pb-3">
-        <h1 className="font-display text-lg font-semibold tracking-wide">Sessions</h1>
+      <header className="flex shrink-0 items-center gap-3 px-5 pt-4 pb-3">
+        <h1 className="min-w-0 flex-1 font-display text-lg font-semibold tracking-wide">
+          Sessions
+        </h1>
         <span className="text-xs text-faint">
           {waiting > 0 && <span className="text-accent">{waiting} waiting · </span>}
           {alive.length} live{ended.length > 0 ? ` · ${ended.length} ended` : ''}
         </span>
+        {/* Everything about this phone rather than about a session lives behind
+            here — which today is un-pairing, and is the whole reason the icon
+            exists. It used to be a button at the end of the list, one thumb's
+            width above the docked New session: far enough to be deliberate in
+            theory, and in practice the thing a scroll to the bottom landed on.
+            A header corner is not somewhere a scrolling thumb ever ends up. */}
+        <IconButton label="This phone" onClick={() => setPhoneOpen(true)}>
+          <IconPhone size={18} />
+        </IconButton>
       </header>
 
       <NoticeOptIn onToast={onToast} />
@@ -389,25 +402,6 @@ export default function SessionsView({
             {hiddenCount} hidden · show {hiddenCount === 1 ? 'it' : 'them'} again
           </button>
         )}
-
-        {/* Un-pairing lives at the far end of the list, in the smallest type on
-            the screen, because it is the one action here that cannot be undone
-            by tapping again: the way back is the access token or the QR code in
-            the server console, and that is on the Mac. Scrolling past every
-            session to reach it is the point — nothing a thumb does on the way
-            to a row can land on it. */}
-        <div className="flex justify-center pt-6 pb-1">
-          {/* A real control, not a line of text. It was styled as bare faint
-              type to keep it quiet, and quiet it was — so quiet that it read as
-              a caption rather than something you could press. `outline` is the
-              app's quietest actual button: a 5% face and the same rim as
-              everything else, so it says "pressable" without competing with the
-              docked New session below it. Its distance still does the work of
-              keeping a thumb off it. */}
-          <Button variant="outline" onClick={() => setConfirmUnpair(true)}>
-            Unpair this phone
-          </Button>
-        </div>
       </div>
 
       {/* Docked, not floating: a circle hovering over the list landed on top of
@@ -421,33 +415,29 @@ export default function SessionsView({
         </Button>
       </div>
 
-      {/* Built like AskModal rather than as a new kind of dialog, because it is
-          the same event from the user's side: the app has stopped and is
-          waiting on an answer. Two things differ, and both come from who is
-          asking. AskModal has no dismiss because the Mac is blocked until it is
-          tapped; nothing is blocked here, so refusing is one of the answers.
-          And it wears the accent border that marks everything the Mac says,
-          while this is the phone asking about itself, so it does not.
+      {/* One deliberate route in, and the sheet it opens is itself the
+          confirmation — there is no second dialog behind it. The old shape was
+          a button in the list plus a modal to catch the taps it collected; a
+          control you have to open a sheet to reach does not need catching.
 
-          Cancel takes the emphasis and the thumb position AskModal reserves for
-          the first option, for the reason given there: the safe choice goes
-          where the hand already is. Nothing on the Mac is touched — its
-          sessions keep running and the token still works — so the copy says
-          what actually changes, which is this phone. */}
-      {confirmUnpair && (
-        <div className="scrim app-fill z-50 flex items-center justify-center p-5">
-          <div className="pop-in lift flex w-full max-w-md flex-col gap-3.5 rounded-(--radius-sheet) bg-surface p-5">
-            <span className="font-display text-[15px] font-semibold">Unpair this phone?</span>
+          Nothing on the Mac is touched — its sessions keep running and the
+          token still works — so the copy says what actually changes, which is
+          this phone. Cancel keeps the emphasis and the thumb position, for the
+          reason AskModal gives: the safe choice goes where the hand already
+          is. */}
+      {phoneOpen && (
+        <Sheet title="This phone" onClose={() => !unpairing && setPhoneOpen(false)}>
+          <div className="flex flex-col gap-3.5 px-5 pt-2 pb-5">
             <p className="text-[13px] leading-relaxed text-mut">
-              It stops reaching your Mac and stops notifying you. Your sessions keep running
-              over there. To use Orbit here again you will need the access token from the
-              server console, or its QR code.
+              Un-pairing stops this phone reaching your Mac and stops it notifying you.
+              Your sessions keep running over there. To use Orbit here again you will need
+              the access token from the server console, or its QR code.
             </p>
             <div className="flex flex-row-reverse gap-2">
               <Button
                 className="flex-1"
                 disabled={unpairing}
-                onClick={() => setConfirmUnpair(false)}
+                onClick={() => setPhoneOpen(false)}
               >
                 Stay paired
               </Button>
@@ -461,7 +451,7 @@ export default function SessionsView({
               </Button>
             </div>
           </div>
-        </div>
+        </Sheet>
       )}
     </div>
   )

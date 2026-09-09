@@ -136,6 +136,11 @@ const TOUCH_SLOP_PX = 8
 const PROBE_TIMEOUT_MS = 3000
 /** Quiet spell that marks the end of a burst of layout changes. */
 const RESIZE_SETTLE_MS = 180
+/** How long after a deliberate, one-step layout change its resize still counts
+    as that change, and skips the wait meant for bursts. Long enough to cover a
+    frame or two of React and layout; short enough that the keyboard sliding in
+    a moment later is not mistaken for it. */
+const DELIBERATE_WINDOW_MS = 500
 
 // iOS Safari draws a lone ำ (U+0E33) as a dotted circle with a floating mark above
 // it. xterm gives ำ a cell of its own — it is a spacing character — and the shaper
@@ -226,6 +231,8 @@ export default function Terminal({
   const sendRef = useRef<(msg: object) => void>(() => {})
   const refitRef = useRef<(scrollToBottom?: boolean) => void>(() => {})
   const redrawRef = useRef<() => void>(() => {})
+  /** Told by the key bar that the size about to change is changing once. */
+  const layoutStepRef = useRef<() => void>(() => {})
   /* Whether this session is the one on screen — not merely the one connected.
      The terminal stays mounted behind the other two tabs, and a phone in a
      pocket holds its socket open until iOS gets round to freezing it. The
@@ -587,9 +594,22 @@ export default function Terminal({
     let pendingSize: { cols: number; rows: number } | null = null
     // The socket handshake carries the size it opened with, so start in step.
     let sentSize = `${term.cols}x${term.rows}`
+    /* Set by a control that changes the layout in one step — the key bar
+       folding. The wait below is there for sizes that are still moving, and a
+       fold is not moving: it lands on its final height in one frame, and every
+       millisecond spent waiting to say so is a millisecond of the agent's last
+       frame sitting at the wrong height, which is what reads as lag. Kept as a
+       deadline rather than a flag so that a fold which changed no rows at all
+       cannot leave it armed for whatever moves next. */
+    let deliberateUntil = 0
+    layoutStepRef.current = () => {
+      deliberateUntil = performance.now() + DELIBERATE_WINDOW_MS
+    }
     const resizeSub = term.onResize((size) => {
       pendingSize = size
       if (sizeTimer) clearTimeout(sizeTimer)
+      const deliberate = performance.now() < deliberateUntil
+      deliberateUntil = 0
       sizeTimer = setTimeout(() => {
         sizeTimer = null
         if (!pendingSize) return
@@ -611,7 +631,7 @@ export default function Terminal({
            asking for a second one would only make the screen flash twice. */
         if (repaintTimer) clearTimeout(repaintTimer)
         repaintTimer = null
-      }, RESIZE_SETTLE_MS)
+      }, deliberate ? 0 : RESIZE_SETTLE_MS)
     })
 
     const refit = (scrollToBottom = false) => {
@@ -1081,6 +1101,7 @@ export default function Terminal({
       {showKeys && !readOnly && (
         <TerminalKeys
           keyboardOpen={keyboardOpen}
+          onLayoutStep={() => layoutStepRef.current()}
           onCompose={onCompose}
           draftPending={draftPending}
           ctrl={ctrl}

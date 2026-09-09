@@ -19,6 +19,9 @@ interface Props {
      from it. Dictation is not here: it fills the same draft, so it belongs
      inside the sheet that shows the draft. */
   onCompose: () => void
+  /** Say that the next resize comes from folding this bar, which happens in one
+      step — so the terminal need not wait to see whether more is coming. */
+  onLayoutStep: () => void
   /** Something written and not yet sent, so the pen can say so. */
   draftPending: boolean
   /** Ctrl lives in the parent: it also rewrites what the soft keyboard types. */
@@ -216,6 +219,7 @@ function Key({
 
 export default function TerminalKeys({
   keyboardOpen,
+  onLayoutStep,
   onCompose,
   draftPending,
   ctrl,
@@ -308,6 +312,7 @@ export default function TerminalKeys({
       onClick={() => {
         // A locked shift the user can no longer see is a shift they will forget.
         if (expanded) setShift('off')
+        onLayoutStep()
         setExpanded(!expanded)
       }}
       className={`flex h-11 shrink-0 items-center gap-1 rounded-lg border px-2.5 font-mono text-[13px] transition-colors active:bg-overlay ${

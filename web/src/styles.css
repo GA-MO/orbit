@@ -24,8 +24,14 @@
    and a selection overlay — none of which are events. --color-accent is now a
    near-white silver, and --color-accent-strong the near-white it fills with, so
    every one of those call sites neutralised without being edited. --color-ok
-   went with them: in a diff the thing worth colouring is the deletion, so
-   removed lines stay red and added lines are simply the bright ones.
+   went with them and is now silver — a "connected" status and a git badge are
+   states, not events, and they read fine without a hue.
+
+   The one place a third hue survived that reasoning is the diff, and it is not
+   an exception so much as a different alphabet: +/- green/red is not Orbit's
+   colour language, it is git's, and every user of this app already reads diffs
+   somewhere that speaks it. So --color-add exists, and is spelled only inside
+   the Changes tab: added lines, the +N counts, and the A/? status letters.
 
    Which leaves the question the accent was answering: how does "this session is
    waiting for you" still shout? It shouts louder. A waiting row is drawn with
@@ -86,6 +92,13 @@
   --color-live: #f0b45c;
   --color-ok: #d3d6da;
   --color-danger: #e8636b;
+  /* The third hue, and the narrowest: added lines in a diff, and nothing else.
+     A diff is not this app's decoration — red-removed/green-added is what every
+     tool a user of this app already reads diffs in does, and a diff where only
+     the deletions carry a hue asks them to work out which side is which from
+     brightness. Paired with --color-danger on purpose: same lightness, same
+     softness, so the two sides of a hunk weigh the same. */
+  --color-add: #5ec489;
 
   --font-display: "Space Grotesk Variable", system-ui, sans-serif;
   --font-sans:

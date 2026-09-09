@@ -151,6 +151,15 @@ export const IconExternal = icon(
   </>,
 );
 export const IconChevronDown = icon(<path d="m6 10 6 6 6-6" />);
+/* This phone, as the thing being paired — the sheet behind it is about the
+   handset in your hand and not about the app's settings, so it is a handset and
+   not a gear. */
+export const IconPhone = icon(
+  <>
+    <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+    <path d="M10.5 18.5h3" />
+  </>,
+);
 export const IconSearch = icon(
   <>
     <circle cx="11" cy="11" r="6.5" />
