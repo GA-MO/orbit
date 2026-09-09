@@ -141,6 +141,11 @@ const RESIZE_SETTLE_MS = 180
     frame or two of React and layout; short enough that the keyboard sliding in
     a moment later is not mistaken for it. */
 const DELIBERATE_WINDOW_MS = 500
+/** Quiet spell after a resize that says the agent has finished answering it. */
+const POST_RESIZE_QUIET_MS = 150
+/** How long a resize keeps waiting for that quiet before giving up on it —
+    a spinner or a running build never stops writing. */
+const POST_RESIZE_MAX_MS = 1500
 
 // iOS Safari draws a lone ำ (U+0E33) as a dotted circle with a floating mark above
 // it. xterm gives ำ a cell of its own — it is a spacing character — and the shaper
@@ -230,7 +235,8 @@ export default function Terminal({
   const flingFrame = useRef<number | null>(null)
   const sendRef = useRef<(msg: object) => void>(() => {})
   const refitRef = useRef<(scrollToBottom?: boolean) => void>(() => {})
-  const redrawRef = useRef<() => void>(() => {})
+  /** Redraw what is already in the buffer — no PTY, no SIGWINCH, one frame. */
+  const refreshRef = useRef<() => void>(() => {})
   /** Told by the key bar that the size about to change is changing once. */
   const layoutStepRef = useRef<() => void>(() => {})
   /* Whether this session is the one on screen — not merely the one connected.
@@ -409,6 +415,7 @@ export default function Terminal({
             break
           case 'output':
             term.write(decomposeSaraAm(msg.data))
+            noteOutput()
             break
           case 'exit':
             stopReconnect = true
@@ -517,7 +524,42 @@ export default function Terminal({
         askRedraw()
       }, delay)
     }
-    redrawRef.current = () => scheduleRedraw()
+    /* A size change reaches an agent that is in the middle of writing, and one
+       SIGWINCH buys exactly one redraw — which lands interleaved with the
+       output still coming, so the frame that ends up on screen is half old
+       height, half new. Nothing follows it, because as far as the agent is
+       concerned the resize was handled. So when a size goes out while output is
+       flowing, wait for the stream to fall quiet and ask once more; that second
+       ask is the same message the tab-return path used to send for free, and
+       here it is paid for only when something was actually being drawn over. */
+    let settleUntil = 0
+    let settleTimer: ReturnType<typeof setTimeout> | null = null
+    const clearSettle = () => {
+      if (settleTimer) clearTimeout(settleTimer)
+      settleTimer = null
+      settleUntil = 0
+    }
+    /** Called with every size the agent is told; starts the watch for output. */
+    const armSettle = () => {
+      clearSettle()
+      settleUntil = performance.now() + POST_RESIZE_MAX_MS
+    }
+    /** Called for every chunk of output; the last one before the quiet wins. */
+    const noteOutput = () => {
+      if (!settleUntil) return
+      if (performance.now() > settleUntil) {
+        // Still writing after all this time — take the redraw now or never.
+        clearSettle()
+        askRedraw()
+        return
+      }
+      if (settleTimer) clearTimeout(settleTimer)
+      settleTimer = setTimeout(() => {
+        settleTimer = null
+        settleUntil = 0
+        askRedraw()
+      }, POST_RESIZE_QUIET_MS)
+    }
 
     /* iOS suspends a backgrounded tab, and the socket can die out on the network
        while it is asleep — the browser fires no onclose for that, so coming back
@@ -627,6 +669,7 @@ export default function Terminal({
         if (next === sentSize) return askRedraw()
         sentSize = next
         send({ type: 'resize', ...pendingSize })
+        armSettle()
         /* A size the agent has not heard before already earns a full redraw —
            asking for a second one would only make the screen flash twice. */
         if (repaintTimer) clearTimeout(repaintTimer)
@@ -650,6 +693,9 @@ export default function Terminal({
       }
     }
     refitRef.current = refit
+    refreshRef.current = () => {
+      if (!disposed && opened) term.refresh(0, term.rows - 1)
+    }
 
     /* The key bar folding open, the soft keyboard sliding in, a rotation — none
        of those are one layout change, they are a burst of them, and the observer
@@ -922,13 +968,14 @@ export default function Terminal({
       disposed = true
       termRef.current = null
       refitRef.current = () => {}
-      redrawRef.current = () => {}
+      refreshRef.current = () => {}
       if (handleRef) handleRef.current = null
       cancelAnimationFrame(openFrame)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       clearProbe()
       if (sizeTimer) clearTimeout(sizeTimer)
       if (repaintTimer) clearTimeout(repaintTimer)
+      clearSettle()
       document.removeEventListener('visibilitychange', resync)
       document.removeEventListener('visibilitychange', reportViewing)
       window.removeEventListener('pageshow', resync)
@@ -951,17 +998,23 @@ export default function Terminal({
     }
   }, [sessionId])
 
-  /* Refit and jump to the bottom when the terminal tab becomes visible again —
-     and ask for a redraw too. A hidden tab measures 0×0, so nothing was fitted
-     while it was away and the size that comes back is usually the size that
-     left: no resize, no SIGWINCH, and the agent goes on patching a frame it
-     drew before. Same tear as coming back from the home screen, one tab over. */
+  /* Refit and jump to the bottom when the terminal tab becomes visible again.
+     Unlike the home screen, another tab never puts the socket to sleep: output
+     kept arriving and xterm kept writing it, so the buffer is already current
+     and the only thing that may have gone stale is the picture of it — xterm
+     stops rendering a box it cannot see. So redraw locally. Asking the agent
+     instead would cost the walk down one row and back that a size it has
+     already heard needs, and that second frame is what read as a stutter on
+     every trip back to the terminal. If the layout did move while we were away,
+     the fit below changes the size and `onResize` tells the agent as usual. */
   useEffect(() => {
     activeRef.current = active
     reportViewingRef.current()
     if (!active) return
-    requestAnimationFrame(() => refitRef.current(true))
-    redrawRef.current()
+    requestAnimationFrame(() => {
+      refitRef.current(true)
+      refreshRef.current()
+    })
   }, [active])
 
   const sendKey = (data: string) => sendRef.current({ type: 'input', data })

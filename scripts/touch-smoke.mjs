@@ -34,6 +34,19 @@ const token =
   process.env.ORBIT_TOKEN ??
   JSON.parse((await import('node:fs')).readFileSync(`${HOME}/.orbit/config.json`, 'utf8')).token
 
+/* Opening the app no longer starts a shell for you — a tab with nothing to
+   reattach to stays empty and asks. So make the session this run needs, and
+   arrive on it the way a notification does. */
+const api = async (route, body, method = 'POST') => {
+  const res = await fetch(BASE + route, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: body && JSON.stringify(body),
+  })
+  return { status: res.status, body: await res.json().catch(() => null) }
+}
+const session = (await api('/api/sessions', { provider: 'shell', cwd: HOME, name: 'touch' })).body
+
 const results = []
 const check = (name, pass, detail = '') => {
   results.push({ name, pass })
@@ -209,7 +222,7 @@ const spanAt = (needles) =>
 
 console.log(`\n── ${ENGINE} · ${BASE} ${'─'.repeat(30)}`)
 
-await page.goto(BASE)
+await page.goto(`${BASE}/?session=${session.id}`)
 await page.waitForTimeout(600)
 await page.fill('input', token)
 await page.keyboard.press('Enter')
@@ -574,6 +587,7 @@ const unexpected = errors.filter((e) => !/40[14]/.test(e))
 check('no console errors', unexpected.length === 0, unexpected.join('; '))
 
 await browser.close()
+await api(`/api/sessions/${session.id}`, null, 'DELETE')
 
 const failed = results.filter((r) => !r.pass)
 console.log(failed.length ? `\n${failed.length} failed` : '\nAll checks passed.')

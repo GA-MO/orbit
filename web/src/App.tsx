@@ -19,12 +19,19 @@ import ApprovalModal from './components/ApprovalModal'
 import AskModal from './components/AskModal'
 import PageViewer from './components/PageViewer'
 import ComposeSheet from './sheets/ComposeSheet'
-import { IconBranch, IconCapture, IconSessions, IconTerminal } from './components/ui'
+import {
+  Button,
+  EmptyState,
+  IconBranch,
+  IconCapture,
+  IconPlus,
+  IconSessions,
+  IconTerminal,
+} from './components/ui'
 import {
   AuthError,
   checkAuth,
   clearAttention,
-  createSession,
   fetchSessions,
   restartSession,
   unpairPhone,
@@ -110,6 +117,9 @@ export default function App() {
   const [attention, setAttention] = useState<Record<string, Attention>>({})
   const [toast, setToast] = useState<{ message: string; sessionId?: string | null } | null>(null)
   const [startingNew, setStartingNew] = useState(false)
+  /* Whether boot has finished looking. Until it has, an empty terminal tab is
+     a tab still asking the Mac what it has — not a Mac with nothing on it. */
+  const [booted, setBooted] = useState(false)
   const termHandle = useRef<TerminalHandle | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -193,11 +203,13 @@ export default function App() {
     [asks],
   )
 
-  // Boot: verify auth, then reattach to the stored session or start a shell.
+  // Boot: verify auth, then reattach to the stored session if it is still there.
   useEffect(() => {
     if (locked !== false && locked !== null) return
     let cancelled = false
     let retryTimer: ReturnType<typeof setTimeout> | null = null
+    // Looking again: until it answers, the tab is connecting, not empty.
+    setBooted(false)
 
     const boot = async () => {
       try {
@@ -223,11 +235,15 @@ export default function App() {
           if (asked) localStorage.setItem(SESSION_KEY, found.id)
           setCurrentId(found.id)
         } else {
-          const fresh = await createSession('shell')
-          if (cancelled) return
-          localStorage.setItem(SESSION_KEY, fresh.id)
-          setCurrentId(fresh.id)
+          /* Nothing to reattach to. Starting one anyway would put a program on
+             someone's Mac because a tab was opened, and the shell it used to
+             start was rarely the session anyone wanted — the folder and the
+             agent are the whole point, and the sheet is where those are said.
+             So the tab stays empty and asks. */
+          localStorage.removeItem(SESSION_KEY)
+          setCurrentId(null)
         }
+        setBooted(true)
       } catch (e) {
         if (cancelled) return
         if (e instanceof AuthError) setLocked(true)
@@ -313,7 +329,7 @@ export default function App() {
     localStorage.removeItem(SESSION_KEY)
     setCurrentId(null)
     setCurrent(null)
-    setBootNonce((n) => n + 1) // boot again: reattach to something real, or start a shell
+    setBootNonce((n) => n + 1) // boot again: reattach to something real, or to nothing
     showToast('That session is no longer on your Mac')
   }, [showToast])
 
@@ -373,7 +389,11 @@ export default function App() {
         <div className={`h-full ${view === 'terminal' ? '' : 'hidden'}`}>
           <TerminalView
             session={current}
-            status={status}
+            /* With no session there is no socket to report on, and the header
+               would sit on "Connecting…" for good. Boot reached the Mac to
+               find out there was nothing to attach to, so the connection is
+               the one thing here that is fine. */
+            status={currentId ? status : booted ? 'connected' : 'connecting'}
             onNewSession={() => startFreshSession(false)}
             onResume={() => startFreshSession(true)}
             starting={startingNew}
@@ -400,6 +420,18 @@ export default function App() {
                 onCompose={() => setComposeOpen(true)}
                 draftPending={draft.trim().length > 0}
               />
+            ) : booted ? (
+              <div className="flex h-full items-center justify-center">
+                <EmptyState
+                  title="No session"
+                  hint="Nothing is open here. Start an agent in one of your projects — or pick one up from the Sessions tab."
+                >
+                  <Button onClick={() => setNewSessionOpen(true)}>
+                    <IconPlus size={16} />
+                    New session
+                  </Button>
+                </EmptyState>
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-mut">
                 Connecting to your Mac…
