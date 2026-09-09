@@ -52,6 +52,7 @@ type ServerMessage =
   | notify.Notice
   | notify.Ask
   | notify.PreviewOpen
+  | notify.AttentionRaised
 
 const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -219,11 +220,18 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method === 'GET' && url.pathname === '/healthz') return json(res, 200, { ok: true })
 
   if (url.pathname.startsWith('/api/')) {
-    if (!authorized(req)) {
-      await rejectSlowly(req)
-      return json(res, 401, { error: 'unauthorized' })
+    /* One exception, and it is not a hole: a notification tapped on a locked
+       phone is handled by the service worker, which has no token and must not
+       be given one. It carries a capability for a single open question
+       instead, and the route below checks it. */
+    const byCapability = req.method === 'POST' && url.pathname === '/api/ask/answer'
+    if (!byCapability) {
+      if (!authorized(req)) {
+        await rejectSlowly(req)
+        return json(res, 401, { error: 'unauthorized' })
+      }
+      forgetFailures(req)
     }
-    forgetFailures(req)
     return handleAuthedApi(req, res, url)
   }
 
@@ -743,6 +751,34 @@ on(
 
 // ---- Mac → phone: an agent (via MCP) or a hook reaching the person holding it ----
 
+/** What to call a session in a banner, in the order the phone itself does. */
+const labelOf = (sessionId: string): string => {
+  const s = manager.list().find((entry) => entry.id === sessionId)
+  if (!s) return 'A session'
+  return s.name ?? s.firstCommand ?? path.basename(s.cwd) ?? s.providerName
+}
+
+/* The other half of the channel: a session that stopped without saying so.
+ *
+ * `idle.ts` works out that it happened; everything here is about who, if
+ * anyone, should be interrupted for it. Three answers, in order of how much
+ * they cost the user: someone already has it on screen (nothing at all — the
+ * screen it was scraped from is the thing they are looking at), the agent has
+ * already spoken for itself (`raiseIdle` declines, and its words stand), or a
+ * phone is connected and gets a silent badge. Only when there is no phone at
+ * all is this worth a notification, and that is the case it was built for. */
+manager.onQuiet = (sessionId, message) => {
+  if (notify.isViewing(sessionId)) return
+  if (!attention.raiseIdle(sessionId, message)) return
+  if (notify.attentionRaised(sessionId) > 0) return
+  void push.send(
+    `${labelOf(sessionId)} is waiting`,
+    message ?? 'It stopped and has not said why.',
+    sessionId,
+    push.WAITING,
+  )
+}
+
 on('POST /api/notify', async ({ res, body }) => {
   const b = await body<{
     message?: string
@@ -773,6 +809,29 @@ on('POST /api/notify', async ({ res, body }) => {
   const pushed = delivered === 0 ? await push.send('Orbit', message, sessionId, push.NOTICE) : 0
   if (pushed > 0) notify.markPushed(id)
   return json(res, 200, { delivered, pushed, sessionId })
+})
+
+/* The one route the access token does not guard — see `notify.answerWith`,
+   which is where the reasoning lives. Everything it can do is bounded by a
+   capability that came out of this server minutes ago and dies with the
+   question it names. */
+on('POST /api/ask/answer', async ({ req, res, body }) => {
+  const b = await body<{ id?: string; token?: string; choice?: string }>()
+  const ok =
+    typeof b.id === 'string' &&
+    typeof b.token === 'string' &&
+    typeof b.choice === 'string' &&
+    notify.answerWith(b.id, b.token, b.choice)
+  if (!ok) {
+    /* Stale rather than wrong, most of the time: the question was answered in
+       the app, or timed out, while its banner sat on the lock screen. The
+       delay is paced the same way a bad token is regardless — the two are
+       indistinguishable from here, and only one of them is a person. */
+    await rejectSlowly(req)
+    return json(res, 404, { error: 'that question is no longer open' })
+  }
+  forgetFailures(req)
+  return json(res, 200, { ok: true })
 })
 
 on('GET /api/push/key', ({ res }) => json(res, 200, { publicKey: push.publicKey() }))
@@ -811,11 +870,6 @@ on('POST /api/ask', async ({ res, body }) => {
     : undefined
   const timeoutSeconds = Math.min(Math.max(b.timeoutSeconds ?? 120, 5), 600)
   const sessionId = resolveSession(b.sessionId, b.source)
-  /* A question is worth waking someone for — and unlike a notice it is still
-     waiting when they arrive, so the push is a nudge rather than the content. */
-  if (notify.clientCount() === 0) {
-    await push.send('Orbit is asking', question, sessionId, push.question(timeoutSeconds))
-  }
   /* Marked as waiting for the whole time it is open. A question that nobody
      answers times out over there and leaves nothing behind otherwise — and
      "an agent gave up waiting for me" is worth finding out late. */
@@ -827,6 +881,27 @@ on('POST /api/ask', async ({ res, body }) => {
     source: b.source ?? null,
     sessionId,
     timeoutMs: timeoutSeconds * 1000,
+    /* A question is worth waking someone for — and unlike a notice it is still
+       waiting when they arrive, so the push is a nudge rather than the content.
+       It carries the question's name and a one-shot capability to answer it, so
+       the two obvious answers can be buttons on the banner itself: the phone
+       that was woken for this is, by definition, in a pocket with the app shut,
+       and "unlock, open Orbit, wait for the socket, tap Allow" is four steps to
+       say a word the notification was already showing.
+
+       Sent from inside `ask` rather than before it because a capability cannot
+       name a question that does not exist yet, and not awaited because the
+       thing being waited for is the answer. */
+    announce: ({ id, answerToken, options: choices }) => {
+      if (notify.clientCount() > 0) return
+      void push.send(
+        'Orbit is asking',
+        question,
+        sessionId,
+        push.question(timeoutSeconds),
+        { ask: { id, token: answerToken, options: choices } },
+      )
+    },
   })
   if (sessionId && !result.timedOut) attention.clear(sessionId)
   return json(res, 200, { ...result, phonesConnected: notify.clientCount(), sessionId })

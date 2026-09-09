@@ -1,5 +1,5 @@
 .PHONY: help install dev build start stop clean icons \
-	test test-smoke test-touch test-changes test-preview-url \
+	test test-smoke test-touch test-changes test-preview-url test-idle test-ask \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
 
@@ -72,6 +72,12 @@ test-changes: ## The Changes tab only (needs system Chrome)
 
 test-preview-url: ## How an agent's path becomes a URL (no server, no Tailscale)
 	@scripts/test.sh preview-url
+
+test-idle: ## Noticing a session went quiet (no server needed)
+	@scripts/test.sh idle
+
+test-ask: ## Answering a question from a notification (no server needed)
+	@scripts/test.sh ask
 
 clean: ## Prune ~/.orbit screenshots & uploads (keep newest 50 each)
 	@for name in screenshots uploads; do \

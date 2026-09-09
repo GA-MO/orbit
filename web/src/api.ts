@@ -12,6 +12,8 @@ export interface Attention {
   kind: AttentionKind
   message: string
   at: string
+  /** Orbit noticed the session go quiet; the agent did not say anything. */
+  idle?: boolean
 }
 
 export interface SessionInfo {

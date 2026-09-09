@@ -7,6 +7,8 @@
 #   make test-touch      # touch behaviour only    (needs system Chrome)
 #   make test-changes    # the Changes tab only    (needs system Chrome)
 #   make test-preview-url # how an agent's path becomes a URL (no server needed)
+#   make test-idle       # noticing a session went quiet    (no server needed)
+#   make test-ask        # answering from a notification    (no server needed)
 #
 # Everything the suites touch — sessions, captures, uploads, the access token —
 # lives under a scratch HOME that is deleted first, so a run cannot be coloured
@@ -49,7 +51,15 @@ LOG="$SCRATCH/server.log"
 REAL_PATH="$(/bin/zsh -lic 'printf %s "$PATH"' 2>/dev/null)"
 [ -n "$REAL_PATH" ] && export PATH="$REAL_PATH"
 
-HOME="$SCRATCH" ORBIT_PORT="$PORT" node "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
+# A `tailscale` that publishes nothing (scripts/fake-tailscale.mjs). Without it
+# the preview tests either skip — on any machine without Tailscale logged in —
+# or publish real mappings on the real tailnet, which is how `:8443 → :3099`
+# once outlived the throwaway server it pointed at. Set ORBIT_TAILSCALE
+# yourself before running this to aim at the real CLI instead.
+export ORBIT_TAILSCALE="${ORBIT_TAILSCALE:-$REPO/scripts/fake-tailscale.mjs}"
+
+HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
+  node "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
 SERVER_PID=$!
 
 # Kill it however we leave — a failed suite, a Ctrl-C, or the end of the script.
@@ -88,8 +98,11 @@ case "$SUITE" in
   # Wants nothing but the build, and is run under the same throwaway server as
   # the rest only so that `make test` stays one command rather than two.
   preview-url) run preview-url preview-url-smoke.mjs ;;
-  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs ;;
-  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, or all)" >&2; exit 1 ;;
+  # Same: a stand-in session and a clock, no HTTP anywhere near it.
+  idle)    run idle idle-smoke.mjs ;;
+  ask)     run ask ask-smoke.mjs ;;
+  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs; run idle idle-smoke.mjs; run ask ask-smoke.mjs ;;
+  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, idle, ask, or all)" >&2; exit 1 ;;
 esac
 
 echo ""

@@ -3,6 +3,7 @@ import os from 'node:os'
 import * as pty from 'node-pty'
 import type { Provider } from './providers.js'
 import { getProvider } from './providers.js'
+import * as idle from './idle.js'
 import * as store from './store.js'
 import * as transcripts from './transcripts.js'
 import type { PersistedSession } from './store.js'
@@ -72,6 +73,8 @@ export interface Session {
   kill(): void
   /** Subscribe to output; returns unsubscribe. */
   onData(cb: (data: string) => void): () => void
+  /** Subscribe to input reaching the PTY — what the user typed or sent. */
+  onInput(cb: (data: string) => void): () => void
   onExit(cb: (code: number) => void): () => void
   /** Buffered output since session start (capped), for replay on reconnect. */
   scrollback(): string
@@ -96,6 +99,7 @@ class PtySession implements Session {
   /** Pending second half of a `repaint`. */
   private repaintTimer: ReturnType<typeof setTimeout> | null = null
   private dataSubs = new Set<(data: string) => void>()
+  private inputSubs = new Set<(data: string) => void>()
   private exitSubs = new Set<(code: number) => void>()
 
   constructor(
@@ -153,6 +157,7 @@ class PtySession implements Session {
     if (!this.alive) return
     if (this.firstCommand === null) this.captureFirstCommand(data)
     this.proc.write(data)
+    for (const cb of this.inputSubs) cb(data)
   }
 
   /* The first line the user commits is what the session is about — for a shell
@@ -214,6 +219,11 @@ class PtySession implements Session {
     return () => this.dataSubs.delete(cb)
   }
 
+  onInput(cb: (data: string) => void) {
+    this.inputSubs.add(cb)
+    return () => this.inputSubs.delete(cb)
+  }
+
   onExit(cb: (code: number) => void) {
     this.exitSubs.add(cb)
     return () => this.exitSubs.delete(cb)
@@ -238,6 +248,15 @@ const metaOf = (s: PtySession): PersistedSession => ({
 })
 
 export class PtyManager {
+  /**
+   * Called when a session finishes drawing and goes quiet — see `idle.ts`.
+   *
+   * A callback rather than a call into `attention` because who cares that a
+   * session settled is a question about phones, pushes and what is on screen,
+   * none of which belongs to the thing that owns the PTYs.
+   */
+  onQuiet: ((sessionId: string, message: string | null) => void) | null = null
+
   private active = new Map<string, PtySession>()
   private dead = new Map<string, PersistedSession>()
   /** Conversations run from a terminal on the Mac. Read-only, never persisted. */
@@ -308,6 +327,13 @@ export class PtyManager {
     if (opts.name) session.name = opts.name
     session.onLabel = () => this.persist()
     this.active.set(session.id, session)
+
+    /* Agents only. A shell sitting at its prompt is quiet by definition and
+       has been waiting for input since the moment it started — reporting that
+       would put a badge on every shell in the list and mean nothing by it. */
+    if (provider.command) {
+      idle.watch(session, (message) => this.onQuiet?.(session.id, message))
+    }
 
     let flushTimer: NodeJS.Timeout | null = null
     session.onData(() => {

@@ -178,6 +178,12 @@ interface Props {
   ) => void
   onAsk: (request: AskRequest) => void
   /**
+   * A session's standing state changed with nothing to say about it — one went
+   * quiet and Orbit noticed by itself. No words and no toast: the badge in the
+   * Sessions tab is the whole message, so this only asks for a refresh.
+   */
+  onAttention: () => void
+  /**
    * The agent wants a page on the screen. Handed up rather than framed here:
    * the terminal is one tab of four, and "go and look at this" cannot only
    * work while the terminal happens to be the tab in front.
@@ -201,6 +207,7 @@ export default function Terminal({
   onApproval,
   onNotice,
   onAsk,
+  onAttention,
   onPreview,
   onInsertPath,
   onToast,
@@ -261,6 +268,7 @@ export default function Terminal({
     onApproval,
     onNotice,
     onAsk,
+    onAttention,
     onPreview,
   })
   callbacksRef.current = {
@@ -273,6 +281,7 @@ export default function Terminal({
     onApproval,
     onNotice,
     onAsk,
+    onAttention,
     onPreview,
   }
 
@@ -421,6 +430,9 @@ export default function Terminal({
               source: msg.source ?? null,
               sessionId: msg.sessionId ?? null,
             })
+            break
+          case 'attention':
+            callbacksRef.current.onAttention()
             break
           case 'preview':
             callbacksRef.current.onPreview({

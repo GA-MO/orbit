@@ -415,6 +415,7 @@ export default function App() {
                 onApproval={setApproval}
                 onNotice={showNotice}
                 onAsk={addAsk}
+                onAttention={() => refreshCurrent()}
                 onPreview={setPreview}
                 onInsertPath={insertPath}
                 onToast={showToast}

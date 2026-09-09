@@ -27,8 +27,20 @@ const FIRST_PORT = 8443
 const MAX_PREVIEWS = 12
 const CLI_TIMEOUT_MS = 15_000
 
-/** Where the Tailscale app hides its CLI when it was not installed via brew. */
-const CLI_CANDIDATES = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']
+/**
+ * Where the Tailscale app hides its CLI when it was not installed via brew.
+ *
+ * `ORBIT_TAILSCALE` goes in front of both. It is how the tests get to exercise
+ * publishing at all — every path through this module ends at that binary, so a
+ * machine without Tailscale (or with it logged out, which is most of CI) could
+ * only ever test the string handling around it. It doubles as the way out for
+ * an install in neither of these places.
+ */
+const CLI_CANDIDATES = [
+  process.env.ORBIT_TAILSCALE,
+  'tailscale',
+  '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+].filter((c): c is string => !!c)
 
 export interface Preview {
   /** The dev server's port on the Mac. */

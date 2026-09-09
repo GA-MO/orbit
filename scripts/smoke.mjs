@@ -240,6 +240,92 @@ if (!previewState.body.available) {
   )
 }
 
+// ------------------------------------------- the agent opening a preview
+
+/* `POST /api/preview` is the agent saying "go and look at this yourself", and
+   until now nothing tested the route itself — only `previewUrl`, the pure
+   function inside it. What is left is everything that decides whether the
+   phone gets a frame or a consolation prize: the HTTP probe on the port, the
+   path arriving as part of the URL, and what happens when nobody is there. */
+section('agent → preview')
+if (!(await api('/api/previews', undefined, 'GET')).body.available) {
+  console.log('       skipped — no usable tailscale')
+} else {
+  const app = http.createServer((_req, res) => res.end('hi'))
+  await new Promise((r) => app.listen(3097, '127.0.0.1', r))
+
+  const watcher = phone()
+  await watcher.open
+  await wait(200)
+
+  const shown = await api('/api/preview', { port: 3097, path: '/settings?tab=1' })
+  check(
+    'the agent publishes a port and names the route',
+    shown.status === 200 && shown.body.url?.endsWith('/settings?tab=1'),
+    shown.body.error ?? shown.body.url,
+  )
+  check('…and a connected phone is handed the frame', shown.body.delivered === 1)
+  await wait(300)
+  const frame = watcher.seen.find((m) => m.type === 'preview')
+  check(
+    '…as a preview message carrying the whole URL',
+    frame?.url === shown.body.url && frame?.port === 3097,
+    JSON.stringify(frame ?? null),
+  )
+
+  const escaped = await api('/api/preview', { port: 3097, path: '//evil.com/x' })
+  check(
+    'a path that reads as a host stays on the preview host',
+    escaped.status === 200 && new URL(escaped.body.url).host === new URL(shown.body.url).host,
+    escaped.body.url,
+  )
+  check(
+    'a whole URL is refused rather than mangled into a path',
+    (await api('/api/preview', { port: 3097, path: 'http://evil.com' })).status === 400,
+  )
+
+  /* The probe, which is where this route deliberately parts company with the
+     phone's: a person tapping a chip can read "nothing there yet" and wait, and
+     an agent handing over a blank frame cannot. */
+  check(
+    'a port with nothing behind it is refused, not published',
+    (await api('/api/preview', { port: 3096 })).status === 400,
+  )
+  /* Destroyed rather than ended: the probe half-closes too, and two half-closed
+     ends leave a socket the server still counts, so `close` would wait for a
+     connection nobody is going to finish. */
+  const notHttp = net.createServer((c) => c.destroy())
+  await new Promise((r) => notHttp.listen(3095, '127.0.0.1', r))
+  check(
+    '…and so is one that answers but not in HTTP',
+    (await api('/api/preview', { port: 3095 })).status === 400,
+  )
+  notHttp.close()
+
+  /* Nobody there. A frame cannot be opened retroactively, so what is kept is a
+     notice naming the port and path — through the same queue that catches a
+     phone up on everything else it slept through. */
+  watcher.ws.close()
+  await wait(500)
+  const alone = await api('/api/preview', { port: 3097, path: '/orders' })
+  check('with no phone connected, nothing is delivered', alone.body.delivered === 0)
+  const later = phone()
+  await later.open
+  await wait(400)
+  check(
+    '…and a notice says which port and path were meant',
+    later.seen.some(
+      (m) => m.type === 'notice' && m.message.includes('3097') && m.message.includes('/orders'),
+    ),
+    JSON.stringify(later.seen.filter((m) => m.type === 'notice').map((n) => n.message)),
+  )
+  later.ws.close()
+  await wait(400)
+
+  await api(`/api/previews/${(await api('/api/previews', undefined, 'GET')).body.previews.find((p) => p.port === 3097)?.publicPort}`, null, 'DELETE')
+  await new Promise((r) => app.close(r))
+}
+
 // ------------------------------------------------------------ mac → phone
 
 section('mac → phone')
@@ -260,6 +346,27 @@ await wait(300)
 const p2 = phone(() => 'Allow')
 check('a phone joining mid-question is caught up', (await pending).body.answer === 'Allow')
 p2.ws.close()
+
+/* The one route that takes no token: a notification tapped on a locked phone
+   is handled by a service worker that has none. What stands in its place is a
+   capability for one open question, so the interesting thing to prove here is
+   what the open door does *without* one — it has to be reachable (a 404, not a
+   401) and it has to refuse (a 404, not a 200). The capability's own rules are
+   `make test-ask`, which can hold the token in its hand. */
+const noCredential = await fetch(`${BASE}/api/ask/answer`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ id: 'n999-nope', token: 'not-a-token', choice: 'Allow' }),
+})
+check(
+  'answering from a notification needs no token, and gets nowhere without a capability',
+  noCredential.status === 404,
+  `HTTP ${noCredential.status}`,
+)
+check(
+  'every other route still refuses an unauthenticated caller',
+  (await fetch(`${BASE}/api/sessions`)).status === 401,
+)
 
 // ------------------------------------------------------------------- push
 

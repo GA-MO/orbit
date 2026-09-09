@@ -1,3 +1,5 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto'
+
 /**
  * The channel that lets work on the Mac reach the phone.
  *
@@ -53,6 +55,22 @@ export interface PreviewOpen {
   sessionId?: string | null
 }
 
+/**
+ * A session's badge changed while nobody was looking at it.
+ *
+ * Deliberately not a notice: it carries no words and raises no toast, because
+ * what it reports is a session going quiet — something that happens at the end
+ * of every turn of every agent, and a toast for each one would make the app
+ * unusable with three sessions open. The phone takes it as a cue to ask the
+ * server what the list looks like now, which is the same thing a notice does
+ * after showing its message.
+ */
+export interface AttentionRaised {
+  type: 'attention'
+  id: string
+  sessionId: string
+}
+
 export interface Ask {
   type: 'ask'
   id: string
@@ -63,7 +81,7 @@ export interface Ask {
   sessionId?: string | null
 }
 
-type Send = (msg: Notice | Ask | PreviewOpen) => void
+type Send = (msg: Notice | Ask | PreviewOpen | AttentionRaised) => void
 
 /** One connected phone, and which session it currently has on screen. */
 interface Client {
@@ -81,7 +99,13 @@ const clients = new Set<Client>()
 const missed: Notice[] = []
 const pending = new Map<
   string,
-  { ask: Ask; resolve: (answer: string | null) => void; timer: NodeJS.Timeout }
+  {
+    ask: Ask
+    resolve: (answer: string | null) => void
+    timer: NodeJS.Timeout
+    /** One-shot capability to answer this one question — see {@link answerWith}. */
+    answerToken: string
+  }
 >()
 
 let seq = 0
@@ -116,7 +140,7 @@ export const clientCount = () => clients.size
 export const isViewing = (sessionId: string): boolean =>
   [...clients].some((c) => c.viewing === sessionId)
 
-const broadcast = (msg: Notice | Ask | PreviewOpen) => {
+const broadcast = (msg: Notice | Ask | PreviewOpen | AttentionRaised) => {
   for (const { send } of clients) {
     try {
       send(msg)
@@ -174,6 +198,12 @@ export function openPreview(opts: {
   return { delivered: clients.size, id: message.id }
 }
 
+/** Tell every phone that this session's standing state has changed. */
+export function attentionRaised(sessionId: string): number {
+  broadcast({ type: 'attention', id: nextId(), sessionId })
+  return clients.size
+}
+
 /* A notice nobody was there for goes out over push *and* waits here to be read
    when the app comes back — two deliveries of one event, and on a phone still
    locked when it reconnects, the second one raises its own banner beside the
@@ -196,6 +226,13 @@ export function ask(opts: {
   source?: string | null
   sessionId?: string | null
   timeoutMs?: number
+  /**
+   * Called once the question is registered and before it is broadcast, with
+   * what a notification needs to carry an answer back. It runs at that exact
+   * moment because a push announcing a question has to be able to name it, and
+   * nothing can name it until it exists.
+   */
+  announce?: (open: { id: string; answerToken: string; options: string[] }) => void
 }): Promise<AskResult> {
   const id = nextId()
   const message: Ask = {
@@ -208,6 +245,8 @@ export function ask(opts: {
     sessionId: opts.sessionId ?? null,
   }
 
+  const answerToken = randomBytes(24).toString('base64url')
+
   return new Promise<AskResult>((resolve) => {
     const timer = setTimeout(() => {
       pending.delete(id)
@@ -219,8 +258,10 @@ export function ask(opts: {
     pending.set(id, {
       ask: message,
       timer,
+      answerToken,
       resolve: (answer) => resolve({ answer, timedOut: false }),
     })
+    opts.announce?.({ id, answerToken, options: message.options })
     broadcast(message)
   })
 }
@@ -232,6 +273,34 @@ export function answer(id: string, choice: string): void {
   pending.delete(id)
   clearTimeout(entry.timer)
   entry.resolve(choice)
+}
+
+/**
+ * Answer a question from a notification, where there is no logged-in app to
+ * carry the access token.
+ *
+ * A push wakes the service worker with the app closed — that is the whole
+ * reason it exists — and the worker has no token: it never sees the login
+ * screen, and putting one where it could would give a background script the
+ * standing right to do anything the phone can do. So the push carries a
+ * capability instead of a credential, and this is the door it opens: one
+ * question, by name, answered with one of the options that question itself
+ * declared, once. It cannot be replayed (the entry is gone), it cannot outlive
+ * the question (it times out with it), and it cannot say anything the modal in
+ * the app could not have said.
+ *
+ * Returns false for anything else, which the route turns into the same slow
+ * 401 a wrong token gets — a wrong nonce is a guess, and guesses are paced.
+ */
+export function answerWith(id: string, token: string, choice: string): boolean {
+  const entry = pending.get(id)
+  if (!entry) return false
+  const given = Buffer.from(String(token))
+  const real = Buffer.from(entry.answerToken)
+  if (given.length !== real.length || !timingSafeEqual(given, real)) return false
+  if (!entry.ask.options.includes(choice)) return false
+  answer(id, choice)
+  return true
 }
 
 /** Questions still on screen, so a reconnecting client can be caught up. */

@@ -211,15 +211,24 @@ export default function SessionsView({
             </span>
             {/* The last thing it said, still unread. Two lines: a question
                 truncated at 40 characters is a question you have to open the
-                session to understand, which defeats the point of saying it. */}
+                session to understand, which defeats the point of saying it.
+
+                A line Orbit read off a screen that stopped moving is worth the
+                same badge and not the same voice: it still means "this one
+                wants you", but it is a guess at why, so it is shown in the
+                quieter colour and its dot does not pulse. */}
             {note && (
               <span
                 className={`mt-1 flex items-start gap-1.5 text-xs ${
-                  note.kind === 'waiting' ? 'text-accent' : 'text-mut'
+                  note.kind === 'waiting' && !note.idle ? 'text-accent' : 'text-mut'
                 }`}
               >
                 {note.kind === 'waiting' && (
-                  <span className="pulse-live mt-1 size-1.5 shrink-0 rounded-full bg-accent-strong" />
+                  <span
+                    className={`mt-1 size-1.5 shrink-0 rounded-full ${
+                      note.idle ? 'bg-mut' : 'pulse-live bg-accent-strong'
+                    }`}
+                  />
                 )}
                 <span className="line-clamp-2">
                   {note.message}

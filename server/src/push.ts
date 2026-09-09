@@ -51,10 +51,25 @@ export interface Shelf {
    * Queued messages sharing a topic collapse to the most recent — the phone
    * that was away for an hour gets the last "Claude is waiting", not six of
    * them. Kept per kind so a question is never dropped by a notice: they are
-   * different waits. Must be ≤32 URL-safe characters.
+   * different waits. See `topicIsValid` for what may go in one.
    */
   topic: string
 }
+
+/**
+ * Whether a push service will accept this as a Topic.
+ *
+ * RFC 8030 calls a topic "up to 32 characters from the URL-safe base64
+ * alphabet", which reads like a character rule and is not one: Apple decodes
+ * the header, so a length that base64 could never have produced (`len % 4 === 1`)
+ * comes back 400 BadWebPushTopic no matter what the characters are. It cost
+ * five weeks to find, because `orbit-notice` is twelve characters by accident
+ * and so every notice went through, while `orbit-waiting` (13) and `orbit-ask`
+ * (9) were dropped at Apple every single time — into a `console.error` in a log
+ * nobody opens.
+ */
+export const topicIsValid = (topic: string): boolean =>
+  topic.length > 0 && topic.length <= 32 && topic.length % 4 !== 1 && /^[A-Za-z0-9_-]+$/.test(topic)
 
 /**
  * A notice is Orbit reporting on this moment; half an hour later the terminal
@@ -64,10 +79,20 @@ export interface Shelf {
  */
 export const NOTICE: Shelf = { ttlSeconds: 30 * 60, topic: 'orbit-notice' }
 
+/**
+ * "This session stopped and nobody told you." True for as long as the session
+ * is still sitting there, which is indefinitely — but a banner about a pause
+ * that started an hour ago is history, not news, so it keeps a notice's shelf.
+ * Its own topic: a session going quiet must not drop an agent's own words, and
+ * two sessions settling in the same minute collapse to the later one, which is
+ * the correct summary of "something wants you".
+ */
+export const WAITING: Shelf = { ttlSeconds: 30 * 60, topic: 'orbit-idle' }
+
 /** A question outlives its own banner by nothing: it stops waiting on timeout. */
 export const question = (timeoutSeconds: number): Shelf => ({
   ttlSeconds: timeoutSeconds,
-  topic: 'orbit-ask',
+  topic: 'orbit-question',
 })
 
 const readConfig = (): Record<string, unknown> => {
@@ -91,6 +116,14 @@ const loadKeys = (): { publicKey: string; privateKey: string } => {
   fs.mkdirSync(DATA_DIR, { recursive: true })
   fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...config, vapid: keys }, null, 2))
   return keys
+}
+
+/* Checked here rather than at send time: the moment a topic matters is the
+   moment the phone is away and nobody is watching the log. */
+for (const shelf of [NOTICE, WAITING, question(60)]) {
+  if (!topicIsValid(shelf.topic)) {
+    throw new Error(`[orbit] push topic a push service will reject: ${shelf.topic}`)
+  }
 }
 
 const keys = loadKeys()
@@ -163,9 +196,14 @@ export async function send(
      very notification, is almost never the session that sent it. */
   sessionId: string | null = null,
   shelf: Shelf = NOTICE,
+  /* Anything the notification itself needs to act rather than merely announce
+     — for a question, which one it is and the one-shot capability to answer it.
+     Kept out of the signature's shape on purpose: a notice has nothing to add,
+     and the worker treats what it does not recognise as absent. */
+  extra: Record<string, unknown> = {},
 ): Promise<number> {
   if (subscriptions.length === 0) return 0
-  const payload = JSON.stringify({ title, body, sessionId })
+  const payload = JSON.stringify({ title, body, sessionId, ...extra })
   const options = { TTL: Math.max(0, Math.round(shelf.ttlSeconds)), topic: shelf.topic }
 
   const deliver = async (subscription: Subscription): Promise<boolean> => {
