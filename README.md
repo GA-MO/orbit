@@ -14,6 +14,7 @@
   <a href="https://github.com/GA-MO/orbit/releases/latest"><img src="https://img.shields.io/github/v/release/GA-MO/orbit?label=release" alt="release"></a>
   <img src="https://img.shields.io/badge/platform-macOS-111" alt="macOS">
   <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1" alt="Bun">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT"></a>
 </p>
 
 <p align="center">
@@ -185,3 +186,7 @@ executables and publishes them as a release with checksums — see
 Everything above is built and tested. Still open: a file browser, a session
 timeline, a tablet layout, and tying captures to the session that asked for
 them. `AGENTS.md` is the original brief this grew from.
+
+## License
+
+[MIT](LICENSE).
