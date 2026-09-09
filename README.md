@@ -174,18 +174,19 @@ executables and publishes them as a release with checksums — see
 
 ## Documentation
 
-- [User guide](docs/USER-GUIDE.md) — every feature, with screenshots (Thai)
-- [Setup](docs/SETUP.md) — a machine from scratch, and what `setup` writes (Thai)
-- [Agent integration](docs/MCP.md) — the MCP tools and the hooks (Thai)
-- [Remote access](docs/TAILSCALE.md) — Tailscale, https, running at login (Thai)
+- [User guide](docs/USER-GUIDE.md) — every tab, gesture and feature, with screenshots
+- [Setup](docs/SETUP.md) — a machine from scratch, what `orbit setup` writes, troubleshooting
+- [Agent integration](docs/MCP.md) — the MCP tools and the hooks, from the agent's side
+- [Remote access](docs/TAILSCALE.md) — Tailscale, https, running at login, security
 - [Design notes](docs/DESIGN-NOTES.md) — why each piece is shaped the way it is
 - [Website](https://ga-mo.github.io/orbit/) — the product page ([Thai](https://ga-mo.github.io/orbit/th/))
+- ภาษาไทย — [คู่มือใช้งาน](docs/th/USER-GUIDE.md), [ติดตั้ง](docs/th/SETUP.md), [ฝั่ง agent](docs/th/MCP.md), [ใช้จากนอกบ้าน](docs/th/TAILSCALE.md)
 
 ## Status
 
 Everything above is built and tested. Still open: a file browser, a session
 timeline, a tablet layout, and tying captures to the session that asked for
-them. `AGENTS.md` is the original brief this grew from.
+them. The original brief is kept in [docs/archive/original-brief.md](docs/archive/original-brief.md).
 
 ## License
 

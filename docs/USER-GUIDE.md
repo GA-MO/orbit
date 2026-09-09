@@ -1,420 +1,523 @@
-# คู่มือการใช้งาน Orbit
-
-Orbit เปลี่ยน MacBook ของคุณเป็น AI development server ส่วนตัว — สั่งงาน Claude Code
-จากมือถือได้เหมือนนั่งอยู่หน้าเครื่อง คู่มือนี้พาเดินครบทุกฟีเจอร์ด้วยตัวอย่างจริง:
-สร้างเว็บเดโม่เล็ก ๆ รัน dev server ตรวจงานด้วย screenshot และคุยกับ Claude Code
-ทั้งหมดจากหน้าจอมือถือ
-
-> ภาพประกอบทั้งหมดถ่ายจากการใช้งานจริงบน viewport ขนาด iPhone (390×844)
-
-## เริ่มต้น: จับคู่กับ Mac
-
-รัน `orbit phone` บน Mac (หรือ `make phone` จาก checkout) console จะพิมพ์ QR code
-**เอากล้องมือถือส่องได้เลย** — มันคือลิงก์เข้า Orbit พร้อมรหัสจับคู่ที่ใช้ได้ 10 นาที
-เปิดแล้วเข้าได้ทันทีโดยไม่ต้องพิมพ์อะไร ถ้า QR หมดอายุ รัน `orbit pair` จะได้อันใหม่
-
-ถ้า Add to Home Screen แล้ว แอปบนหน้าจอโฮมจะเป็นคนละที่เก็บข้อมูลกับ Safari (ข้อจำกัดของ iOS)
-เปิดครั้งแรกจะเจอหน้า login อีกรอบ — กด **Scan QR code** ส่อง QR อันเดิมบนจอ Mac ก็พอ
-หรือจะพิมพ์ access token ที่พิมพ์อยู่ข้าง ๆ (`[orbit] access token: …`) ก็ได้ ใส่ครั้งเดียว เครื่องจะจำไว้
-
-เข้าได้ 2 ทาง:
-
-| ทาง | URL | ข้อจำกัด |
-|---|---|---|
-| **HTTPS ผ่าน Tailscale** (แนะนำ) | `https://<เครื่อง>.<tailnet>.ts.net` | ใช้ได้ทุกฟีเจอร์ + เข้าจากนอกบ้านได้ ตั้งครั้งเดียวตาม [TAILSCALE.md](TAILSCALE.md) |
-| LAN ธรรมดา | `http://<ip-ของ-mac>:3001` | ต้องอยู่ WiFi วงเดียวกัน และ **สั่งงานด้วยเสียงกับ Add to Home Screen จะใช้ไม่ได้** |
-
-ที่เสียงใช้ไม่ได้บน HTTP เพราะเบราว์เซอร์ยอมให้ขอไมค์และลงทะเบียน service worker
-เฉพาะบน secure context (HTTPS) เท่านั้น — ไม่ใช่ข้อจำกัดของ Orbit เอง
-
-<img src="images/01-login.jpg" width="390" alt="หน้า login ใส่ access token">
-
-## แท็บ Terminal: shell จริงบนมือถือ
-
-เข้ามาแล้วเจอ terminal ที่ต่อกับ zsh บน Mac ตรง ๆ — สี ANSI, prompt theme,
-Ctrl+C, interactive TUI ทำงานครบ header บอกว่ากำลังอยู่ session ไหน
-โฟลเดอร์อะไร สถานะเชื่อมต่อ (วงแหวน orbit หมุน = เชื่อมต่ออยู่)
-
-ในภาพ: สร้างโปรเจกต์ `orbit-demo` เขียน `index.html` แล้วรัน
-`python3 -m http.server 4321` — ทั้งหมดพิมพ์จากมือถือ
-
-<img src="images/02-terminal.jpg" width="390" alt="terminal รัน dev server">
-
-> 💡 **Session ไม่ตายเมื่อจอดับ** — ปิดเบราว์เซอร์ สลับแอป หรือเน็ตหลุด
-> กลับมาแล้ว shell ยังรันต่ออยู่พร้อมประวัติครบ
-
-> 🔄 สิ่งที่เห็นบนจอคือ "เฟรมล่าสุดที่ agent วาดไว้" และแอปเต็มจออย่าง Claude Code
-> จะวาดใหม่ก็ต่อเมื่อขนาดจอเปลี่ยน — ทุกครั้งที่กลับเข้าแอป Orbit จะขอให้มันวาดใหม่ให้เอง
-> (แถบคีย์ลัดจึงกางค้างไว้ตลอด ไม่มีปุ่มพับแล้ว — การพับคือการเปลี่ยนขนาดจอ
-> และถ้ามันไปตรงกับจังหวะที่ agent กำลังวาดอยู่พอดี กล่องพิมพ์จะหายไปทั้งอัน)
-
-### คัดลอกข้อความ และแตะลิงก์
-
-terminal วาดตัวอักษรเอง iOS เลยไม่มีที่จับให้ลากเลือกเหมือนข้อความปกติ — Orbit
-เลยทำสองท่านี้ให้:
-
-- **แตะ URL แล้วเลือกว่าจะทำอะไรกับมัน** — ขึ้นแผ่นถามพร้อมปุ่ม **Open here**
-  (เปิดซ้อนบน terminal ไม่ออกจากแอป session ยังต่ออยู่ข้างหลัง) กับ **Copy**
-  ไม่มีปุ่มที่พาออกไปเบราว์เซอร์เลย เพราะออกไปแล้วกลับมา iOS จะโหลดแอปใหม่ทั้งตัว
-  (โดยเฉพาะเปิดจากไอคอน Home Screen ที่ไม่มีแท็บที่สองให้ WebKit ส่ง URL
-  host เดียวกันไป มันจะลากทั้งแอปไปหน้านั้นแทน) — อยากออกไปข้างนอกจริง ๆ ให้ **Copy**
-  แล้วไปวางในเบราว์เซอร์เอง
-
-  ลิงก์ที่เป็น **http ธรรมดา** เปิดซ้อนในแอปไม่ได้ (Orbit เสิร์ฟผ่าน https
-  เบราว์เซอร์บล็อก mixed content) แผ่นจะเหลือแค่ **Copy** พร้อมบอกเหตุผล —
-  ถ้าอยากเปิดซ้อนได้ ให้ยก dev server ขึ้น https ด้วย `bun run preview:on`
-
-  URL ที่ยาวจนตัดขึ้นบรรทัดใหม่ยังเป็นลิงก์เดียว รวมถึงกรณีที่ **โปรแกรมตัดบรรทัดเอง**
-  (อย่าง Claude Code ที่ย่อหน้าบรรทัดต่อเข้ามา 2 ช่อง) และจุลภาคท้ายประโยค
-  ไม่ถูกนับเข้าไปในลิงก์
-- **`localhost` ถูกแปลงให้ชี้กลับมาที่ Mac** — `http://localhost:5173` ที่ agent
-  พิมพ์ออกมาหมายถึงเครื่อง Mac แต่ถ้าเปิดตรง ๆ บนมือถือมันคือมือถือเอง แตะแล้ว
-  Orbit จะเปลี่ยนให้เป็น host เดียวกับที่คุณใช้เข้า Orbit อยู่ (พอร์ตเดิม)
-  ซึ่งเปิดได้จริงเพราะ Vite bind ทุก interface
-- **กดค้างเพื่อเลือก** จะได้ **คำ** ใต้นิ้ว (ตัดคำที่ช่องว่างเท่านั้น path ยาว ๆ
-  อย่าง `~/Development/orbit/web/src/Terminal.tsx` จึงติดมาทั้งก้อน ไม่ถูกหั่นที่ `/`)
-  จากนั้นปรับได้สามทาง:
-  - **ลากจุดวงกลมสองข้าง** ขยาย/หดทีละตัวอักษร ลากเลยขอบขวาไปก็ไหลลงบรรทัดถัดไปให้
-  - **ลากนิ้วต่อจากที่กดค้าง** ไม่ต้องปล่อย ขยายจากคำแรกไปเรื่อย ๆ
-  - **ปุ่ม Line** ในแถบด้านล่าง เลือกทั้งบรรทัด (บรรทัดที่ตัดขึ้นใหม่นับเป็นบรรทัดเดียว)
-
-  แล้วกด **Copy** — แตะที่อื่นหนึ่งครั้งเพื่อยกเลิก ตัวเลขในแถบบอกว่ากำลังถือ
-  กี่ตัวอักษร (หรือกี่บรรทัดถ้าเลือกทั้งบรรทัด)
-
-  พื้นที่ว่างใต้ข้อความเลือกไม่ได้ — กดค้างตรงนั้นจะไม่มีอะไรเกิดขึ้น และลากเลย
-  บรรทัดสุดท้ายลงไปก็จะหยุดที่บรรทัดที่มีตัวอักษรจริงบรรทัดสุดท้าย
-
-> ⚠️ ปุ่ม Copy ใช้ clipboard ของเบราว์เซอร์ ซึ่งบน **HTTP ธรรมดาจะถูกกั้น** —
-> ผ่าน Tailscale (HTTPS) ทำงานเต็มที่ ส่วนบน LAN จะตกไปใช้วิธีสำรองที่บางเครื่องไม่รองรับ
-
-### วางข้อความลง terminal 📋
-
-กดค้างที่พรอมป์ตแล้วสั่ง Paste ไม่ได้ — ตัวอักษรใน terminal เป็นภาพที่วาดเอง
-ไม่ใช่ช่องพิมพ์ที่ iOS รู้จัก ใช้ **ปุ่มคลิปบอร์ดบน header** แทน:
-
-- ผ่าน **Tailscale (HTTPS)** iOS จะขึ้นปุ่ม **Paste** ให้ยืนยันครั้งเดียว
-  แล้วข้อความลงพรอมป์ตเลย
-- บน **HTTP ธรรมดา** เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด จะเปิดแผ่นที่มีช่องพิมพ์ให้
-  **กดค้าง → Paste** เองแล้วกด **Insert** (หรือ **Send ⏎** ให้ส่งต่อเลย)
-
-ข้อความหลายบรรทัดลงไปเป็นก้อนเดียว — บรรทัดแรกจะไม่ถูกส่งทิ้งไปก่อน
-เหมือนตอนพิมพ์ Enter เอง
-
-## แท็บ Changes: ดูว่า agent แก้อะไรไปบ้าง
-
-Terminal บอกว่า agent **กำลังทำอะไร** แท็บนี้บอกว่ามัน **เขียนอะไรลงไปแล้ว** —
-ซึ่งเมื่อก่อนต้องพิมพ์ `git diff` ในเทอร์มินัลบนจอ 390px แล้วอ่านแทบไม่ออก
-
-แท็บนี้ตามโฟลเดอร์ของ session ที่เปิดอยู่ ถ้าโฟลเดอร์นั้นเป็น git repo จะเห็น:
-
-- **หัวข้อบอก branch** ที่อยู่ พร้อม ↑ (commit ที่ remote ยังไม่มี) และ ↓ (ที่เราตามหลัง)
-- **รายการไฟล์ แบ่งเป็น Staged / Changed / Untracked** แต่ละแถวบอกตัวอักษรสถานะ
-  (M แก้, A เพิ่ม, D ลบ, R เปลี่ยนชื่อ) และจำนวนบรรทัด `+3 −2`
-- **แตะแถวเพื่ออ่าน diff** เต็มจอ — บรรทัดที่เพิ่มเป็นสีเขียว ที่ลบเป็นสีแดง
-  บรรทัดยาวเลื่อนไปทางขวาได้ (ไม่ตัดขึ้นบรรทัดใหม่ เพราะ diff ที่ถูกตัดจะดูไม่ออก
-  ว่า + อยู่คอลัมน์ไหน) ไฟล์ใหม่ที่ยังไม่ถูก track ก็มี diff ให้อ่านเหมือนกัน
-- **ปุ่ม ＋ / − ท้ายแถว** stage หรือ unstage ทีละไฟล์ หรือกด **Stage all** ทั้งกลุ่ม
-
-พอมีของ staged ไว้ ช่องพิมพ์ commit message จะโผล่ขึ้นมาข้างล่าง — พิมพ์แล้วกด
-**Commit N files** สิ่งที่เข้า commit คือสิ่งที่อยู่ในหมวด Staged เป๊ะ ๆ ไม่มี `-a`
-แอบเก็บของที่ไม่ได้เลือก เสร็จแล้วมี toast บอก sha กับจำนวนบรรทัด
-
-**Push** ขึ้นเฉพาะตอนที่กดแล้วมันจะทำอะไรจริง ๆ — มี commit ที่ยังไม่ได้ส่ง หรือ
-branch นี้ยังไม่เคยถูก push (กรณีหลังจะ `--set-upstream` ให้เอง เพราะไม่มีใครมา
-ตอบคำถามของ git ตรงนี้ได้) repo ที่ยังไม่มี remote จะไม่มีปุ่มนี้เลย
-
-> git ที่ต้องถามรหัสผ่านจะไม่มีใครพิมพ์ให้ — ฝั่ง server จึงสั่งไม่ให้ git ถาม
-> (`GIT_TERMINAL_PROMPT=0`) แล้วส่งข้อความจริงของ git กลับมาแทนที่จะค้างรอ
-
-## แท็บ Sessions: ศูนย์ควบคุม
-
-เห็นทุก session ในที่เดียว — จุดสีเหลืองกระพริบ = กำลังรันอยู่
-แต่ละแถวบอก agent, โฟลเดอร์, อายุ ตั้งชื่อ session ได้ (✎)
-เพื่อแยกว่าตัวไหนทำงานอะไร เช่น "demo server" กับ "demo feature"
-
-ไม่ตั้งชื่อก็ยังแยกออก — **คำสั่งแรกที่พิมพ์ในแต่ละ session จะกลายเป็นชื่อให้เอง**
-(shell ใช้คำสั่ง, agent ใช้พรอมป์ตแรก) ขึ้นเป็นตัวหนังสือ monospace ให้รู้ว่าไม่ใช่ชื่อที่ตั้งเอง
-พอตั้งชื่อทีหลังด้วย ✎ ชื่อที่ตั้งจะแทนที่ทันที
-
-<img src="images/09-sessions.jpg" width="390" alt="รายการ sessions">
-
-### session ไหนกำลังรอเราอยู่
-
-เมื่อก่อน agent ที่หยุดรอคำตอบจะส่ง toast มาใบเดียว 3 วินาทีแล้วหายถาวร — พลาดคือ
-พลาดเลย ตอนนี้ **ข้อความสุดท้ายของแต่ละ session ค้างอยู่จนกว่าจะได้อ่าน**
-
-- **ตัวเลขบนไอคอนแท็บ Sessions** = จำนวน session ที่มีอะไรค้างอยู่ สีน้ำเงินทึบ
-  แปลว่ามีอย่างน้อยหนึ่งอันที่ **รอคำตอบ** (ไม่ใช่แค่ทำงานเสร็จ)
-- **ในแถว** ขึ้นข้อความนั้นเลย เช่น "Claude is asking: จะเปลี่ยน JWT library ไหม —
-  Yes / No · 4m" พร้อมจุดกระพริบสีน้ำเงินถ้ามันรออยู่
-- **toast ที่มาจาก session อื่น** มีปุ่ม **Open** ในตัว แตะแล้วกระโดดไปที่นั่นเลย
-  ไม่ต้องไปไล่หาในรายการ
-- **แตะเปิด session นั้นคือการอ่าน** — ป้ายถึงจะหาย ไม่ใช่แค่เปิดแอปแล้วหายเอง
-
-เรื่องเดียวกันนี้ทำให้ **notification ที่กดจากหน้าล็อกพาไปที่ session ที่เรียก**
-ไม่ใช่ session ที่เผอิญเปิดค้างไว้ล่าสุด
-
-> ข้อความประเภท "ทำงานเสร็จแล้ว" จะไม่ไปทับ "กำลังรอคำตอบ" ที่ค้างอยู่ก่อน —
-> Claude ถามเสร็จแล้วจบเทิร์นเป็นลำดับปกติ ถ้าให้อันหลังทับ ป้ายจะกลายเป็น
-> "เสร็จแล้ว" ทั้งที่ยังไม่มีใครตอบคำถาม
-
-### แม้ agent ไม่ได้บอกอะไรเลย
-
-ทุกอย่างข้างบนคือ agent **เลือกที่จะพูด** — ผ่าน MCP (`orbit_notify`) หรือ hook
-ของ Claude Code ซึ่งต้องตั้งไว้ก่อน Codex, Gemini และ Claude ที่ยังไม่ได้ตั้ง hook
-ไม่มีทั้งสองอย่าง เมื่อก่อนมันจึงนั่งค้างอยู่ที่ "Do you want to proceed?" โดยที่
-มือถือเงียบสนิท
-
-ตอนนี้ Orbit **ดูจากจอเอง**: agent ที่กำลังทำงานคือ agent ที่กำลังวาดจอ (สปินเนอร์,
-ตัวนับเวลา, ผลของ tool) ถ้าหยุดวาดไป 10 วินาที แปลว่าเฟรมบนจอวาดจบแล้วและเคอร์เซอร์
-กำลังรออยู่ที่ช่องพิมพ์ — แถวนั้นจะขึ้นป้ายเอง พร้อมบรรทัดสุดท้ายที่อ่านได้จากจอ
-(ถ้ามีบรรทัดที่ลงท้ายด้วย `?` จะเลือกอันนั้น เพราะสิ่งที่มันหยุดรอมักอยู่เหนือช่องพิมพ์)
-
-- ใช้กับ **session ที่เป็น agent เท่านั้น** — shell ที่นั่งอยู่ที่ prompt เงียบอยู่แล้ว
-  โดยธรรมชาติ ถ้านับด้วยก็จะได้ป้ายติดทุกแถวและไม่ได้แปลว่าอะไรเลย
-- **สิ่งที่ agent พูดเองชนะเสมอ** — ถ้ามันบอกมาแล้วว่ารออะไร บรรทัดที่ Orbit เดา
-  จากจอจะไม่ไปทับ ป้ายที่มาจากการเดาจะเป็น**สีจาง จุดไม่กระพริบ** เพื่อให้แยกออกว่า
-  อันไหนคือคำพูดจริง อันไหนคือการอ่านจอ
-- ถ้าตอนนั้น**ไม่มีมือถือต่ออยู่เลย** จะได้ push ขึ้นมาว่า `<ชื่อ session> is waiting`
-- ถ้ากำลัง**เปิดดู session นั้นอยู่** จะไม่มีอะไรเกิดขึ้น — จอที่มันอ่านมาคือจอที่
-  คุณกำลังมองอยู่
-
-- **แตะแถว** — สลับไป session นั้น
-- **✎** — เปลี่ยนชื่อ
-- **🗑 (session ที่รันอยู่)** — หยุด ประวัติถูกเก็บไว้ในหมวด Ended
-- **＋ (session ที่จบแล้ว)** — เริ่ม session ใหม่ด้วย agent + โฟลเดอร์ + ชื่อเดิม
-- **🗑 (session ที่จบแล้ว)** — ลบถาวรพร้อมประวัติ
-
-## สร้าง session ใหม่
-
-กดปุ่ม **+** ในแท็บ Sessions:
-
-1. **เลือก agent** — การ์ดจะจางถ้ายังไม่ได้ติดตั้ง CLI ตัวนั้น
-2. **ตั้งชื่อ** (ไม่บังคับ แต่ช่วยมากเมื่อเปิดหลายตัว)
-3. **เลือกโฟลเดอร์โปรเจกต์** — recent projects กดแตะเดียว หรือ browse เอง
-   (โฟลเดอร์ที่เป็น git repo มีสัญลักษณ์ branch สีเขียว, ช่อง filter โผล่เมื่อ
-   โฟลเดอร์เยอะ) ถ้าเผลอเลือกโฟลเดอร์กว้าง ๆ อย่าง home จะมีคำเตือนสีเหลือง
-   แต่ไม่ห้าม
-
-<img src="images/05-new-session.jpg" width="390" alt="สร้าง session ใหม่">
-
-## ใช้ Claude Code จากมือถือ
-
-เลือกการ์ด Claude Code + โฟลเดอร์โปรเจกต์ → ได้ Claude Code ตัวจริงรันบน Mac
-ในภาพ: session "demo feature" ใน `orbit-demo` สลับโมเดลด้วย `/model haiku`
-แล้วส่งพรอมป์ตทดสอบ — คำตอบกลับมาแสดงบนมือถือครบถ้วน
-
-<img src="images/06-claude-code.jpg" width="390" alt="Claude Code ตอบพรอมป์ตผ่านมือถือ">
-
-## สั่งงานด้วยเสียง 🎙
-
-ปุ่มไมค์ 🎙 ในแถบปุ่มล่าง (แถวเดียวกับปุ่มดินสอ ✏️ และปุ่มคีย์บอร์ด ⌨️)
-→ พูด → transcript ขึ้นสด **แก้ข้อความได้ก่อนส่ง**
-
-> ⚠️ ต้องเข้าผ่าน **HTTPS** เท่านั้น ถ้าเปิดด้วย `http://<ip-ของ-mac>:3001`
-> เบราว์เซอร์จะไม่ยอมให้ขอไมค์ ดู [TAILSCALE.md](TAILSCALE.md)
-
-- **Continue listening** — ปุ่มเต็มความกว้างใต้ช่อง transcript iOS หยุดฟังเองทุกครั้ง
-  ที่เว้นจังหวะ กดปุ่มนี้พูดต่อได้เลย ข้อความเดิมไม่หาย (ระหว่างฟังปุ่มเดียวกันคือ **Stop listening**)
-- **ปุ่มรูป 🖼** — อัปโหลดรูปแล้ววาง path ต่อท้าย transcript ได้เลย ไม่ต้องย้อนไปที่ดินสอ
-- **Insert** — ส่งข้อความที่ถอดได้เข้าไปในแผ่น Message (ปุ่มดินสอ) ให้แก้/พิมพ์ต่อ
-  ก่อนค่อยส่งเอง
-- **Send ⏎** — พิมพ์ลง terminal แล้วส่งทันที
-
-<img src="images/07-voice.jpg" width="390" alt="voice input พร้อม transcript">
-
-### บน iPhone ต้องรู้
-
-iOS ไม่ได้ถอดเสียงในเครื่อง แต่ยิงไปที่ **บริการ dictation ของ Apple** —
-เลยมีข้อจำกัดที่ Android/Chrome ไม่มี:
-
-- **เลือกภาษาก่อนพูด** — ปุ่ม **ไทย / EN** มุมขวาบนของ sheet dictation ฟังทีละภาษา
-  ตั้งเป็น EN แล้วพูดไทยจะได้ผลมั่ว สลับกลางคันได้ (มันเริ่มฟังใหม่ให้ ข้อความเดิมไม่หาย)
-  แต่ **ไทยปนอังกฤษในประโยคเดียวไม่เวิร์ค** — ศัพท์เทคนิคอย่าง `bun run build`
-  ให้พูดไทยส่วนที่เป็นคำสั่งงาน แล้วพิมพ์ส่วนที่เป็นโค้ดเอาเองในช่อง transcript
-- **ฟังทีละช่วง** — พอเงียบสักพัก iOS จะปิด session เอง สถานะเปลี่ยนเป็น
-  “Stopped” กด **Continue listening** พูดต่อได้ ข้อความเดิมไม่หาย (ต่อท้ายให้)
-- **มีสวิตช์ 3 ตัวต้องเปิดครบ** — ปิดตัวไหนก็ขึ้น `service-not-allowed` เหมือนกันหมด
-  แยกไม่ออกจาก error เลยต้องไล่เช็คทั้งสาม แล้ว **reload หน้าเว็บ** หลังแก้:
-  1. Settings › Privacy & Security › **Speech Recognition** › Safari — เปิด
-  2. Settings › General › Keyboard › **Enable Dictation** — เปิด
-  3. ใน Safari กด **“AA”** ที่แถบ URL › Website Settings › **Microphone** › Allow
-
-  (ถ้าเครื่องมี Screen Time เช็ค Content & Privacy › **Siri & Dictation** ด้วย)
-- **ห้ามใช้จากไอคอน Home Screen** — WebKit บล็อก speech recognition ใน PWA
-  แบบ standalone เปิดผ่าน Safari ปกติแทน
-- **ต้องมีเน็ต** — dictation วิ่งผ่าน server ของ Apple ต่อ Tailscale อย่างเดียวไม่พอ
-
-## ส่งภาพให้ agent 🖼
-
-ปุ่มรูปภาพบน header → เลือกรูป/ถ่ายภาพ (เช่น screenshot ของ error หรือ
-design ที่อยากได้) → ไฟล์ถูกอัปโหลดไปเก็บบน Mac แล้ว **path ถูกพิมพ์ลง
-terminal ให้เลย** — พิมพ์ต่อว่าอยากให้ Claude ทำอะไรกับภาพนั้นได้ทันที
-
-## แท็บ Preview: ตรวจงานด้วยตา
-
-Agent แก้เว็บให้แล้ว — หน้าตาเป็นยังไง? ใส่ URL ของ dev server เลือกขนาดจอ
-(**Phone / Tablet / Desktop** หรือติ๊ก Full page) แล้วกด **Capture**: Mac จะเปิด
-Chrome แบบ headless render แล้วเก็บภาพไว้ในแกลเลอรีตามสัดส่วนจริงของภาพ
-
-ถ้า dev server ไม่ได้รัน จะขึ้น error บอกตรง ๆ (ไม่ใช่เก็บภาพหน้า "เข้าไม่ได้"
-ของ Chrome มาให้เหมือนสำเร็จ)
-
-URL ที่ capture สำเร็จจะกลายเป็นปุ่มลัดใต้ช่อง (เก็บ 4 อันล่าสุด) — ไม่ต้องพิมพ์
-`http://localhost:5173` ใหม่ทุกครั้งบนคีย์บอร์ดมือถือ และใต้ภาพแต่ละใบจะบอกว่า
-เป็นภาพของอะไร (`localhost:5173`) ไม่ใช่มีแค่เวลา
-
-ในภาพ: หน้าเว็บ `orbit-demo` ที่เพิ่งสร้างผ่าน terminal เมื่อครู่
-
-<img src="images/03-captures.jpg" width="390" alt="แท็บ captures">
-
-แตะภาพเพื่อดูเต็มจอ / **⇥** แทรก path ของภาพลง terminal เพื่อส่งให้ agent
-ดูต่อ ("ทำไมปุ่มเบี้ยว ดูจากภาพนี้") / **🗑** ลบ
-
-### อยากลองกดจริง ไม่ใช่ดูแค่ภาพนิ่ง
-
-ข้าง ๆ ปุ่ม Capture มีปุ่ม **เปิดในเบราว์เซอร์** (ไอคอนลูกศรออกจากกล่อง) —
-กดแล้วแอปที่รันอยู่บน Mac เปิดขึ้นมาเป็นแท็บจริงบนมือถือ กดปุ่ม กรอกฟอร์ม
-เลื่อนดูได้ครบ `localhost` ในช่อง URL ถูกแปลงเป็น host เดียวกับที่คุณเข้า Orbit
-อยู่ให้อัตโนมัติ (เหมือนตอนแตะลิงก์ใน terminal)
-
-ได้เป็น **http ธรรมดา** บนพอร์ตของ dev server ซึ่งพอสำหรับการกดดูทั่วไป
-แต่ถ้าแอปที่ทดสอบต้องการ secure context เอง (service worker, ไมค์, กล้อง)
-ให้เปิด HTTPS ให้มันด้วยหนึ่งคำสั่ง:
+# Orbit user guide
+
+Orbit turns your MacBook into a personal AI development server: you drive Claude Code from your phone as if you were sitting at the machine. This guide walks through every feature with a worked example — building a small demo website, running its dev server, checking the result with screenshots, and talking to Claude Code — all from a phone screen.
+
+> All screenshots were taken in real use at an iPhone-sized viewport (390×844).
+
+## Contents
+
+- [Getting started: pair with your Mac](#getting-started-pair-with-your-mac)
+- [The Terminal tab](#the-terminal-tab)
+- [The Changes tab](#the-changes-tab)
+- [The Sessions tab](#the-sessions-tab)
+- [Starting a session](#starting-a-session)
+- [Claude Code from your phone](#claude-code-from-your-phone)
+- [Voice input](#voice-input)
+- [Sending images](#sending-images)
+- [The Preview tab](#the-preview-tab)
+- [Letting the agent act (MCP)](#letting-the-agent-act-mcp)
+- [Command approval](#command-approval)
+- [Ended sessions](#ended-sessions)
+- [Install as an app (PWA)](#install-as-an-app-pwa)
+- [Everyday flows](#everyday-flows)
+
+## Getting started: pair with your Mac
+
+Orbit is a single executable. Install it on the Mac:
 
 ```sh
-bun run preview:on      # เสิร์ฟพอร์ต 5173 ที่ https://<เครื่อง>.<tailnet>.ts.net:8443
-PREVIEW_PORT=3000 bun run preview:on   # ถ้า dev server อยู่พอร์ตอื่น
-bun run preview:off     # เลิกแชร์
+curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
 ```
 
-คำสั่งนี้ไม่ไปยุ่งกับ `tailscale serve` ของ Orbit เอง (พอร์ต 443 → 3001) —
-คนละพอร์ต แยกกันเปิดปิดได้
+Then run `orbit phone` (from a source checkout, `make phone`). The console prints a QR code. **Point your phone's camera at it** — the code is a link into Orbit that carries a pairing code valid for 10 minutes. The page opens already paired; there is nothing to type. If the code has expired, `orbit pair` prints a fresh one.
 
-<img src="images/04-capture-viewer.jpg" width="390" alt="ดูภาพเต็มจอ">
+### The home-screen app pairs once more
 
-### ไม่ต้องพิมพ์พอร์ตเอง
+If you add Orbit to your Home Screen, the home-screen app gets storage of its own, separate from Safari (an iOS limitation). On its first launch you will see the login screen again. Tap **Scan QR code** and scan the same code on the Mac's screen, or type the access token printed beside the QR (`[orbit] access token: …`). This is a one-time step; the app remembers it.
 
-ใต้ช่อง URL มีชิปของ **พอร์ตที่กำลังเสิร์ฟหน้าเว็บอยู่บน Mac ตอนนี้** พร้อมชื่อ
-โปรแกรมที่ถืออยู่ (`:5173 node`, `:8899 Python`) แตะแล้วช่อง URL เติมให้เอง
+### Two ways in
 
-Orbit ถาม `lsof` ว่ามีอะไร listen อยู่ แล้วกรองสามชั้น: ตัดช่วงพอร์ตที่ระบบแจก
-เอง (≥32768) กับที่ต้องเป็น root (<1024), ตัดบริการของ macOS ที่ชอบนั่งทับพอร์ต
-ยอดฮิต (ControlCenter ถือ 5000 กับ 7000), แล้วลอง**ยิง HTTP จริง**หนึ่งดอก —
-ฐานข้อมูลกับ agent ต่าง ๆ ตกรอบตรงนี้ เครื่องที่เขียนคู่มือนี้เหลือจาก 13 เหลือ 1
+| Route | URL | Limits |
+|---|---|---|
+| **HTTPS over Tailscale** (recommended) | `https://<machine>.<tailnet>.ts.net` | Every feature works, and it works away from home. One-time setup in [TAILSCALE.md](TAILSCALE.md). |
+| Plain LAN | `http://<mac-ip>:3001` | Phone and Mac must be on the same Wi-Fi, and **voice input and Add to Home Screen do not work**. |
 
-ถามตอนเข้าแท็บและตอนกลับมาจากหน้าล็อกเท่านั้น ไม่ poll — ถ้า agent เพิ่งสตาร์ต
-dev server ให้สลับแท็บออกแล้วกลับเข้ามา
+Voice does not work over plain HTTP because the browser only grants the microphone and registers service workers on a secure context (HTTPS). This is a browser rule, not an Orbit limitation.
 
-### หน้าจอ Mac — ตอนนี้เป็นของ agent
+<img src="images/01-login.jpg" width="390" alt="The login screen, with the access token field">
 
-สวิตช์ **Mac screen** ถูกถอดออกจากแท็บนี้แล้ว คนถือมือถืออยู่ไม่ได้มองจอ Mac
-ความสามารถยังอยู่ครบแต่ย้ายไปอยู่ฝั่ง agent: สั่ง `orbit_screen` ผ่าน MCP
-(ดู [MCP.md](MCP.md)) agent จะเห็น iOS Simulator, Xcode, แอป native, Figma
-และรูปนั้นก็ยังโผล่ในแกลเลอรีของคุณเหมือนเดิม
+## The Terminal tab
 
-ต้องเปิดสิทธิ์ **Screen Recording** ให้แอปที่รัน Orbit server (Terminal / iTerm /
-VS Code) ก่อน จุดที่หลอกคือถ้าไม่ได้เปิดสิทธิ์ macOS **จะไม่ error** แต่จะได้ภาพ
-desktop เปล่า ๆ ที่ไม่มีหน้าต่างแอปเลย — เห็นแบบนั้นเมื่อไหร่ให้ไปเปิดสิทธิ์
-ที่ System Settings → Privacy & Security → Screen & System Audio Recording
+Once you are in, you see a terminal connected directly to zsh on the Mac. ANSI colors, your prompt theme, Ctrl+C and interactive TUIs all work. The header shows which session you are in, its folder, and the connection state (a spinning Orbit ring means connected).
 
-## ให้ agent ทำเองได้ (MCP)
+In the screenshot: creating an `orbit-demo` project, writing `index.html`, and running `python3 -m http.server 4321` — all typed on the phone.
 
-ถ้าลง MCP server ของ Orbit ไว้ (ดู [MCP.md](MCP.md)) Claude จะ capture เองได้
-โดยไม่ต้องรอคุณ — และ **เห็นภาพเองจริง ๆ** ไม่ใช่แค่ได้ path:
+<img src="images/02-terminal.jpg" width="390" alt="The terminal running a dev server">
 
-> "capture http://localhost:5173 แบบ desktop แล้วบอกว่า layout พังตรงไหน"
+> 💡 **Sessions survive the screen going dark.** Close the browser, switch apps, or lose the network; when you come back, the shell is still running with its full history.
 
-รูปที่ agent ถ่ายจะโผล่ในแท็บ Preview ของคุณด้วย นอกจากนั้น agent ยัง
-**เตือนคุณขึ้นมือถือ** ตอนงานเสร็จ (`orbit_notify`) และ **ถามแล้วรอคำตอบ**
-จากคุณกลางทางได้ (`orbit_ask`) — คำถามจะเด้งเป็นกล่องบนจอ กดเลือกแล้ว
-agent ถึงจะเดินต่อ
+> 🔄 What you see on screen is the last frame the agent drew. Full-screen apps such as Claude Code only repaint when the screen size changes, so every time you return to the app, Orbit asks for a repaint on your behalf. This is also why the key bar stays open all the time and no longer has a collapse button: collapsing it is a resize, and if that resize lands while the agent is mid-draw, the whole input box disappears.
 
-### ให้เตือนได้ตอนล็อกจอ
+### The key bar
 
-เปิดแท็บ Sessions จะเห็นแถบ **"Notify me when the Mac needs me"** กดปุ่ม
-**Turn on** ครั้งเดียว (ต้องกดเอง — iOS ไม่ยอมให้เว็บขอสิทธิ์นี้เองตอนโหลดหน้า
-และต้องเปิดจาก PWA ที่ Add to Home Screen แล้วเท่านั้น)
+The bar below the terminal holds the keys a soft keyboard lacks, in two fixed rows.
 
-หลังจากนั้น ถ้า agent เตือนตอนที่คุณล็อกจอหรือปิดแอปอยู่ จะได้ **notification
-ของระบบ** ไม่ใช่แค่ toast — เพราะมันส่งผ่าน Web Push ซึ่งปลุก service worker
-ได้แม้แอปปิดสนิท ส่วนตอนที่เปิดแอปค้างอยู่จะได้ toast อย่างเดียว ไม่เด้งซ้ำสอง
-
-ถ้าไม่ได้เปิดสิทธิ์ไว้ก็ยังไม่พลาด — ข้อความที่ส่งตอนไม่มีใครต่ออยู่จะถูกเก็บไว้
-แล้ว**ส่งให้ทันทีที่เปิดแอปกลับมา** (เก็บสูงสุด 10 ข้อความ ภายใน 6 ชั่วโมง)
-
-### ตอบคำถามจากตัว notification เลย
-
-`orbit_ask` ที่มาถึงตอนแอปปิดจะมี **ปุ่มตัวเลือกสองอันแรกติดมากับแบนเนอร์** (เช่น
-Allow / Deny) กดจากหน้าล็อกได้เลย ไม่ต้องปลดล็อก ไม่ต้องเปิดแอป ไม่ต้องรอ socket
-ต่อกลับ — agent ฝั่ง Mac ได้คำตอบทันที
-
-- ตัวเลือกที่เกินสองอันอยู่ในแอป **แตะที่ตัวแบนเนอร์** (ไม่ใช่ปุ่ม) จะเปิดคำถามนั้นขึ้นมา
-- ระบบที่ไม่แสดงปุ่มบน notification (**iOS เป็นหนึ่งในนั้น**) จะได้พฤติกรรมเดิมทุกอย่าง
-  คือแตะแล้วเปิดคำถามในแอป
-- ถ้าตอนกดปุ่ม Mac ติดต่อไม่ได้ (หลับ/หลุด tailnet) จะมีแบนเนอร์บอกว่าส่งไม่สำเร็จ
-  ไม่ใช่เงียบหายไปเฉย ๆ
-- ปุ่มพวกนี้**ไม่ได้พก token ของบัญชี** — มันพกใบอนุญาตใช้ครั้งเดียวสำหรับคำถามนั้น
-  คำถามเดียว ตอบได้เฉพาะตัวเลือกที่คำถามนั้นประกาศไว้ และหมดอายุพร้อมคำถาม
-
-## เกราะป้องกัน: Command Approval
-
-Input ที่มาเป็นก้อน (วางข้อความ, สั่งด้วยเสียง) ถูกตรวจกับ pattern อันตราย
-เช่น `rm -rf`, `sudo`, format disk, force push — ถ้าเจอ คำสั่งจะถูก**ยึดไว้ก่อน**
-และถามยืนยันบนจอ พร้อมแสดงคำสั่งเต็ม ๆ ให้อ่าน
-
-<img src="images/08-approval.jpg" width="390" alt="modal ยืนยันคำสั่งอันตราย">
-
-กด **Deny** = ทิ้งคำสั่ง ไม่มีอะไรถึง shell / **Run anyway** = ปล่อยผ่าน
-(การพิมพ์สดทีละตัวอักษรไม่ถูกตรวจ — มือคุณ ความรับผิดชอบคุณ)
-
-**ข้อควรรู้:** ด่านนี้ดูเฉพาะสิ่งที่ **คุณ** ส่งเข้า terminal เท่านั้น คำสั่งที่ **agent
-รันเอง** ผ่าน Bash tool ของมันไม่ผ่านด่านนี้เลย ถ้าอยากให้ครอบคลุมด้วย ให้ติดตั้ง
-hook `orbit-approve` ตาม [MCP.md](MCP.md) — คำสั่งอันตรายของ agent จะเด้งมาถาม
-บนมือถือเหมือนกัน และ agent จะหยุดรอจนกว่าคุณจะกด
-
-## ประวัติไม่หาย: Ended sessions
-
-Session ที่จบแล้ว (agent ออกเอง, กดหยุด, หรือ server restart) ยังเปิดดูได้ —
-terminal แสดงประวัติทั้งหมดแบบ **read-only** พร้อมป้ายบอกใน header
-แถบคีย์ลัดจะซ่อนไปเอง (ไม่มี PTY ให้ส่งอะไรแล้ว) เลื่อนดูประวัติได้ตามปกติ
-
-อยากทำงานต่อ มีสองปุ่มที่มุมขวาบนของ terminal:
-
-- **↻ Resume** — ให้ agent **สานบทสนทนาล่าสุดของโฟลเดอร์นั้นต่อ** (Claude Code ใช้
-  `claude --continue`, Codex ใช้ `codex resume --last`) ถ้าโฟลเดอร์นั้นไม่เคยคุยกัน
-  มาก่อน agent จะบอกเองใน terminal ว่าไม่มีบทสนทนาให้ต่อ
-
-  ปุ่มนี้ขึ้น **เฉพาะ session ที่จบล่าสุดของโฟลเดอร์+agent นั้น และต้องไม่มี session
-  ไหนของโฟลเดอร์นั้นรันค้างอยู่** เพราะคำสั่งพวกนี้รู้จักแค่ "โฟลเดอร์" ไม่รู้จัก
-  session ของ Orbit — กดจากรายการเก่าก็จะได้บทสนทนาล่าสุดอยู่ดี (ไม่ใช่อันที่กด)
-  และถ้าโฟลเดอร์นั้นมี agent ทำงานอยู่ จะกลายเป็น agent สองตัวจับบทสนทนาเดียวกัน
-  Shell กับ Gemini ไม่มีปุ่มนี้เลยเพราะไม่มีคำสั่งให้ต่อ
-- **＋ New** — เริ่มใหม่หมด ใช้ agent + โฟลเดอร์ + ชื่อเดิม แต่ไม่เอาบทสนทนาเก่ามา
-
-ในแท็บ Sessions แถวของ session ที่จบแล้วก็มี ↻ กับ ＋ เหมือนกัน
-
-<img src="images/10-ended-readonly.jpg" width="390" alt="ดูประวัติ session ที่จบแล้วแบบ read-only">
-
-## ติดตั้งเป็นแอป (PWA)
-
-เปิดผ่าน HTTPS (ดู [TAILSCALE.md](TAILSCALE.md)) แล้ว **Add to Home Screen**
-— ได้ไอคอน Orbit บนหน้าจอ เปิดเต็มจอไม่มีแถบเบราว์เซอร์
-
-## สรุป flow ที่ใช้บ่อย
-
-| อยากทำ | ทำยังไง |
+| Key | What it does |
 |---|---|
-| สั่ง Claude แก้โค้ดโปรเจกต์ X | Sessions → + → Claude Code → เลือก X → Start |
-| ดูว่าเมื่อกี้ agent ทำอะไรไป | Sessions → แตะ session (จบแล้วก็เปิดดูได้) |
-| ตรวจโค้ดที่ agent เพิ่งแก้ | Changes → แตะไฟล์เพื่ออ่าน diff |
-| commit งานที่ตรวจแล้ว | Changes → ＋ ทีละไฟล์ (หรือ Stage all) → พิมพ์ message → Commit |
-| รู้ว่ามี session ไหนรอเราอยู่ | ดูตัวเลขบนไอคอน Sessions — แตะเข้าไปคือการอ่าน |
-| ตรวจหน้าเว็บหลัง agent แก้ | Preview → แตะชิปพอร์ต → เลือกขนาดจอ → Capture |
-| ดู Simulator / แอป native บน Mac | ลง MCP แล้วสั่ง agent ว่า "ดูหน้าจอ Mac ให้หน่อย" (`orbit_screen`) |
-| ให้ agent ตรวจงานตัวเองด้วยภาพ | ลง MCP ([MCP.md](MCP.md)) แล้วสั่ง "capture … แล้วดูให้หน่อย" |
-| ส่ง error screenshot ให้ agent | Terminal → 🖼 → เลือกรูป → พิมพ์คำสั่งต่อท้าย path |
-| สั่งงานยาว ๆ ไม่อยากพิมพ์ | Terminal → 🎙 → พูด → แก้ transcript → Send |
-| วางข้อความที่ copy มาจากแอปอื่น | Terminal → 📋 → ยืนยัน Paste |
-| เปลี่ยนชื่อ session | Sessions → ✎ |
-| หยุดทุกอย่างชั่วคราว | ปิดเบราว์เซอร์ไปเลย — ทุก session รอต่ออยู่บน Mac |
+| **⇧** | Shift for the next key. Tab becomes Shift+Tab, `/` becomes `?`, arrows send Shift+arrow. |
+| **Ctrl** | Ctrl for the next key. The letter comes from the soft keyboard, so tapping Ctrl opens it if it is closed. Ctrl+⌫ deletes a word; Ctrl+arrow moves by word. |
+| **Esc**, **Tab**, **^C** | Escape, Tab, and Ctrl+C. |
+| **⏎**, **⌫**, **/** | Enter, Backspace (hold to repeat), and slash — the character every skill starts with, which iOS hides behind the number switch. |
+| **↑ ← ↓ →** | Arrow keys in the inverted-T layout of a real keyboard. Hold to repeat. |
+
+Ctrl and Shift work like Shift on the iOS keyboard: tap once and the modifier applies to the next key only; tap again and it **locks** until you tap it off. The key is tinted while armed and solid while locked.
+
+Three buttons sit in the same bar: ✎ opens the Message sheet for writing a whole message before sending it (it is highlighted while an unsent draft is waiting), 🎤 opens voice input, and ⌨️ shows or hides the keyboard.
+
+### Copy text and tap links
+
+The terminal draws its own characters, so iOS offers no selection handles the way it does for ordinary text. Orbit adds two gestures of its own.
+
+**Tap a URL** and a sheet asks what to do with it, with two buttons:
+
+- **Open here** opens the page in a frame over the terminal. You never leave the app, and the session keeps running behind it.
+- **Copy** puts the URL on the clipboard.
+
+There is deliberately no button that hands the URL to the browser. Leaving and coming back makes iOS reload the whole app, and from a Home Screen icon there is no second tab for WebKit to send a same-host URL to, so it would drag the whole app to that page instead. If you really want the page in the browser, **Copy** it and paste it there.
+
+A **plain http** link cannot be opened in the frame: Orbit is served over https and the browser blocks mixed content. The sheet then offers only **Copy** and says why. To make such links openable, put the dev server on https with `bun run preview:on`.
+
+Some details worth knowing:
+
+- A URL that wraps onto the next line is still one link — including when the **program wrapped it itself**, as Claude Code does when it indents continuation lines by two spaces. A trailing comma is not counted as part of the link.
+- **`localhost` is rewritten to point at the Mac.** When the agent prints `http://localhost:5173`, it means the Mac, but opened as-is on the phone it would mean the phone. On tap, Orbit swaps the host for the one you are using to reach Orbit, keeping the port. This works because Vite binds every interface.
+
+**Press and hold** to select the **word** under your finger. Words are split at whitespace only, so a long path such as `~/Development/orbit/web/src/Terminal.tsx` comes as one piece rather than being cut at each `/`. From there you can adjust the selection three ways:
+
+| Gesture | Effect |
+|---|---|
+| Drag either round grip | Grow or shrink the selection one character at a time. Dragging past the right edge flows onto the next line. |
+| Keep dragging without lifting your finger | Extend from the first word outward. |
+| **Line** button in the bottom bar | Select the whole line. A line that wraps counts as one line. |
+
+Then tap **Copy**. Tap anywhere else once to cancel. The counter in the bar shows how many characters you are holding (or how many lines, for a whole-line selection).
+
+Empty space below the text cannot be selected: pressing and holding there does nothing, and dragging past the last line stops at the last line that has characters.
+
+> ⚠️ The Copy button uses the browser clipboard, which is **blocked on plain HTTP**. Over Tailscale (HTTPS) it works fully; on the LAN it falls back to a method some devices do not support.
+
+### Paste into the terminal
+
+You cannot press and hold on the prompt and choose Paste: the characters in the terminal are drawn, not an input field iOS recognizes. Use the **clipboard button in the header** instead.
+
+- Over **Tailscale (HTTPS)**, iOS shows a **Paste** button to confirm once, and the text lands at the prompt.
+- Over **plain HTTP**, the browser will not let the page read the clipboard, so Orbit opens a sheet with a text field. Press and hold there, choose **Paste**, then tap **Insert** (or **Send ⏎** to send it straight away).
+
+Multi-line text goes in as a single block. The first line is not fired off on its own, as it would be if you typed Enter yourself.
+
+## The Changes tab
+
+The Terminal shows what the agent **is doing**. This tab shows what it **has written** — which used to mean typing `git diff` in a terminal on a 390px screen and squinting at the result.
+
+The tab follows the folder of the open session. If that folder is a git repository, you see:
+
+- **The branch** in the heading, with ↑ (commits the remote does not have yet) and ↓ (commits you are behind).
+- **The file list, grouped into Staged, Changed, and Untracked.** Each row shows a status letter (M modified, A added, D deleted, R renamed) and a line count such as `+3 −2`.
+- **Tap a row to read the diff** full screen. Added lines are green, removed lines red. Long lines scroll sideways rather than wrapping, because a wrapped diff hides which column the `+` is in. Untracked files have a diff to read too.
+- **The ＋ / − button at the end of a row** stages or unstages that file. **Stage all** does a whole group at once.
+
+Once something is staged, a commit message field appears at the bottom. Type the message and tap **Commit N files**. What goes into the commit is exactly what is in the Staged group — there is no `-a` quietly sweeping up files you did not pick. A toast confirms the commit with its sha and line counts.
+
+**Push** appears only when tapping it would actually do something: there are unpushed commits, or the branch has never been pushed (in which case Orbit adds `--set-upstream` itself, since nobody is there to answer git's question). A repository with no remote does not show the button at all.
+
+> Nobody can type a password for git here, so the server tells git not to ask (`GIT_TERMINAL_PROMPT=0`) and shows you git's actual message instead of hanging on a prompt.
+
+## The Sessions tab
+
+Every session in one place. A blinking yellow dot means the session is running. Each row shows the agent, the folder, and the age. Name a session with ✎ to tell them apart — "demo server" and "demo feature", say.
+
+Unnamed sessions are still telling: **the first thing typed into a session becomes its name** (the first command for a shell, the first prompt for an agent). It is shown in monospace so you can see it is not a name you chose. Naming the session with ✎ replaces it immediately.
+
+<img src="images/09-sessions.jpg" width="390" alt="The session list">
+
+### Which session is waiting for you
+
+An agent that stopped to ask something used to send one toast that vanished after three seconds; miss it and it was gone. Now **each session's last message stays until you have read it.**
+
+- **The number on the Sessions tab icon** is how many sessions have something pending. Solid blue means at least one of them is **waiting for an answer**, not merely finished.
+- **The row shows the message itself**, for example "Claude is asking: switch the JWT library? — Yes / No · 4m", with a blinking blue dot if it is waiting.
+- **A toast from another session** carries an **Open** button. Tap it to jump straight there instead of hunting through the list.
+- **Opening the session counts as reading it.** That is what clears the badge — simply opening the app does not.
+
+The same bookkeeping means **a notification tapped on the lock screen takes you to the session that sent it**, not whichever session happened to be open last.
+
+> A "finished" message never overwrites a pending "waiting for an answer". Claude asks and then ends its turn, in that order; if the later message won, the row would say "done" while the question is still unanswered.
+
+### Even when the agent says nothing
+
+Everything above depends on the agent **choosing to speak**, through MCP (`orbit_notify`) or through Claude Code hooks, which have to be set up first. Codex, Gemini, and a Claude without hooks have neither, so they used to sit at "Do you want to proceed?" while the phone stayed silent.
+
+Now Orbit **watches the screen itself.** A working agent is an agent that is drawing — a spinner, a timer, tool output. If nothing has been drawn for 10 seconds, the frame is complete and the cursor is waiting at the input box. The row gets a badge on its own, with the last readable line from the screen (a line ending in `?` is preferred, since what it stopped for usually sits just above the input box).
+
+- This applies to **agent sessions only.** A shell sitting at its prompt is silent by nature; counting it would badge every row and mean nothing.
+- **What the agent says itself always wins.** If it has already said what it is waiting for, Orbit's guess from the screen does not overwrite it. A guessed badge is **dimmed, with a dot that does not blink**, so you can tell a real message from a screen reading.
+- If **no phone is connected** at the time, you get a push notification: `<session name> is waiting`.
+- If you are **looking at that session** at the time, nothing happens — the screen it read is the one in front of you.
+
+### Row actions
+
+| Control | Effect |
+|---|---|
+| Tap the row | Switch to that session |
+| ✎ | Rename |
+| ✕ (running session) | Stop it. The history is kept under Ended. |
+| ＋ (ended session) | Start it again with the same agent, folder, and name; an agent resumes as the same conversation |
+| ✕ (ended session) | Forget it, history included |
+
+## Starting a session
+
+Tap **+** in the Sessions tab.
+
+1. **Pick an agent.** A card is dimmed if that CLI is not installed.
+2. **Name it** — optional, but a great help once several are open.
+3. **Pick the project folder.** Recent projects are one tap away, or browse. Folders that are git repositories carry a green branch mark, and a filter field appears when there are many folders. Picking something broad like your home folder shows a yellow warning, but it is not blocked.
+
+<img src="images/05-new-session.jpg" width="390" alt="Creating a new session">
+
+## Claude Code from your phone
+
+Choose the Claude Code card and a project folder, and you get the real Claude Code running on the Mac. In the screenshot: the "demo feature" session in `orbit-demo`, switching models with `/model haiku` and sending a test prompt. The reply comes back to the phone in full.
+
+<img src="images/06-claude-code.jpg" width="390" alt="Claude Code answering a prompt from the phone">
+
+## Voice input
+
+Tap the microphone 🎤 in the bottom key bar (the same row as the pencil ✎ and the keyboard ⌨️ buttons), speak, and the transcript appears as you go. **You can edit the text before sending it.**
+
+> ⚠️ Requires **HTTPS**. Opened as `http://<mac-ip>:3001`, the browser refuses to grant the microphone. See [TAILSCALE.md](TAILSCALE.md).
+
+- **Continue listening** — the full-width button under the transcript. iOS stops listening at every pause; tap this to keep speaking, and the text so far is kept. While listening, the same button reads **Stop listening**.
+- **The image button 📷** — upload a picture and its path is appended to the transcript, without going back to the pencil.
+- **Insert** — hands the transcript to the Message sheet (the pencil button), where you can edit or keep typing before you send it yourself.
+- **Send ⏎** — types it into the terminal and sends it immediately.
+
+<img src="images/07-voice.jpg" width="390" alt="Voice input with a live transcript">
+
+### On iPhone
+
+iOS does not transcribe on the device. Speech goes to **Apple's dictation service**, which brings limits that Android and Chrome do not have.
+
+- **Choose the language before you speak.** The **ไทย / EN** toggle in the top-right corner of the dictation sheet listens for one language at a time; set to EN and speaking Thai gives garbage. You can switch mid-way (listening restarts and the text so far is kept), but **Thai and English mixed in one sentence does not work.** For technical terms such as `bun run build`, say the instruction in Thai and type the code part into the transcript yourself.
+- **It listens in stretches.** After a moment of silence iOS closes the session and the status changes to "Stopped". Tap **Continue listening** to go on; the new text is appended to what you have.
+- **Three switches must all be on.** Any one of them off gives the same `service-not-allowed` error, which cannot be told apart from the others, so check all three and then **reload the page**:
+  1. Settings › Privacy & Security › **Speech Recognition** › Safari — on
+  2. Settings › General › Keyboard › **Enable Dictation** — on
+  3. In Safari, tap **"AA"** in the address bar › Website Settings › **Microphone** › Allow
+
+  (With Screen Time enabled, also check Content & Privacy › **Siri & Dictation**.)
+- **Not from the Home Screen icon.** WebKit blocks speech recognition in a standalone PWA. Open Orbit in Safari instead.
+- **Needs internet.** Dictation goes through Apple's servers; a Tailscale connection alone is not enough.
+
+## Sending images
+
+Tap the image button in the header, then pick a photo or take one (a screenshot of an error, or a design you want built). The file is uploaded to the Mac and **its path is typed into the terminal for you** — carry on typing what you want Claude to do with it.
+
+## The Preview tab
+
+The agent says it fixed the page. What does it look like now? The Preview tab
+answers that without leaving the phone.
+
+The tab is a list of **ports serving a web page on the Mac right now**, one row
+per port, with the program holding it and the project it belongs to
+(`:5173 node`, `:8899 Python`). Each row carries everything that port can do:
+open it live, capture it, share it, stop sharing it.
+
+### Capture a screenshot
+
+Tap the capture button (⧉) on a row. A sheet asks for a size:
+
+| Choice | What you get |
+|---|---|
+| **Phone** / **Tablet** / **Desktop** | The page at that viewport width |
+| **Full page** | The page at the phone's width, with the height allowed to run past the fold |
+
+The Mac opens headless Chrome, renders the page and files the image in the
+gallery below at its real aspect ratio, so a desktop shot is not cropped to a
+phone shape.
+
+If the dev server is not running, you get an error that says so. Orbit does
+not save Chrome's own "cannot connect" page and present it as a success.
+
+Every image in the gallery is labeled with what it is (`localhost:5173`), not
+only when it was taken.
+
+In the screenshot: the `orbit-demo` page that was just built through the
+terminal.
+
+<img src="images/03-captures.jpg" width="390" alt="The Preview tab with captures">
+
+Tap an image to view it full screen. **⇥** inserts the image path into the
+terminal so the agent can look at it ("why is the button off-center — see this
+image"). **🗑** deletes it.
+
+### Try it, not just a picture
+
+A still image is not the same as pressing the buttons. Tap the body of a row
+and the app running on the Mac opens **live, inside Orbit**: tap, fill in
+forms, scroll, all of it.
+
+Under the hood this is one gesture with two steps. A port that is only
+listening is first **shared over https** on the tailnet (the row reads "Share
+:5173 over https and open it"), then opened in a frame. A port that is already
+shared opens straight away, at the route you left it on last time.
+
+Why https? Orbit itself is served over https, and an installed web app may only
+frame a page that is a secure context too. Plain http from `localhost` cannot
+load inside it. Sharing also gives the app under test everything it needs from a
+secure context of its own: service workers, the microphone, the camera.
+
+Each shared port gets an https port of its own on the tailnet, starting at
+`8443` and counting up (`https://<mac>.<tailnet>.ts.net:8443`). It is
+tailnet-only; nothing is exposed to the public internet. It does not touch
+Orbit's own `tailscale serve` mapping (443 → 3001) — different ports, switched
+on and off independently. **Stop sharing :5173** on the row takes it down
+again.
+
+The agent can do the same thing with the MCP tool `orbit_preview` (see
+[MCP.md](MCP.md)), so "share the dev server and open it for me" is a sentence
+you can type into the terminal.
+
+If you need to publish from the Mac's own terminal instead, a checkout has a
+fallback:
+
+```sh
+bun run preview:on                     # port 5173 at https://<mac>.<tailnet>.ts.net:8443
+PREVIEW_PORT=3000 bun run preview:on   # a dev server on another port
+bun run preview:off                    # stop sharing
+```
+
+The Preview tab is the normal path; these commands are for when the phone is
+not to hand.
+
+<img src="images/04-capture-viewer.jpg" width="390" alt="Viewing a capture full screen">
+
+### No port to type
+
+You never type `http://localhost:5173` on a phone keyboard. The rows in the
+Preview tab are the ports that are serving a web page **right now**, and each
+one is labeled with the program that holds it.
+
+Orbit asks `lsof` what is listening and then filters in three passes:
+
+1. Drop the ranges that are not yours: ephemeral ports the system hands out
+   (32768 and up) and ports that need root (below 1024).
+2. Drop the macOS services that sit on popular ports (Control Center holds
+   5000 and 7000).
+3. **Make one real HTTP request.** Databases and agent processes fall out here.
+
+On the Mac this guide was written on, that took 13 listening ports down to 1.
+
+The list is refreshed when you open the tab and when you come back from the
+lock screen. It does not poll. If the agent has just started a dev server,
+switch away from the tab and back.
+
+For a page that is not on this Mac — a staging site, say — the **Other URL**
+row takes a full address and captures it the same way. Only a port on this Mac
+can be shared over https; a remote URL can be captured but not framed.
+
+### The Mac's screen belongs to the agent now
+
+The **Mac screen** switch is gone from this tab. Whoever is holding the phone
+is, by definition, not looking at the Mac's display.
+
+The capability is still there; it moved to the agent's side. Ask for
+`orbit_screen` through MCP (see [MCP.md](MCP.md)) and the agent sees the iOS
+Simulator, Xcode, native apps, Figma — whatever is on the Mac's screen. The
+image still lands in your gallery, labeled **Mac screen**.
+
+This needs **Screen Recording** permission for the app that runs the Orbit
+server (Terminal, iTerm, VS Code). The trap: without the permission, macOS
+**does not raise an error**. It returns an empty desktop with no application
+windows on it. When you see that, grant the permission at System Settings →
+Privacy & Security → Screen & System Audio Recording.
+
+## Letting the agent act (MCP)
+
+`orbit setup` (from a checkout, `make setup`) registers Orbit's MCP server,
+`orbit mcp`, with Claude Code. After that the agent can use the phone-side
+features itself instead of waiting for you — and when it captures a page it
+**sees the image**, not only a file path.
+
+> "Capture http://localhost:5173 at desktop size and tell me where the layout
+> breaks."
+
+| Tool | What it does |
+|---|---|
+| `orbit_capture` | Capture a URL with headless Chrome at a chosen viewport; the image also appears in your Preview tab |
+| `orbit_screen` | Photograph the Mac's own screen — Simulator, Xcode, native apps |
+| `orbit_notify` | Send a notice to the phone, for instance when a long task is done |
+| `orbit_ask` | Ask you a question with options, and wait for the answer before continuing |
+| `orbit_preview` | Share a dev server port over https on the tailnet and open it in the app |
+
+A question from `orbit_ask` appears as a dialog on the phone. The agent stops
+until you pick an option. Details of every tool are in [MCP.md](MCP.md).
+
+### Notifications on a locked phone
+
+Open the Sessions tab. At the top is a row that reads **"Notify me when the
+Mac needs me"**. Tap **Turn on** once.
+
+Two conditions apply, both imposed by iOS:
+
+- You have to tap. A web page may not request this permission on its own when
+  it loads.
+- It only works from the **installed app** — Orbit added to the home screen
+  (see [Install as an app](#install-as-an-app-pwa)). Safari itself will not
+  grant it.
+
+From then on, a notice that arrives while the phone is locked or the app is
+closed becomes a **system notification**, not a toast. It travels over Web
+Push, which wakes the service worker even when the app is not running. While
+the app is open in front of you, you get the toast only; the same event is not
+delivered twice.
+
+Without push you still miss nothing. A notice sent while nobody is connected is
+held and **delivered the moment you open the app again**. The queue keeps the
+last 10, for up to 6 hours.
+
+### Answer from the notification
+
+An `orbit_ask` that arrives while the app is closed carries the question's
+**first two options as buttons on the banner** (Allow / Deny, say). On a
+platform that shows notification actions, you answer from the lock screen —
+no unlocking, no opening the app, no waiting for the socket to reconnect. The
+agent on the Mac gets the answer at once.
+
+- A question with more than two options continues in the app. **Tap the
+  banner itself**, not a button, and the question opens there.
+- On a platform that does not show buttons on notifications — **iOS is one** —
+  tapping the banner opens the question in the app, exactly as before.
+- If the Mac cannot be reached when you tap a button (asleep, off the tailnet),
+  a banner tells you the answer was not delivered. It does not fail silently.
+- The buttons **do not carry your account token**. Each carries a single-use
+  ticket for that one question. It can answer only with the options the
+  question declared, and it expires with the question.
+
+## Command approval
+
+There are two gates, for two sources of commands.
+
+### What you send
+
+Input that arrives as a block — a paste, or a voice transcript — is checked
+against a list of dangerous patterns. On a match the command is **held**, and
+a dialog shows the full text for you to read.
+
+<img src="images/08-approval.jpg" width="390" alt="The dialog that holds a dangerous command for approval">
+
+**Deny** discards it; nothing reaches the shell. **Run anyway** lets it
+through. Characters typed one at a time are not checked — your hands, your
+responsibility.
+
+### What the agent runs
+
+This gate sees only what **you** send. A command the **agent** runs through
+its own Bash tool never passes through it. To cover that side, `orbit setup`
+installs the hook `orbit hook approve` into Claude Code. From then on a
+dangerous command the agent wants to run is **sent to your phone as a
+question**, and the agent stops until you answer — from the app, or from the
+buttons on the notification.
+
+The hook behaves as follows.
+
+| Situation | Result |
+|---|---|
+| Orbit is not running | The hook stays out of the way; this is a plain Claude Code session |
+| A phone is connected, you answer | Your answer is the decision |
+| A phone is connected, nobody answers within 180 s | Denied |
+| No phone connected and no push subscription | Denied, within about 5 s, so the agent is not left hanging |
+
+That is: it fails open when Orbit is absent, and closed when Orbit is present
+and nobody says yes. The denial tells the agent to ask you directly.
+
+The patterns both gates look for:
+
+| Pattern | Examples |
+|---|---|
+| Recursive delete | `rm -rf` |
+| Privilege escalation | `sudo` |
+| Formatting a disk | `mkfs`, `diskutil erase` |
+| Writing to a raw device | `dd of=/dev/…`, redirects into `/dev/…` |
+| Power state | `shutdown`, `reboot`, `halt` |
+| Rewriting shared history | `git push --force` |
+| A fork bomb | `:(){ :|:& };:` |
+| Opening up a root path | `chmod 777` on `/`, `/usr`, and the like |
+| Removing launch services | `launchctl unload`, `launchctl remove` |
+
+## Ended sessions
+
+A session that has ended — the agent exited, you stopped it, or the server
+restarted — can still be opened. The terminal shows the whole history
+**read-only**, with a label in the header saying so. The key bar hides itself,
+since there is no PTY to send anything to. Scrolling works as usual.
+
+Orbit keeps the 20 most recent ended sessions.
+
+To pick the work back up, two buttons sit at the top right of the terminal:
+
+- **↻ Resume** reopens the **same conversation**. For Claude Code, Orbit
+  remembers the conversation id and launches `claude --resume <id>`, so a
+  folder's third-newest session is as reachable as its newest, and the same
+  conversation is never open in two places at once.
+
+  Codex has no such handle. `codex resume --last` reopens the **newest
+  conversation in the folder**, so for Codex the button appears only on the
+  most recently ended session of that folder and agent, and only while nothing
+  is still running there — otherwise it would either promise a conversation it
+  cannot reach or put a second agent into one that is already being held.
+  Shell and Gemini have no resume command and no button.
+- **＋ New** starts over: same agent, same folder, same name, no history.
+
+The same ↻ and ＋ appear on ended rows in the Sessions tab.
+
+<img src="images/10-ended-readonly.jpg" width="390" alt="An ended session, shown read-only">
+
+### Conversations from the desk
+
+Claude Code conversations you started in a terminal on the Mac itself appear in
+the same list, so the afternoon's work at the desk is there on the phone in the
+evening. They are read-only records, and they are not Orbit's to delete: the
+✕ on such a row is **Hide from this phone**, not a delete. The conversation
+stays where it is, and `claude --resume` at the desk still finds it. A hidden
+row can be brought back from the same tab. Orbit's own ended sessions have
+**Forget** instead, which deletes the history.
+
+## Install as an app (PWA)
+
+Open Orbit over https (see [TAILSCALE.md](TAILSCALE.md)), then in Safari use
+the share sheet → **Add to Home Screen**. You get an Orbit icon on the home
+screen that opens full screen, with no browser chrome.
+
+The installed app has **storage of its own**, separate from Safari's, so it
+starts signed out. Pair it once: on its login screen, scan the QR code that
+`orbit phone` printed (or `orbit pair` for a fresh one). That is the whole
+setup, and it is the app that push notifications and voice input need.
+
+## Everyday flows
+
+| To | Do this |
+|---|---|
+| Have Claude change project X | Sessions → + → Claude Code → pick X → Start |
+| See what the agent just did | Sessions → tap the session (ended ones open too) |
+| Review the agent's changes | Changes → tap a file to read the diff |
+| Commit what you reviewed | Changes → ＋ per file (or Stage all) → type a message → Commit |
+| Know which session is waiting for you | The number on the Sessions icon; opening the session clears it |
+| Check the page after a change | Preview → ⧉ on the port → pick a size |
+| Try the page for real | Preview → tap the port row; it is shared over https and opens in the app |
+| See the Simulator or a native app on the Mac | Ask the agent to "look at the Mac's screen" (`orbit_screen`) |
+| Have the agent check its own work visually | "Capture … and look at it" (`orbit_capture`) |
+| Send an error screenshot to the agent | Terminal → 🖼 → pick the image → type your request after the path |
+| Give a long instruction without typing | Terminal → 🎙 → speak → fix the transcript → Send |
+| Paste text copied from another app | Terminal → 📋 → confirm Paste |
+| Rename a session | Sessions → ✎ |
+| Pause everything | Close the browser. Every session keeps waiting on the Mac |
