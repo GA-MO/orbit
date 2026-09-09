@@ -39,7 +39,7 @@ const MAX_IMAGE_WIDTH = 1568
 const token = (): string => {
   try {
     const config = JSON.parse(
-      fs.readFileSync(path.join(os.homedir(), '.orbit', 'config.json'), 'utf8'),
+      fs.readFileSync(path.join(process.env.ORBIT_HOME || os.homedir(), '.orbit', 'config.json'), 'utf8'),
     )
     if (typeof config.token === 'string') return config.token
   } catch {

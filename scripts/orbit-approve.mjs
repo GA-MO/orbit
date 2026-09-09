@@ -57,7 +57,7 @@ const readStdin = () =>
 
 const token = () => {
   try {
-    return JSON.parse(fs.readFileSync(path.join(os.homedir(), '.orbit', 'config.json'), 'utf8')).token
+    return JSON.parse(fs.readFileSync(path.join(process.env.ORBIT_HOME || os.homedir(), '.orbit', 'config.json'), 'utf8')).token
   } catch {
     return null
   }

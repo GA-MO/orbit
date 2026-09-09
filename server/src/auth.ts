@@ -1,10 +1,11 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import fs from 'node:fs'
 import type http from 'node:http'
-import os from 'node:os'
 import path from 'node:path'
 
-const CONFIG_FILE = path.join(os.homedir(), '.orbit', 'config.json')
+import { orbitDir } from './home.js'
+
+const CONFIG_FILE = orbitDir('config.json')
 
 /** Load the access token, generating and persisting one on first run. */
 export function getToken(): string {

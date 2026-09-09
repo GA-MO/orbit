@@ -1,14 +1,15 @@
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+
+import { orbitDir } from './home.js'
 import { chromium, type Browser } from 'playwright-core'
 
 const execFileAsync = promisify(execFile)
 
-const SCREENSHOT_DIR = path.join(os.homedir(), '.orbit', 'screenshots')
+const SCREENSHOT_DIR = orbitDir('screenshots')
 const KEEP = 50
 /** Chrome stays warm between captures — launching it costs about a second. */
 const BROWSER_IDLE_MS = 60_000

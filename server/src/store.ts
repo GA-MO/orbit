@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 
-const DATA_DIR = path.join(os.homedir(), '.orbit')
+import { orbitDir } from './home.js'
+
+const DATA_DIR = orbitDir()
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json')
 const SCROLLBACK_DIR = path.join(DATA_DIR, 'scrollback')
 const HIDDEN_FILE = path.join(DATA_DIR, 'hidden.json')

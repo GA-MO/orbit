@@ -20,11 +20,12 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import https from 'node:https'
-import os from 'node:os'
 import path from 'node:path'
+
+import { orbitDir } from './home.js'
 import webpush from 'web-push'
 
-const DATA_DIR = path.join(os.homedir(), '.orbit')
+const DATA_DIR = orbitDir()
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json')
 const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, 'push-subscriptions.json')
 /* The VAPID subject identifies whoever is pushing, and Apple validates it:

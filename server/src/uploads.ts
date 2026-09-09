@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 
-const UPLOAD_DIR = path.join(os.homedir(), '.orbit', 'uploads')
+import { orbitDir } from './home.js'
+
+const UPLOAD_DIR = orbitDir('uploads')
 const KEEP = 50
 
 export const LIMIT = 20 * 1024 * 1024
