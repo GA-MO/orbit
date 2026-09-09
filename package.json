@@ -2,7 +2,7 @@
   "name": "orbit",
   "private": true,
   "version": "0.1.0",
-  "description": "Local AI coding hub \u2014 control CLI agents on your MacBook from your phone",
+  "description": "Local AI coding hub — control CLI agents on your MacBook from your phone",
   "workspaces": [
     "server",
     "web"
