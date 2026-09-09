@@ -18,7 +18,8 @@ for f in package.json server/package.json; do
 done
 bun install --silent   # the lockfile carries the workspace versions
 git add package.json server/package.json bun.lock
-git commit -q -m "Release $version"
+# The first release of a version the files already carry has nothing to commit.
+git diff --cached --quiet || git commit -q -m "Release $version"
 git tag -a "v$version" -m "orbit $version"
 git push -q origin main "v$version"
 echo "  Pushed v$version — watch: gh run watch"
