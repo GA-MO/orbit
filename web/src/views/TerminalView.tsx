@@ -4,9 +4,6 @@ import type { SessionInfo } from '../api'
 import {
   Button,
   IconButton,
-  IconImage,
-  IconMic,
-  IconPaste,
   IconPlus,
   IconRestart,
   OrbitMark,
@@ -25,11 +22,6 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 interface Props {
   session: SessionInfo | null
   status: ConnectionStatus
-  voiceAvailable: boolean
-  onOpenVoice: () => void
-  onPickImage: () => void
-  /** Clipboard into the prompt — the phone has no way to do it itself. */
-  onPaste: () => void
   /** Start a fresh session with the same agent + folder as this ended one. */
   onNewSession: () => void
   /** Same, but asking the agent to carry on its last conversation there. */
@@ -42,10 +34,6 @@ interface Props {
 export default function TerminalView({
   session,
   status,
-  voiceAvailable,
-  onOpenVoice,
-  onPickImage,
-  onPaste,
   onNewSession,
   onResume,
   starting,
@@ -61,7 +49,12 @@ export default function TerminalView({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Opaque and above the terminal: xterm's screen is a positioned element,
+      {/* Which session am I in — and nothing else. What goes *into* the session
+          is the composer's business, down at the bottom where the thumb and the
+          keyboard already are; these two used to be mixed together up here, at
+          the far corner from both.
+
+          Opaque and above the terminal: xterm's screen is a positioned element,
           so anything it draws past its box would otherwise land on top of this. */}
       <header className="relative z-10 flex shrink-0 items-center gap-3 bg-ink px-4 py-2.5 shadow-[0_1px_0_var(--edge-lit)]">
         <OrbitMark size={26} idle={status !== 'connected'} />
@@ -137,24 +130,7 @@ export default function TerminalView({
               </Button>
             )}
           </div>
-        ) : (
-          /* The three ways text gets in that the keyboard cannot manage on its
-             own, kept together on the right. Paste sits nearest the edge: it is
-             the one reached mid-sentence, with the keyboard already up. */
-          <>
-            {voiceAvailable && (
-              <IconButton label="Voice input" onClick={onOpenVoice}>
-                <IconMic size={19} />
-              </IconButton>
-            )}
-            <IconButton label="Upload image into terminal" onClick={onPickImage}>
-              <IconImage size={19} />
-            </IconButton>
-            <IconButton label="Paste clipboard into terminal" onClick={onPaste}>
-              <IconPaste size={19} />
-            </IconButton>
-          </>
-        )}
+        ) : null}
       </header>
       <div className="min-h-0 flex-1 p-1.5">{children}</div>
     </div>

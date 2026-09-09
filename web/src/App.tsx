@@ -12,13 +12,13 @@ import SessionsView from './views/SessionsView'
 import ChangesView from './views/ChangesView'
 import CapturesView from './views/CapturesView'
 import NewSessionSheet from './sheets/NewSessionSheet'
-import PasteSheet from './sheets/PasteSheet'
 import VoiceSheet from './sheets/VoiceSheet'
 import { speechSupported, startSpeech, type SpeechSession } from './speech'
 import { dropPush, pushEndpoint, registerPush, systemNotice } from './notice'
 import ApprovalModal from './components/ApprovalModal'
 import AskModal from './components/AskModal'
 import PageViewer from './components/PageViewer'
+import Composer from './components/Composer'
 import { IconBranch, IconCapture, IconSessions, IconTerminal } from './components/ui'
 import {
   AuthError,
@@ -34,8 +34,6 @@ import {
   type SessionInfo,
 } from './api'
 
-/** How long a clipboard read gets before the manual sheet takes over. */
-const CLIPBOARD_WAIT_MS = 6000
 /** A notification, or a link, naming the session to open on arrival. */
 const OPEN_PARAM = 'session'
 
@@ -91,7 +89,9 @@ export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
-  const [pasteOpen, setPasteOpen] = useState(false)
+  /* One draft, three ways in: the keyboard, dictation, and the image picker
+     all write here, and nothing reaches the PTY until Send. */
+  const [draft, setDraft] = useState('')
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   // Questions from the Mac queue up: each one is blocking something over there.
   const [asks, setAsks] = useState<AskRequest[]>([])
@@ -332,47 +332,25 @@ export default function App() {
     if (!file) return
     try {
       const { path } = await uploadImage(file)
-      termHandle.current?.write(`${path} `)
-      showToast('Image uploaded — path inserted into the terminal')
+      /* Into the draft, not the PTY: an uploaded path is almost always the
+         middle of a sentence ("look at <path> and tell me…"), and the rest of
+         that sentence is easier to write next to it than around it. */
+      setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${path} ` : `${path} `))
+      showToast('Image uploaded — path added to the message')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Upload failed')
     }
   }
 
-  /* Read it here rather than making the phone do it: iOS will hand a page the
-     clipboard on a tap — behind its own Paste confirmation — but only over
-     https, and only if it is text. Everything else falls back to the sheet,
-     where the phone's own Paste menu does the part we are not allowed to.
-
-     The wait is because the read can also do neither: a browser that will not
-     answer leaves the promise pending forever, and a paste button that sits
-     there doing nothing is the thing this is meant to fix. The generous window
-     is for iOS, where the promise stays open while its Paste confirmation is on
-     screen — long enough to read it, short enough not to look broken. */
-  const pasteClipboard = async () => {
-    if (!navigator.clipboard?.readText) return setPasteOpen(true)
-
-    let handled = false
-    const giveUp = setTimeout(() => {
-      if (handled) return
-      handled = true
-      setPasteOpen(true)
-    }, CLIPBOARD_WAIT_MS)
-
-    let text: string | null = null
-    try {
-      text = await navigator.clipboard.readText()
-    } catch {
-      text = null // refused, or the confirmation was dismissed
-    }
-    clearTimeout(giveUp)
-    if (handled) return // the sheet already took over; pasting now would double it
-    handled = true
-
-    if (text === null) return setPasteOpen(true)
-    // Read, and genuinely empty: a sheet would only ask them to paste nothing.
-    if (!text) return showToast('Nothing on the clipboard')
+  /* `paste`, never `write`: a bare newline mid-text is read as "send" by the
+     agent's own composer, so a multi-line draft written through would arrive
+     as several half-messages. See the handle in Terminal.tsx. */
+  const sendDraft = () => {
+    const text = draft.trim()
+    if (!text) return
     termHandle.current?.paste(text)
+    termHandle.current?.write('\r')
+    setDraft('')
   }
 
   const insertPath = (path: string) => {
@@ -392,11 +370,6 @@ export default function App() {
           <TerminalView
             session={current}
             status={status}
-            voiceAvailable={speechSupported()}
-            /* Started here, inside the tap — iOS refuses a start one tick later. */
-            onOpenVoice={() => setVoiceSession(startSpeech())}
-            onPickImage={() => fileInput.current?.click()}
-            onPaste={pasteClipboard}
             onNewSession={() => startFreshSession(false)}
             onResume={() => startFreshSession(true)}
             starting={startingNew}
@@ -420,6 +393,18 @@ export default function App() {
                 onInsertPath={insertPath}
                 onToast={showToast}
                 handleRef={termHandle}
+                composer={
+                  <Composer
+                    value={draft}
+                    onChange={setDraft}
+                    onSend={sendDraft}
+                    /* Started inside the tap — iOS refuses a recogniser begun
+                       a tick later, outside the gesture. */
+                    onVoice={() => setVoiceSession(startSpeech())}
+                    onImage={() => fileInput.current?.click()}
+                    voiceAvailable={speechSupported()}
+                  />
+                }
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-mut">
@@ -506,21 +491,14 @@ export default function App() {
           onClose={() => setNewSessionOpen(false)}
         />
       )}
-      {pasteOpen && (
-        <PasteSheet
-          onInsert={(text) => termHandle.current?.paste(text)}
+      {voiceSession && (
+        <VoiceSheet
+          session={voiceSession}
+          onInsert={(text) => setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${text}` : text))}
           onSend={(text) => {
             termHandle.current?.paste(text)
             termHandle.current?.write('\r')
           }}
-          onClose={() => setPasteOpen(false)}
-        />
-      )}
-      {voiceSession && (
-        <VoiceSheet
-          session={voiceSession}
-          onInsert={(text) => termHandle.current?.write(text)}
-          onSend={(text) => termHandle.current?.write(`${text}\r`)}
           onClose={() => {
             voiceSession.dispose()
             setVoiceSession(null)
