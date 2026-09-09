@@ -1,0 +1,26 @@
+# The cheap gates: a typecheck of both workspaces, a build, and the suites
+# that need no browser and no Claude CLI. `touch` and `changes` drive Chrome
+# and `setup` edits a Claude Code config, so those stay on a Mac at the desk:
+#
+#     bash scripts/test.sh all
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p server
+      - run: npx tsc --noEmit -p web
+      - run: npm run build
+      - run: npm audit --audit-level=high
+      - run: bash scripts/test.sh idle
+      - run: bash scripts/test.sh ask
+      - run: bash scripts/test.sh preview-url

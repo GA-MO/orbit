@@ -167,9 +167,17 @@ const main = () => {
 
   /* Removed first either way: `add` on a name that exists is an error, and this
      is also what repairs the path after the checkout has moved. */
-  run('claude', ['mcp', 'remove', '-s', 'user', 'orbit'])
+  const removed = run('claude', ['mcp', 'remove', '-s', 'user', 'orbit'])
   if (uninstall) {
-    say('Unregistered  orbit (MCP)')
+    /* "Unregistered" regardless of whether it was would leave a registration
+       behind and say otherwise. `remove` on a name that is not there is also
+       an error, and that one is fine. */
+    if (removed.ok || /not found|no .*server/i.test(removed.out)) say('Unregistered  orbit (MCP)')
+    else {
+      say('Could not unregister the MCP server with the `claude` CLI:')
+      console.log(removed.out)
+      say('Is Claude Code on PATH? Then run this again, or `claude mcp remove -s user orbit` by hand.')
+    }
   } else {
     const added = run('claude', ['mcp', 'add', '-s', 'user', 'orbit', '--', 'node', entry])
     if (added.ok) {

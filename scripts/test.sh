@@ -87,7 +87,14 @@ PASSED=0
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null
   wait "$SERVER_PID" 2>/dev/null
-  [ "$PASSED" = "1" ] && rm -rf "$SCRATCH"
+  # The shells the server ran write their history on the way out, a moment
+  # after the server itself has gone — one try left a lone .zsh_history behind.
+  if [ "$PASSED" = "1" ]; then
+    for _ in 1 2 3 4 5; do
+      rm -rf "$SCRATCH" 2>/dev/null && break
+      sleep 0.3
+    done
+  fi
   return 0
 }
 trap cleanup EXIT INT TERM

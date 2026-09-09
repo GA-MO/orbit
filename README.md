@@ -155,7 +155,7 @@ make test-idle        # noticing a session went quiet (no server)
 make test-ask         # answering from a notification (no server)
 ```
 
-`scripts/test.sh` builds, starts an Orbit of its own on `:3099` under a scratch `HOME`, runs the suites and takes it down again — so a run can neither be coloured by the last one nor reach the `~/.orbit` you actually use, and the server on `:3001` is never touched.
+`scripts/test.sh` builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down again — so a run can neither be coloured by the last one nor reach the `~/.orbit` you actually use, and the server on `:3001` is never touched.
 
 - `scripts/smoke.mjs` — captures, previews, the Mac→phone channel, sessions, attention, git, auth, MCP, the approval hook
 - `scripts/touch-smoke.mjs` — tapping a link, holding to select, dragging to extend, copying out of the terminal (`ENGINE=webkit` for the engine iOS runs)

@@ -8,7 +8,7 @@
  * inside the agent process, not typed into the PTY. This hook closes that gap
  * using the same pattern list, so `rm -rf` is `rm -rf` whoever typed it.
  *
- * Install (in the project's .claude/settings.json):
+ * Installed into ~/.claude/settings.json by `make setup` (scripts/setup.mjs), as:
  *
  *   "hooks": {
  *     "PreToolUse": [

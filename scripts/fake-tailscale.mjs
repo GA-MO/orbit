@@ -25,10 +25,10 @@ import path from 'node:path'
 const HOST = 'smoke-mac.example-tailnet.ts.net'
 const STATE =
   process.env.ORBIT_FAKE_TAILSCALE_STATE ??
-  path.join(process.env.HOME ?? os.homedir(), '.orbit', 'fake-tailscale.json')
+  path.join(process.env.ORBIT_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.orbit'), 'fake-tailscale.json')
 
 /* The front door is seeded rather than published, because that is what it is on
-   a real machine: `make phone-on` put it there long before any of this ran, and
+   a real machine: `make phone` put it there long before any of this ran, and
    Orbit has to leave it alone without ever having been told about it. */
 const SEED = [{ publicPort: 443, port: 3001 }]
 
