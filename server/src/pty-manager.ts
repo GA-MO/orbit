@@ -188,11 +188,12 @@ class PtySession implements Session {
   }
 
   /* A phone that comes back is looking at the frame that was on screen when it
-     left, and its terminal may be a different size now. Nothing short of a size
-     change makes a full-screen app redraw itself, and the kernel only signals
-     one when the size actually differs — so arrive at the size the client wants
-     by way of one row less. The app draws twice; the second draw is the one
-     that fits.
+     left, and its terminal may be a different size now. If it is, saying so is
+     enough. If it is not — the usual case, and the one this exists for — then
+     nothing has changed for the kernel to signal, and a full-screen app has no
+     reason to draw anything at all. So arrive at the size the client wants by
+     way of one row less. The app draws twice; the second draw is the one that
+     fits.
 
      Both sizes have to be *observed*, though, and that is why this waits in
      between. SIGWINCH is not queued: two of them raised in the same breath
@@ -203,6 +204,15 @@ class PtySession implements Session {
   repaint(cols: number, rows: number) {
     if (!this.alive || cols <= 0 || rows <= 0) return
     if (this.repaintTimer) clearTimeout(this.repaintTimer)
+    /* A size it has not seen is its own signal: the kernel raises SIGWINCH,
+       the app answers with one whole frame, and that frame already fits. The
+       detour below would only make it draw a second one at a size nobody
+       asked for — which is what every fold of the key bar and every keyboard
+       sliding in was paying for, and what made those stutter. */
+    if (cols !== this.cols || rows !== this.rows) {
+      this.resize(cols, rows)
+      return
+    }
     this.resize(cols, Math.max(1, rows - 1))
     this.repaintTimer = setTimeout(() => {
       this.repaintTimer = null

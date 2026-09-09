@@ -594,8 +594,17 @@ export default function Terminal({
         sizeTimer = null
         if (!pendingSize) return
         const next = `${pendingSize.cols}x${pendingSize.rows}`
-        // Toggling the bar twice ends where it began: nothing to tell the agent.
-        if (next === sentSize) return
+        /* Back where it began — the bar was folded and unfolded inside one
+           settle window — so there is no new size to tell the agent. There is
+           still a screen to put right, though, and that is what made toggling
+           the keys repeatedly leave the prompt hidden behind the bar: xterm
+           was resized down and up for real, and an app that owns the screen
+           has no reflow to survive it, so its last frame is now laid out for a
+           height the terminal no longer has. Nothing else will redraw it,
+           because from the agent's side nothing happened. Asking for the
+           repaint is exactly the same message; the server answers every
+           `resize` by walking one row down and back. */
+        if (next === sentSize) return askRedraw()
         sentSize = next
         send({ type: 'resize', ...pendingSize })
         /* A size the agent has not heard before already earns a full redraw —
