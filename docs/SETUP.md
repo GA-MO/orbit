@@ -138,3 +138,18 @@ make test-setup     # เฉพาะตัวติดตั้งนี้
 
 `make test` **ไม่เคยแตะ :3001** และไม่แตะ `~/.orbit` ของจริง — มันสร้าง HOME ชั่วคราว
 ให้ตัวเอง ถ้า run ถูก kill กลางทางแล้วเหลือขยะไว้ ใช้ `make test-clean` เก็บ
+
+## Releasing
+
+```sh
+scripts/release.sh 0.2.0    # ตั้ง version ใน package.json ทั้งสอง, commit, tag v0.2.0, push
+```
+
+tag จะรัน `.github/workflows/release.yml`: build executable ทั้ง arm64 และ x64
+แนบเข้า GitHub Release พร้อม `.sha256` ข้างละไฟล์ จากนั้น `install.sh`
+บนเครื่องไหนก็ได้จะดึงเวอร์ชันล่าสุดนี้ไปติดตั้ง
+
+Homebrew เป็นทางเลือก: ถ้าตั้ง repository variable `TAP_REPO`
+(`<owner>/homebrew-tap`) และ secret `TAP_TOKEN` ที่ push ไป tap นั้นได้
+job `tap` จะเขียน `Formula/orbit.rb` ให้เองจาก `packaging/homebrew/orbit.rb.tmpl`
+ไม่ตั้งก็ใช้ `scripts/tap.sh v0.2.0 ../homebrew-tap` ทำมือ

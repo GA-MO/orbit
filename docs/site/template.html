@@ -668,32 +668,32 @@
       <div class="eyebrow">06 — เริ่มใช้</div>
       <h2>จากศูนย์ถึงสั่งงานจากมือถือ</h2>
       <p class="lede">
-        ทุก path ถูกหาจากตำแหน่งของ checkout เอง ไม่มีอะไรให้แทนที่ด้วยมือ
-        และรันซ้ำได้เสมอโดยไม่เกิดของซ้อน
+        ไฟล์ executable ไฟล์เดียวจาก GitHub release ตรวจ checksum ก่อนติดตั้ง
+        และ <code>orbit setup</code> รันซ้ำได้เสมอโดยไม่เกิดของซ้อน
       </p>
     </div>
 
-<pre><span class="c"># หนึ่งครั้งต่อเครื่อง</span>
-git clone &lt;repo&gt; orbit &amp;&amp; cd orbit
-make install
-make setup        <span class="c"># build + ลงทะเบียน MCP + ติดตั้ง hook</span>
+<pre><span class="c"># หนึ่งครั้งต่อเครื่อง — ไฟล์เดียว ไม่ต้องลง runtime</span>
+curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
+orbit doctor      <span class="c"># เครื่องนี้มีอะไร ขาดอะไร</span>
+orbit setup       <span class="c"># ลงทะเบียน MCP + ติดตั้ง hook ใน Claude Code</span>
 
 <span class="c"># เปิดใช้งาน</span>
-make phone        <span class="c"># :3001 + Tailscale HTTPS แล้วเปิดลิงก์บนมือถือ</span>
-make stop         <span class="c"># เลิกงาน</span></pre>
+orbit phone       <span class="c"># รัน + Tailscale HTTPS แล้วเปิดลิงก์บนมือถือ</span>
+orbit phone off   <span class="c"># ปิดประตูหน้า</span></pre>
 
     <div class="grid">
       <div class="card">
         <h3>ต้องมีอะไรบ้าง</h3>
-        <p>macOS, Node 20+, Claude Code บน PATH, Google Chrome สำหรับ capture และ Tailscale เมื่ออยากใช้จากนอกบ้าน</p>
+        <p>macOS (Apple silicon หรือ Intel), Claude Code บน PATH, Google Chrome สำหรับ capture และ Tailscale เมื่ออยากใช้จากนอกบ้าน ไม่ต้องมี Node หรือ Bun</p>
       </div>
       <div class="card">
         <h3>ครั้งแรกจะเจออะไร</h3>
-        <p>คอนโซลพิมพ์ access token ออกมา — เอาไปกรอกในหน้า login บนมือถือ ลบ <code>~/.orbit/config.json</code> เมื่ออยากเปลี่ยน token ใหม่</p>
+        <p>คอนโซลพิมพ์ access token ออกมา — เอาไปกรอกในหน้า login บนมือถือ ลบ key <code>token</code> ใน <code>~/.orbit/config.json</code> เมื่ออยากเปลี่ยน token ใหม่</p>
       </div>
       <div class="card">
         <h3>เอกสารต่อจากนี้</h3>
-        <p><code>docs/SETUP.md</code> ติดตั้งแบบละเอียด · <code>docs/MCP.md</code> ฝั่ง agent · <code>docs/TAILSCALE.md</code> ใช้จากนอกบ้าน · <code>docs/USER-GUIDE.md</code> คู่มือใช้งาน</p>
+        <p><a href="https://github.com/GA-MO/orbit">GitHub</a> · <code>docs/SETUP.md</code> ติดตั้งแบบละเอียด · <code>docs/MCP.md</code> ฝั่ง agent · <code>docs/TAILSCALE.md</code> ใช้จากนอกบ้าน · <code>docs/USER-GUIDE.md</code> คู่มือใช้งาน</p>
       </div>
     </div>
   </div>
@@ -702,7 +702,7 @@ make stop         <span class="c"># เลิกงาน</span></pre>
 <footer>
   <div class="wrap">
     <span>Orbit — local AI coding hub สำหรับ macOS</span>
-    <span>ภาพสร้างใหม่ด้วย <code>make shots</code> · หน้านี้สร้างด้วย <code>node docs/site/build.mjs</code></span>
+    <span>ภาพสร้างใหม่ด้วย <code>make shots</code> · หน้านี้สร้างด้วย <code>bun docs/site/build.mjs</code></span>
   </div>
 </footer>
 </html>

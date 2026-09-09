@@ -1,186 +1,184 @@
-# Orbit
+<p align="center">
+  <img src="web/public/icon.svg" width="88" alt="Orbit">
+</p>
 
-Local AI coding hub — turn your MacBook into a personal AI development server you control from your phone's browser. `AGENTS.md` is the original brief this was built from; the design as it stands is in [docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
+<h1 align="center">Orbit</h1>
 
-## What it does
+<p align="center">
+  Your MacBook as a personal AI dev server — driven from your phone.<br>
+  A real terminal for Claude Code, Codex and Gemini CLI, in an installable web app.
+</p>
 
-Everything below is in and tested; the reasoning behind each piece — the
-failure it prevents, what was tried first — is in
-[docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
+<p align="center">
+  <a href="https://github.com/GA-MO/orbit/actions/workflows/ci.yml"><img src="https://github.com/GA-MO/orbit/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/GA-MO/orbit/releases/latest"><img src="https://img.shields.io/github/v/release/GA-MO/orbit?label=release" alt="release"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-111" alt="macOS">
+  <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1" alt="Bun">
+</p>
 
-- **A real terminal on the phone.** xterm.js over a WebSocket to node-pty: colours, cursor movement, interactive prompts, Ctrl+C, resize, scrollback. Sessions survive the phone disconnecting and the server restarting; reconnecting replays the screen.
-- **Agents as providers.** Claude Code, Codex CLI, Gemini CLI or a plain shell, launched through the login shell so the real PATH applies. Ended sessions can be resumed as the same conversation, and conversations started at the Mac's own terminal appear on the phone too.
-- **Getting words and pictures in.** Voice input (Web Speech, Thai/English), photo upload with the path dropped into the prompt, press-and-hold to copy out of the terminal, tap a URL to open it in a frame over the session.
-- **Reviewing what the agent wrote.** A Changes tab: status, per-file diff with word-level marks, stage a hunk, commit, push — all through porcelain git with argument arrays, never a shell.
-- **Looking at the running app.** Headless captures of any URL at phone/tablet/desktop sizes, the Mac's own screen, and a dev server published over the tailnet as https so it can be framed inside the app.
-- **The agent's side.** An MCP server (`orbit_capture`, `orbit_screen`, `orbit_notify`, `orbit_ask`, `orbit_preview`) and Claude Code hooks that forward "waiting for you" moments and route the agent's own dangerous commands to the phone for approval.
-- **Knowing which session wants you.** Per-session attention with a tab badge, a settled-agent detector for agents that cannot say so themselves, Web Push that wakes a locked phone, and answer buttons on the notification itself.
-- **Auth.** A bearer token for everything, an HttpOnly hashed cookie only for what a header cannot carry (the socket, images), nothing in URLs, slow rejection of guesses.
+<p align="center">
+  <a href="https://ga-mo.github.io/orbit/">Website</a> ·
+  <a href="docs/USER-GUIDE.md">User guide</a> ·
+  <a href="docs/SETUP.md">Setup</a> ·
+  <a href="docs/MCP.md">Agent integration</a> ·
+  <a href="docs/TAILSCALE.md">Remote access</a> ·
+  <a href="docs/DESIGN-NOTES.md">Design notes</a>
+</p>
 
-## Structure
+<p align="center">
+  <img src="docs/images/02-terminal.jpg" width="230" alt="The terminal on a phone">
+  <img src="docs/images/11-changes.jpg" width="230" alt="Reviewing the agent's diff">
+  <img src="docs/images/08-approval.jpg" width="230" alt="Approving a dangerous command">
+</p>
 
-```
-server/   Bun + TypeScript — HTTP + WebSocket server, PTY session manager (bun-pty)
-web/      React + Vite + TypeScript + Tailwind v4 — xterm.js terminal UI
-```
+## What it is
 
-## Design system
+Coding agents live in a terminal on your Mac. Orbit puts that terminal on
+your phone — over your own tailnet, never the public internet — and adds the
+things a phone needs to actually drive one: a key bar with Ctrl and arrows,
+voice input, a diff you can stage and commit with a thumb, screenshots of the
+app under development, and a way for the agent to reach *you* when it stops
+and waits.
 
-Deep-space graphite palette with an indigo→cyan orbital accent (amber is reserved for the
-"live session" state), Space Grotesk for display type (bundled locally — the PWA never
-touches a CDN), and the signature **orbit ring** mark: a satellite tracing a slow orbit,
-used as the app mark and connection indicator. Tokens live in `web/src/styles.css`
-(`@theme`); primitives (buttons, fields, sheets, icons) in `web/src/components/ui.tsx`.
-Navigation is a four-tab shell — Terminal / Changes / Sessions / Preview — with sheets for
-focused flows (new session, voice) and modals only for interrupts (command approval).
+It is a single-user, local-first tool. The Mac is the source of truth; the
+phone is a window onto it. Nothing runs in a cloud.
 
-## Run
+## Features
 
-Orbit runs on [Bun](https://bun.sh) (1.4 or newer) — it is the runtime for the
-server, the scripts, the hooks and the tests, and the PTY underneath is
-bun-pty. Node is not used. First time on a machine:
+- **A real terminal.** xterm.js over a WebSocket to a PTY: colours, cursor
+  movement, interactive prompts, Ctrl+C, resize. Sessions outlive the phone
+  disconnecting and the server restarting; reconnecting replays the screen.
+- **Agents as providers.** Claude Code, Codex CLI, Gemini CLI or a plain
+  shell, started through your login shell so your PATH applies. Ended
+  sessions resume as the same conversation; conversations you started at the
+  desk show up on the phone too.
+- **Words and pictures in.** Voice dictation (Thai and English), a photo
+  dropped into the prompt as a path, press-and-hold to copy from the
+  terminal, tap a URL to open it in a frame over the session.
+- **Review what the agent wrote.** A Changes tab: status, per-file diffs with
+  word-level marks, stage a hunk, commit, push.
+- **Look at the running app.** Headless captures at phone, tablet and desktop
+  sizes; the Mac's own screen; a dev server published over the tailnet as
+  https so it opens *inside* the app.
+- **The agent's side.** An MCP server (`orbit_capture`, `orbit_screen`,
+  `orbit_notify`, `orbit_ask`, `orbit_preview`) and Claude Code hooks that
+  forward "waiting for you" moments and route the agent's own dangerous
+  commands to your phone for approval.
+- **Know which session wants you.** Per-session attention with a badge, a
+  settled-agent detector for agents that cannot say so themselves, Web Push
+  that reaches a locked phone, and answer buttons on the notification itself.
+- **Installable.** A PWA with an offline shell; add it to the home screen.
 
-```sh
-make install    # dependencies (bun install)
-make setup      # build, register the MCP server, install the Claude Code hooks
-```
+## Install
 
-Full walkthrough for someone setting up a machine from scratch:
-[docs/SETUP.md](docs/SETUP.md).
-
-`make setup` (`orbit setup`) resolves every path from whatever is running it, so nothing has to be
-substituted by hand — which is what made the old copy-this-JSON instructions in
-[docs/MCP.md](docs/MCP.md) fail silently. It is safe to re-run (it replaces its
-own hooks rather than adding a second copy, and backs up
-`~/.claude/settings.json` first) and `make unsetup` takes it all back out.
-Sessions already open keep the previous build: the MCP server is spawned when a
-session starts.
-
-Development (two ports, HMR):
-
-```sh
-bun install
-bun run dev
-```
-
-- Web UI: http://localhost:5173 (Vite binds all interfaces — open `http://<mac-ip>:5173` from your phone on the same network or via Tailscale)
-- Server: http://localhost:3001 (`/healthz`, `/api/*`, WS at `/ws`)
-- The Vite dev server proxies `/ws` and `/api` to the backend, so the phone only needs to reach port 5173.
-
-Production (single port, installable PWA):
-
-```sh
-bun run build
-bun run start
-```
-
-Then open `http://<mac-ip>:3001` from your phone. That is enough for the terminal, but voice input and Add to Home Screen need a secure context — for those, put it behind HTTPS with `bun run remote:on` (see [docs/TAILSCALE.md](docs/TAILSCALE.md)) and open `https://<machine>.<tailnet>.ts.net` instead.
-
-One executable, for a Mac that has no checkout:
+One executable, no runtime to install:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
-orbit doctor              # what this Mac has and is missing
-orbit setup               # wire the hooks and the MCP server into Claude Code
-orbit phone               # run it, published over the tailnet as https
 ```
 
-`install.sh` picks the binary for the Mac's architecture from the newest
-GitHub release, refuses one whose checksum does not match the release's, puts
-it in `~/.orbit/bin` and on the PATH. While the repository is private it
-needs the `gh` CLI logged in, or a `GITHUB_TOKEN`; `ORBIT_VERSION=v0.2.0`,
-`ORBIT_INSTALL_DIR` and `ORBIT_NO_MODIFY_PATH` are the knobs. From a
-checkout, `make dist` builds the same executable as `dist/orbit`
-(`TARGETS=all` for both architectures).
-
-The server, the MCP server (`orbit mcp`), the two Claude Code hooks
-(`orbit hook approve|notify`), the installer, the built web app and bun-pty's
-library are all inside it (`scripts/dist.sh`); Chrome, Tailscale and Claude
-Code stay the machine's own. `orbit help` lists the rest.
-`ORBIT_BIN=dist/orbit bash scripts/test.sh smoke` runs the suites against it.
-`make setup` / `make phone` from a checkout run the same code as
-`bun server/dist/main.js setup` / `phone`.
-
-## Releasing
+Then, on the Mac:
 
 ```sh
-scripts/release.sh 0.2.0    # sets the version, commits, tags v0.2.0, pushes
+orbit doctor    # what this Mac has and what it is missing
+orbit setup     # wire the hooks and the MCP server into Claude Code
+orbit phone     # run it, published over your tailnet as https
 ```
 
-The tag runs `.github/workflows/release.yml`: both Mac binaries are built,
-attached to a GitHub release with a `.sha256` beside each, and — when the
-repository has a `TAP_REPO` variable (`<owner>/homebrew-tap`) and a
-`TAP_TOKEN` secret that can push to it — `Formula/orbit.rb` in that tap is
-rewritten from `packaging/homebrew/orbit.rb.tmpl` with those checksums. After
-that, on any Mac:
+`orbit phone` prints the address and the access token. Open the address on
+the phone, enter the token, add it to the home screen. That is the whole
+setup.
+
+**Requirements**
+
+| | |
+|---|---|
+| macOS | Apple silicon or Intel |
+| [Tailscale](https://tailscale.com) | to reach the Mac from anywhere, with real https (voice and Add to Home Screen need it) |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex CLI, Gemini CLI | whichever you use — Orbit finds what is on your PATH |
+| Google Chrome | optional, for captures of the app under development |
+
+The installer takes `ORBIT_VERSION=v0.2.0`, `ORBIT_INSTALL_DIR` and
+`ORBIT_NO_MODIFY_PATH`. It verifies the release's checksum and refuses a
+download that does not match.
+
+## How it works
+
+```
+  phone (PWA)  ──https, tailnet only──▶  orbit  ──bun-pty──▶  zsh -l  ──▶  claude / codex / gemini
+       ▲                                  │                                       │
+       │   notices, questions, push       │◀────── MCP tools + hooks ─────────────┘
+       └──────────────────────────────────┘
+```
+
+- **Server:** Bun + TypeScript. HTTP, WebSocket, PTY sessions, git, headless
+  Chrome, push notifications. One executable with the web app inside it.
+- **Web:** React, Vite, xterm.js, Tailwind. Mobile first; the touch handling
+  is tested on both Chromium and WebKit.
+- **Security:** a bearer token for everything; an `HttpOnly` hashed cookie
+  only where a header cannot go (the socket, images); nothing in URLs; slow
+  rejection of guesses; commands matching dangerous patterns held for
+  approval whether you typed them or the agent did. `tailscale serve` is
+  tailnet-only — Orbit never uses `funnel`.
+
+The reasoning behind each piece — what was tried first, which failure each
+decision prevents — is in [docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md).
+
+## From source
+
+Needs [Bun](https://bun.sh) 1.4 or newer.
 
 ```sh
-brew tap <owner>/tap
-brew install orbit
-orbit doctor && orbit setup && orbit phone
+git clone https://github.com/GA-MO/orbit && cd orbit
+make install    # bun install
+make setup      # build, register the MCP server, install the hooks
+make phone      # run on :3001, published over the tailnet
 ```
 
-Without the tap wiring, `scripts/tap.sh v0.2.0 ../homebrew-tap` renders and
-commits the same formula by hand. The formula downloads from the release, so
-the repository has to be public (or the tap's users need a token Homebrew can
-use), and it needs a license to name.
+```sh
+make dev        # Vite on :5173 with HMR, server on :3001
+make dist       # one executable → dist/orbit  (TARGETS=all for arm64 + x64)
+make doctor     # the same check the installed binary offers
+make stop       # stop the server and the tailnet front door
+```
 
-On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; to rotate it, remove the `token` key from that file rather than the file itself — the same file holds the push keypair, and losing that silently unsubscribes every phone).
+`orbit setup` resolves every path from whatever is running it, so nothing is
+copied by hand; it replaces its own hooks rather than adding a second copy,
+backs up `~/.claude/settings.json` first, and `make unsetup` takes it all
+back out.
 
 ## Testing
 
 ```sh
-make test             # every suite
-make test-smoke       # API / MCP / hooks only (no browser)
-make test-touch       # touch behaviour only (needs system Chrome)
-make test-setup       # wiring a checkout into Claude Code (no server needed)
-make test-changes     # the Changes tab only (needs system Chrome)
-make test-preview-url # how an agent's path becomes a URL (no server)
-make test-idle        # noticing a session went quiet (no server)
-make test-ask         # answering from a notification (no server)
+make test               # every suite, against a throwaway server
+make test-smoke         # API, MCP, hooks (no browser)
+make test-touch         # touch behaviour in Chromium (ENGINE=webkit for WebKit)
+make test-changes       # the Changes tab in a real browser
+make test-install       # the installer, against a stand-in release
 ```
 
-CI (`.github/workflows/ci.yml`) runs the typecheck, the build, `bun audit` and
-the suites that need neither Chrome nor the Claude CLI.
+`scripts/test.sh` builds, starts an Orbit of its own on the first free port
+from `:3099` under a scratch `HOME`, runs the suites and takes it down — a
+run can neither be coloured by the last one nor reach the `~/.orbit` you use.
+`ORBIT_BIN=dist/orbit` runs the suites against the compiled executable.
+`tailscale` is a stand-in in the tests (`scripts/fake-tailscale.mjs`).
 
-Screenshots and the product page are generated, not hand-taken:
+CI runs the typecheck, the build, `bun audit` and the headless suites on
+every push. A tag `v<version>` (`scripts/release.sh 0.2.0`) builds both Mac
+executables and publishes them as a release with checksums — see
+[Releasing](docs/SETUP.md#releasing) in the setup guide.
 
-```sh
-make shots            # retake docs/images from the current UI
-bun docs/site/build.mjs   # rebuild docs/site/index.html from those images
-```
+## Documentation
 
-`scripts/test.sh` builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down again — so a run can neither be coloured by the last one nor reach the `~/.orbit` you actually use, and the server on `:3001` is never touched.
+- [User guide](docs/USER-GUIDE.md) — every feature, with screenshots (Thai)
+- [Setup](docs/SETUP.md) — a machine from scratch, and what `setup` writes (Thai)
+- [Agent integration](docs/MCP.md) — the MCP tools and the hooks (Thai)
+- [Remote access](docs/TAILSCALE.md) — Tailscale, https, running at login (Thai)
+- [Design notes](docs/DESIGN-NOTES.md) — why each piece is shaped the way it is
+- [Website](https://ga-mo.github.io/orbit/) — the product page (Thai)
 
-- `scripts/smoke.mjs` — captures, previews, the Mac→phone channel, sessions, attention, git, auth, MCP, the approval hook
-- `scripts/touch-smoke.mjs` — tapping a link, holding to select, dragging to extend, copying out of the terminal (`ENGINE=webkit` for the engine iOS runs)
-- `scripts/changes-smoke.mjs` — the Changes tab in a real browser: two hunks shown as two, the words that changed marked where they changed, and one hunk staged without the other
-- `scripts/idle-smoke.mjs` — which line a settled session is described by, and when it counts as settled at all, against a stand-in session and a clock (`watch` takes the quiet window as an argument so the suite does not spend ten seconds per assertion)
-- `scripts/ask-smoke.mjs` — the capability a notification carries: a wrong token, an option the question never offered, a second use, an answer after the timeout
-- **`tailscale` is a stand-in in the tests** (`scripts/fake-tailscale.mjs`, pointed at by `ORBIT_TAILSCALE`). The preview suite used to skip on any machine without Tailscale logged in, and on the machines where it did run it published real mappings on the real tailnet — one of which outlived the throwaway server it pointed at. The stand-in answers the four commands `preview.ts` issues, keeps its mappings under the test's own `HOME`, and touches no network. Set `ORBIT_TAILSCALE` yourself to aim at the real CLI
+## Status
 
-A check reports as **skip** rather than fail when the machine cannot answer it: the Mac screen capture without Screen Recording permission for whatever launched the server, and the agent-resume section when Claude Code is not on the server's PATH. The runner hands the throwaway server the login shell's real PATH, so an agent installed in `~/.local/bin` is found even under the scratch `HOME` that has no shell rc files of its own.
-
-**User guide (Thai, with screenshots)**: [docs/USER-GUIDE.md](docs/USER-GUIDE.md) — a full walkthrough of every feature, captured from a real end-to-end session.
-
-**Using Orbit away from home**: see [docs/TAILSCALE.md](docs/TAILSCALE.md) — WireGuard tunnel to your Mac with real HTTPS (full PWA), no ports exposed to the internet.
-
-## Notes
-
-- npm strips the execute bit from node-pty's prebuilt `spawn-helper`, which causes `posix_spawnp failed` at PTY spawn. The root `postinstall` script fixes the permission automatically after every install.
-- Session ids are stored in `localStorage`; a page reload reattaches to the same shell.
-- **Stop / clean:** `make stop` kills the server on `:3001` and Tailscale HTTPS (443). `make clean` prunes `~/.orbit/screenshots` and `uploads` (keeps newest 50 each; leaves auth and sessions alone). Published preview serves (8443+) are dropped when the server exits; the front door (443) is only cleared by `make stop` / `make phone-off`.
-- **Agent GUI browsers** (Chrome/Safari tabs an agent opens itself) are not Orbit's process and are not killed by stop/clean or Preview → “Close capture browser”. Prefer `orbit_capture` / headless Playwright for UI checks; session-scoped browser kill is deferred.
-
-## Roadmap
-
-The phases of the original brief (`AGENTS.md`):
-
-1. ~~Terminal (xterm.js + node-pty)~~ ✅
-2. ~~Claude Code / Codex / Gemini CLI provider integration~~ ✅
-3. ~~Session management (persist metadata + history across server restarts)~~ ✅
-4. ~~Voice + image input~~ ✅
-5. ~~Playwright screenshot validation~~ ✅
-6. ~~Mobile UX polish (PWA install, auth, command approval)~~ ✅
-
-All phases from `AGENTS.md` are implemented. Beyond the original spec: Tailscale HTTPS docs ✅, viewport presets + Mac screen capture ✅, MCP server and phone-side approval for the agent's own commands ✅, the Diff half of the Files/Diff tab as **Changes** (status, per-file diff, stage, commit, push) ✅, per-session attention state with a tab badge and notification deep-links ✅. Still open: a Files browser, session timeline, multi-window layout on tablets, tying captures to the session that prompted them.
+Everything above is built and tested. Still open: a file browser, a session
+timeline, a tablet layout, and tying captures to the session that asked for
+them. `AGENTS.md` is the original brief this grew from.
