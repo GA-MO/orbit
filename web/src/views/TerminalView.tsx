@@ -4,6 +4,8 @@ import type { SessionInfo } from '../api'
 import {
   Button,
   IconButton,
+  IconEdit,
+  IconMic,
   IconPlus,
   IconRestart,
   OrbitMark,
@@ -22,6 +24,12 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 interface Props {
   session: SessionInfo | null
   status: ConnectionStatus
+  voiceAvailable: boolean
+  onOpenVoice: () => void
+  /** Open the message sheet — the phone's way in that is not one key at a time. */
+  onOpenCompose: () => void
+  /** Something already written and not yet sent, so the button can say so. */
+  draftPending: boolean
   /** Start a fresh session with the same agent + folder as this ended one. */
   onNewSession: () => void
   /** Same, but asking the agent to carry on its last conversation there. */
@@ -34,6 +42,10 @@ interface Props {
 export default function TerminalView({
   session,
   status,
+  voiceAvailable,
+  onOpenVoice,
+  onOpenCompose,
+  draftPending,
   onNewSession,
   onResume,
   starting,
@@ -49,12 +61,7 @@ export default function TerminalView({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Which session am I in — and nothing else. What goes *into* the session
-          is the composer's business, down at the bottom where the thumb and the
-          keyboard already are; these two used to be mixed together up here, at
-          the far corner from both.
-
-          Opaque and above the terminal: xterm's screen is a positioned element,
+      {/* Opaque and above the terminal: xterm's screen is a positioned element,
           so anything it draws past its box would otherwise land on top of this. */}
       <header className="relative z-10 flex shrink-0 items-center gap-3 bg-ink px-4 py-2.5 shadow-[0_1px_0_var(--edge-lit)]">
         <OrbitMark size={26} idle={status !== 'connected'} />
@@ -130,7 +137,26 @@ export default function TerminalView({
               </Button>
             )}
           </div>
-        ) : null}
+        ) : (
+          /* The two ways a whole message gets in, as against a key at a time.
+             Both open the same shape of panel over the terminal; the image
+             picker lives inside the message one, next to the sentence its path
+             belongs in. */
+          <>
+            {voiceAvailable && (
+              <IconButton label="Voice input" onClick={onOpenVoice}>
+                <IconMic size={19} />
+              </IconButton>
+            )}
+            <IconButton
+              label={draftPending ? 'Message (unsent draft)' : 'Write a message'}
+              onClick={onOpenCompose}
+              className={draftPending ? 'text-accent' : ''}
+            >
+              <IconEdit size={19} />
+            </IconButton>
+          </>
+        )}
       </header>
       <div className="min-h-0 flex-1 p-1.5">{children}</div>
     </div>

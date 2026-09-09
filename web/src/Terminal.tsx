@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -178,13 +178,6 @@ interface Props {
   ) => void
   onAsk: (request: AskRequest) => void
   /**
-   * The draft bar, owned by the parent — voice and the image picker write into
-   * the same draft — but rendered here, above the key bar and below the
-   * screen, because that is the only place it can sit without the terminal
-   * being resized around it twice.
-   */
-  composer?: ReactNode
-  /**
    * A session's standing state changed with nothing to say about it — one went
    * quiet and Orbit noticed by itself. No words and no toast: the badge in the
    * Sessions tab is the whole message, so this only asks for a refresh.
@@ -215,7 +208,6 @@ export default function Terminal({
   onNotice,
   onAsk,
   onAttention,
-  composer,
   onPreview,
   onInsertPath,
   onToast,
@@ -1098,7 +1090,6 @@ export default function Terminal({
           onToast={onToast}
         />
       )}
-      {showKeys && !readOnly && composer}
       {showKeys && !readOnly && (
         <TerminalKeys
           keyboardOpen={keyboardOpen}

@@ -124,10 +124,6 @@ export const IconEdit = icon(
   <path d="M14.5 5.5 18.5 9.5 9 19H5v-4L14.5 5.5ZM12.5 7.5l4 4" />,
 );
 export const IconInsert = icon(<path d="M4 12h12m0 0-4-4m4 4-4 4M20 5v14" />);
-/* An arrow leaving upward rather than a paper plane: the draft goes up into
-   the terminal above it, and the plane reads as "email" on a phone. */
-export const IconSend = icon(<path d="M12 20V5m0 0-6 6m6-6 6 6" />);
-
 export const IconPaste = icon(
   <>
     <path d="M9 4.5H7A1.5 1.5 0 0 0 5.5 6v13A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2" />

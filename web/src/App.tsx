@@ -18,7 +18,7 @@ import { dropPush, pushEndpoint, registerPush, systemNotice } from './notice'
 import ApprovalModal from './components/ApprovalModal'
 import AskModal from './components/AskModal'
 import PageViewer from './components/PageViewer'
-import Composer from './components/Composer'
+import ComposeSheet from './sheets/ComposeSheet'
 import { IconBranch, IconCapture, IconSessions, IconTerminal } from './components/ui'
 import {
   AuthError,
@@ -90,8 +90,11 @@ export default function App() {
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const [voiceSession, setVoiceSession] = useState<SpeechSession | null>(null)
   /* One draft, three ways in: the keyboard, dictation, and the image picker
-     all write here, and nothing reaches the PTY until Send. */
+     all write here, and nothing reaches the PTY until Send. Held out here
+     rather than inside the sheet so that closing the sheet — to look something
+     up in the terminal it is covering — does not throw the message away. */
   const [draft, setDraft] = useState('')
+  const [composeOpen, setComposeOpen] = useState(false)
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   // Questions from the Mac queue up: each one is blocking something over there.
   const [asks, setAsks] = useState<AskRequest[]>([])
@@ -334,7 +337,8 @@ export default function App() {
       const { path } = await uploadImage(file)
       /* Into the draft, not the PTY: an uploaded path is almost always the
          middle of a sentence ("look at <path> and tell me…"), and the rest of
-         that sentence is easier to write next to it than around it. */
+         that sentence is easier to write next to it than around it. The sheet
+         is still open underneath the picker, so it appears there. */
       setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${path} ` : `${path} `))
       showToast('Image uploaded — path added to the message')
     } catch (e) {
@@ -343,14 +347,12 @@ export default function App() {
   }
 
   /* `paste`, never `write`: a bare newline mid-text is read as "send" by the
-     agent's own composer, so a multi-line draft written through would arrive
+     agent's own composer, so a multi-line message written through would arrive
      as several half-messages. See the handle in Terminal.tsx. */
-  const sendDraft = () => {
-    const text = draft.trim()
+  const putText = (text: string, commit: boolean) => {
     if (!text) return
     termHandle.current?.paste(text)
-    termHandle.current?.write('\r')
-    setDraft('')
+    if (commit) termHandle.current?.write('\r')
   }
 
   const insertPath = (path: string) => {
@@ -370,6 +372,11 @@ export default function App() {
           <TerminalView
             session={current}
             status={status}
+            voiceAvailable={speechSupported()}
+            /* Started here, inside the tap — iOS refuses a start one tick later. */
+            onOpenVoice={() => setVoiceSession(startSpeech())}
+            onOpenCompose={() => setComposeOpen(true)}
+            draftPending={draft.trim().length > 0}
             onNewSession={() => startFreshSession(false)}
             onResume={() => startFreshSession(true)}
             starting={startingNew}
@@ -393,18 +400,6 @@ export default function App() {
                 onInsertPath={insertPath}
                 onToast={showToast}
                 handleRef={termHandle}
-                composer={
-                  <Composer
-                    value={draft}
-                    onChange={setDraft}
-                    onSend={sendDraft}
-                    /* Started inside the tap — iOS refuses a recogniser begun
-                       a tick later, outside the gesture. */
-                    onVoice={() => setVoiceSession(startSpeech())}
-                    onImage={() => fileInput.current?.click()}
-                    voiceAvailable={speechSupported()}
-                  />
-                }
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-mut">
@@ -491,14 +486,26 @@ export default function App() {
           onClose={() => setNewSessionOpen(false)}
         />
       )}
+      {composeOpen && (
+        <ComposeSheet
+          value={draft}
+          onChange={setDraft}
+          onInsert={(text) => putText(text, false)}
+          onSend={(text) => putText(text, true)}
+          onImage={() => fileInput.current?.click()}
+          onClose={() => setComposeOpen(false)}
+        />
+      )}
       {voiceSession && (
         <VoiceSheet
           session={voiceSession}
-          onInsert={(text) => setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${text}` : text))}
-          onSend={(text) => {
-            termHandle.current?.paste(text)
-            termHandle.current?.write('\r')
+          /* Into the draft, not the prompt: a recogniser mishears, and the
+             message sheet is where a mishearing can be fixed before it goes. */
+          onInsert={(text) => {
+            setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${text}` : text))
+            setComposeOpen(true)
           }}
+          onSend={(text) => putText(text, true)}
           onClose={() => {
             voiceSession.dispose()
             setVoiceSession(null)
