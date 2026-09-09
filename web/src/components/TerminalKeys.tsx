@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { IconButton, IconChevronDown } from './ui'
+import { IconButton, IconChevronDown, IconEdit, IconMic } from './ui'
 
 /**
  * Modifier state. `once` fires for the next key then clears (the common case);
@@ -13,6 +13,15 @@ export const cycleMod = (m: ModState): ModState =>
 
 interface Props {
   keyboardOpen: boolean
+  /* The two ways a whole message gets in, as against a key at a time. They sit
+     in this bar rather than the header because everything else a thumb reaches
+     for mid-conversation is already down here, and the header is across the
+     screen from it. */
+  voiceAvailable: boolean
+  onVoice: () => void
+  onCompose: () => void
+  /** Something written and not yet sent, so the pen can say so. */
+  draftPending: boolean
   /** Ctrl lives in the parent: it also rewrites what the soft keyboard types. */
   ctrl: ModState
   onCtrlChange: (next: ModState) => void
@@ -208,6 +217,10 @@ function Key({
 
 export default function TerminalKeys({
   keyboardOpen,
+  voiceAvailable,
+  onVoice,
+  onCompose,
+  draftPending,
   ctrl,
   onCtrlChange,
   onSend,
@@ -220,11 +233,6 @@ export default function TerminalKeys({
   useEffect(() => {
     localStorage.setItem(EXPANDED_KEY, expanded ? '1' : '0')
   }, [expanded])
-
-  const toggleKeyboard = () => {
-    if (keyboardOpen) onBlur()
-    else onFocus()
-  }
 
   const pressCtrl = () => {
     const next = cycleMod(ctrl)
@@ -257,19 +265,43 @@ export default function TerminalKeys({
 
   const arrowOf = (key: KeyDef) => keyOf(key, ARROW_W)
 
-  const keyboardButton = (
+  /* Only the half of it that is still needed. Tapping the terminal opens the
+     keyboard on its own — it always did — so a button offering to do that was
+     a second way to say the same thing, sitting in the best slot in the bar.
+     Putting it away is the part with nowhere else to go: nothing else on
+     screen will blur the textarea, and a keyboard covering half the terminal
+     is not something to be stuck with. */
+  const hideKeyboardButton = keyboardOpen && (
     <IconButton
-      label={keyboardOpen ? 'Hide keyboard' : 'Show keyboard'}
+      label="Hide keyboard"
       size="lg"
-      className={keyboardOpen ? 'bg-accent/15 text-accent' : ''}
+      className="bg-accent/15 text-accent"
       onTouchEnd={(e) => {
         e.preventDefault()
-        toggleKeyboard()
+        onBlur()
       }}
-      onClick={toggleKeyboard}
+      onClick={onBlur}
     >
       <KeyboardIcon size={20} />
     </IconButton>
+  )
+
+  const writeButtons = (
+    <>
+      {voiceAvailable && (
+        <IconButton label="Voice input" size="lg" onClick={onVoice}>
+          <IconMic size={19} />
+        </IconButton>
+      )}
+      <IconButton
+        label={draftPending ? 'Message (unsent draft)' : 'Write a message'}
+        size="lg"
+        className={draftPending ? 'text-accent' : ''}
+        onClick={onCompose}
+      >
+        <IconEdit size={19} />
+      </IconButton>
+    </>
   )
 
   /* Same button, same width, same slot whether open or shut — only the chevron
@@ -323,7 +355,8 @@ export default function TerminalKeys({
         )}
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-1">
-            {keyboardButton}
+            {writeButtons}
+            {hideKeyboardButton}
             {keysToggle}
             {expanded && ROW_LOWER.map((key) => keyOf(key))}
             {!expanded && ctrl !== 'off' && (

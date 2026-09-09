@@ -372,11 +372,6 @@ export default function App() {
           <TerminalView
             session={current}
             status={status}
-            voiceAvailable={speechSupported()}
-            /* Started here, inside the tap — iOS refuses a start one tick later. */
-            onOpenVoice={() => setVoiceSession(startSpeech())}
-            onOpenCompose={() => setComposeOpen(true)}
-            draftPending={draft.trim().length > 0}
             onNewSession={() => startFreshSession(false)}
             onResume={() => startFreshSession(true)}
             starting={startingNew}
@@ -400,6 +395,12 @@ export default function App() {
                 onInsertPath={insertPath}
                 onToast={showToast}
                 handleRef={termHandle}
+                voiceAvailable={speechSupported()}
+                /* Started inside the tap — iOS refuses a recogniser begun a
+                   tick later, outside the gesture. */
+                onVoice={() => setVoiceSession(startSpeech())}
+                onCompose={() => setComposeOpen(true)}
+                draftPending={draft.trim().length > 0}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-mut">

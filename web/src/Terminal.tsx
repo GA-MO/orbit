@@ -177,6 +177,13 @@ interface Props {
     meta?: { sessionId?: string | null; alreadyPushed?: boolean },
   ) => void
   onAsk: (request: AskRequest) => void
+  /* Writing a whole message, as against sending a key: the buttons live in the
+     key bar, which this component owns, but the draft and the sheets belong to
+     the app above it. */
+  voiceAvailable: boolean
+  onVoice: () => void
+  onCompose: () => void
+  draftPending: boolean
   /**
    * A session's standing state changed with nothing to say about it — one went
    * quiet and Orbit noticed by itself. No words and no toast: the badge in the
@@ -208,6 +215,10 @@ export default function Terminal({
   onNotice,
   onAsk,
   onAttention,
+  voiceAvailable,
+  onVoice,
+  onCompose,
+  draftPending,
   onPreview,
   onInsertPath,
   onToast,
@@ -1093,6 +1104,10 @@ export default function Terminal({
       {showKeys && !readOnly && (
         <TerminalKeys
           keyboardOpen={keyboardOpen}
+          voiceAvailable={voiceAvailable}
+          onVoice={onVoice}
+          onCompose={onCompose}
+          draftPending={draftPending}
           ctrl={ctrl}
           onCtrlChange={setCtrlMod}
           onSend={sendKey}
