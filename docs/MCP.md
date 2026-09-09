@@ -91,7 +91,7 @@ terminal เท่านั้น — จากมือถือที่คว
 ที่กำลังคิดอยู่ และรอได้ทั้งคืน hook ตัวนี้ส่งจังหวะพวกนั้นมาที่ Orbit
 
 `make setup` ติดตั้ง hook นี้ให้แล้ว (`PreToolUse` เฉพาะ `AskUserQuestion`, `Notification`,
-`Stop` → `scripts/orbit-notify-hook.mjs`) ส่วนนี้อธิบายว่ามันทำอะไร ไม่ต้องแก้ JSON เอง
+`Stop` → `orbit hook notify`) ส่วนนี้อธิบายว่ามันทำอะไร ไม่ต้องแก้ JSON เอง
 
 | เหตุการณ์ | ส่งอะไร |
 | --- | --- |
@@ -112,7 +112,7 @@ Orbit กรองคำสั่งอันตรายที่ **คุณ**
 พิมพ์เข้า PTY hook ตัวนี้ปิดช่องว่างนั้นด้วยชุด pattern เดียวกัน (`rm -rf`, `sudo`,
 `git push --force`, เขียนดิสก์ดิบ, fork bomb, …)
 
-`make setup` ติดตั้งให้แล้วเช่นกัน — `PreToolUse` matcher `Bash` → `scripts/orbit-approve.mjs`
+`make setup` ติดตั้งให้แล้วเช่นกัน — `PreToolUse` matcher `Bash` → `orbit hook approve`
 พร้อม `"timeout": 190`
 
 `timeout` คือเหตุผลหลักที่ไม่ควรก๊อป JSON เอง: hook รอคำตอบจากมือถือได้ถึง 180 วินาที

@@ -1,4 +1,4 @@
-.PHONY: help install setup unsetup dev build start stop clean icons shots dist \
+.PHONY: help install setup unsetup doctor dev build start stop clean icons shots dist \
 	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-setup test-clean \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
@@ -31,11 +31,14 @@ install: ## Install dependencies (needs Bun: https://bun.sh)
 # One command between `git clone` and a working setup. Everything it writes is
 # derived from where this checkout is, so nothing has a path to substitute by
 # hand — which is what made the old copy-this-JSON instructions fail silently.
-setup: ## Build, register the MCP server, and install the hooks (run after make install)
-	@bun scripts/setup.mjs
+setup: build ## Build, register the MCP server, and install the hooks (run after make install)
+	@bun server/dist/main.js setup
 
 unsetup: ## Undo make setup (leaves the checkout and ~/.orbit alone)
-	@bun scripts/setup.mjs --uninstall
+	@bun server/dist/main.js setup --uninstall
+
+doctor: ## What this Mac has and what it is missing (Claude Code, Chrome, Tailscale, hooks, MCP)
+	@bun server/dist/main.js doctor
 
 # ── local ──────────────────────────────────────────────
 
@@ -155,37 +158,11 @@ clean: ## Prune ~/.orbit screenshots & uploads (keep newest 50 each)
 # session). Those are outside Orbit's process; use make stop for Orbit +
 # Tailscale only. Prefer orbit_capture / headless Playwright for agent UI checks.
 
-phone: build ## Phone access — prod :3001 + Tailscale HTTPS
-	@echo ""
-	@echo "  Enabling Tailscale HTTPS → localhost:$(PORT) …"
-	@$(TS) serve --bg $(PORT)
-	@HOST=$$($(TS) status --json 2>/dev/null | bun -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);process.stdout.write((j.Self&&j.Self.DNSName||'').replace(/\.$$/,''))}catch{}})"); \
-	echo ""; \
-	echo "  Open on phone (Tailscale VPN on):"; \
-	if [ -n "$$HOST" ]; then \
-		echo "    https://$$HOST"; \
-	else \
-		echo "    https://<machine>.<tailnet>.ts.net"; \
-		echo "  (MagicDNS unknown — is Tailscale logged in?)"; \
-	fi; \
-	echo ""; \
-	echo "  Works in the browser or the Home Screen app."; \
-	echo "  Stop everything:  make stop"; \
-	echo ""; \
-	PIDS=$$(lsof -tiTCP:$(PORT) -sTCP:LISTEN 2>/dev/null || true); \
-	if [ -n "$$PIDS" ]; then \
-		echo "  Port $(PORT) already in use (PID $$PIDS)."; \
-		echo "  Tailscale is ready — open the URL above, or:"; \
-		echo "    make stop && make phone    # restart with this build"; \
-		echo ""; \
-		$(TS) serve status; \
-	else \
-		bun run start; \
-	fi
+phone: build ## Phone access — prod :3001 + Tailscale HTTPS (orbit phone)
+	@bun server/dist/main.js phone
 
 phone-off: ## Stop Tailscale serve (443) used by make phone
-	@$(TS) serve --https=443 off 2>/dev/null || true
-	@echo "  Tailscale HTTPS (443) off."
+	@bun server/dist/main.js phone off 2>/dev/null || $(TS) serve --https=443 off 2>/dev/null || true
 
 # ── LAN browser (dev, same WiFi) ───────────────────────
 

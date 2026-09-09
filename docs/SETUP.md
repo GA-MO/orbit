@@ -83,7 +83,7 @@ token เก็บที่ `~/.orbit/config.json` (อยากเปลี่�
 
 ### hook แจ้งเตือน — รู้ว่า Claude รออยู่
 
-`AskUserQuestion`, `Notification`, `Stop` → `scripts/orbit-notify-hook.mjs`
+`AskUserQuestion`, `Notification`, `Stop` → `orbit hook notify`
 
 กล่องคำถามของ Claude Code วาดอยู่ใน terminal เท่านั้น จากมือถือที่คว่ำอยู่บนโต๊ะ
 มันหน้าตาเหมือน session ที่กำลังคิด และรอได้ทั้งคืน hook นี้ส่งจังหวะพวกนั้นขึ้นมือถือ
@@ -91,7 +91,7 @@ token เก็บที่ `~/.orbit/config.json` (อยากเปลี่�
 
 ### hook อนุมัติ — คำสั่งอันตรายที่ agent รันเอง
 
-`PreToolUse` matcher `Bash` → `scripts/orbit-approve.mjs` พร้อม `"timeout": 190`
+`PreToolUse` matcher `Bash` → `orbit hook approve` พร้อม `"timeout": 190`
 
 Orbit กรองคำสั่งอันตรายที่ *คุณ* พิมพ์ลง terminal อยู่แล้ว แต่คำสั่งที่ *agent* รันผ่าน
 Bash tool ไม่ได้ผ่านด่านนั้น hook นี้ปิดช่องว่างนั้น เจอ pattern อันตราย (`rm -rf`,
@@ -104,7 +104,7 @@ Bash tool ไม่ได้ผ่านด่านนั้น hook นี้�
 
 **ไม่อยากได้อันนี้?** ถอดออกได้โดยไม่กระทบตัวอื่น — ลบ group ที่ matcher เป็น `Bash`
 ออกจาก `~/.claude/settings.json` แล้ว **อย่ารัน `make setup` อีก** เพราะมันจะใส่กลับมา
-(ถ้าจะถอดถาวร ทางที่ถูกคือเพิ่ม flag ใน `scripts/setup.mjs`)
+(ถ้าจะถอดถาวร ทางที่ถูกคือเพิ่ม flag ใน `orbit setup` — server/src/setup.ts)
 
 ## ถอนออก
 

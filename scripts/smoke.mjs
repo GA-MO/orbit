@@ -1134,7 +1134,7 @@ check(
 section('approval hook')
 const runHook = (input, env = {}) =>
   new Promise((resolve) => {
-    const h = spawn(process.execPath, [path.join(REPO, 'scripts/orbit-approve.mjs')], {
+    const h = spawn(process.execPath, [path.join(REPO, 'server/dist/main.js'), 'hook', 'approve'], {
       env: { ...process.env, ...env },
     })
     let stdout = ''

@@ -124,6 +124,20 @@ async function tailnetHost(): Promise<string | null> {
   return null
 }
 
+/* The front door: Orbit itself on 443, which `orbit phone` puts up and
+   `orbit phone off` takes down. Everything else in this module keeps away
+   from it (see isFrontDoor). */
+export async function publishFrontDoor(orbitPort: number): Promise<string> {
+  await run(['serve', '--bg', String(orbitPort)])
+  const name = await tailnetHost()
+  if (!name) throw new Error('tailscale is not logged in')
+  return `https://${name}`
+}
+
+export async function unpublishFrontDoor(): Promise<void> {
+  await run(['serve', '--https=443', 'off'])
+}
+
 /** Whether a dev server is up on this port, so the UI can say so before you tap. */
 export const isListening = (port: number): Promise<boolean> =>
   new Promise((resolve) => {

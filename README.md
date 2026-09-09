@@ -48,7 +48,7 @@ make setup      # build, register the MCP server, install the Claude Code hooks
 Full walkthrough for someone setting up a machine from scratch:
 [docs/SETUP.md](docs/SETUP.md).
 
-`make setup` resolves every path from this checkout, so nothing has to be
+`make setup` (`orbit setup`) resolves every path from whatever is running it, so nothing has to be
 substituted by hand — which is what made the old copy-this-JSON instructions in
 [docs/MCP.md](docs/MCP.md) fail silently. It is safe to re-run (it replaces its
 own hooks rather than adding a second copy, and backs up
@@ -80,14 +80,18 @@ One executable, for a Mac that has no checkout:
 
 ```sh
 make dist                 # → dist/orbit for this Mac (make dist TARGETS=all: arm64 + x64)
-ORBIT_PORT=3001 dist/orbit
-dist/orbit mcp            # the MCP server — what `claude mcp add orbit -- /path/to/orbit mcp` runs
+dist/orbit doctor         # what this Mac has and is missing
+dist/orbit setup          # wire the hooks and the MCP server into Claude Code
+dist/orbit phone          # run it, published over the tailnet as https
 ```
 
-The server, the MCP server, the built web app and bun-pty's library are all
-inside it (`scripts/dist.sh`); Chrome, Tailscale and Claude Code stay the
-machine's own. `ORBIT_BIN=dist/orbit bash scripts/test.sh smoke` runs the
-suites against it. The hooks and `make setup` still come from a checkout.
+The server, the MCP server (`orbit mcp`), the two Claude Code hooks
+(`orbit hook approve|notify`), the installer, the built web app and bun-pty's
+library are all inside it (`scripts/dist.sh`); Chrome, Tailscale and Claude
+Code stay the machine's own. `orbit help` lists the rest.
+`ORBIT_BIN=dist/orbit bash scripts/test.sh smoke` runs the suites against it.
+`make setup` / `make phone` from a checkout run the same code as
+`bun server/dist/main.js setup` / `phone`.
 
 On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; to rotate it, remove the `token` key from that file rather than the file itself — the same file holds the push keypair, and losing that silently unsubscribes every phone).
 

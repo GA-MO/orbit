@@ -15,7 +15,7 @@
     "build": "bun run --cwd server build && bun run --cwd web build",
     "start": "bun run --cwd server start",
     "test": "scripts/test.sh all",
-    "mcp": "bun server/dist/mcp.js",
+    "mcp": "bun server/dist/main.js mcp",
     "remote:on": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --bg 3001",
     "remote:off": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --https=443 off",
     "remote:status": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve status",
