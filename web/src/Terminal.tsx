@@ -134,6 +134,8 @@ const FLING_STOP_VELOCITY = 0.04
 const TOUCH_SLOP_PX = 8
 /** How long a returning phone waits for the server to answer before giving up on the socket. */
 const PROBE_TIMEOUT_MS = 3000
+/** How long a switch may hold the terminal hidden waiting for its first screen. */
+const PAINT_TIMEOUT_MS = 700
 /** Quiet spell that marks the end of a burst of layout changes. */
 const RESIZE_SETTLE_MS = 180
 
@@ -257,6 +259,13 @@ export default function Terminal({
   const [copied, setCopied] = useState(false)
   /** A tapped link, waiting for the tap that says what to do with it. */
   const [linkPrompt, setLinkPrompt] = useState<string | null>(null)
+  /* Whether this session's first screen is on it yet. Switching sessions builds
+     a terminal from nothing and fills it from a replay that has to cross the
+     network first, so the box goes through an empty frame, then a write long
+     enough to scroll through on its way to the bottom. None of that is anything
+     to watch: hold it invisible — laid out, measured, fitted, just not shown —
+     and let the finished screen arrive in one piece. */
+  const [painted, setPainted] = useState(false)
   const [linkArmed, setLinkArmed] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   /** A page being read inside Orbit rather than in a browser of its own. */
@@ -301,6 +310,10 @@ export default function Terminal({
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    setPainted(false)
+    /* Whatever happens to the socket, the box cannot stay hidden: a server that
+       never answers would otherwise leave the phone looking at nothing. */
+    const paintFallback = setTimeout(() => setPainted(true), PAINT_TIMEOUT_MS)
 
     const term = new XTerm({
       ...(gridRef.current ?? {}),
@@ -417,6 +430,8 @@ export default function Terminal({
             /* Nothing more to ask for: the replay is the screen. If the key
                bar or the keyboard moves the size after this, `onResize` says
                so once it stops moving. */
+            // One frame later, so what is revealed is the replay already drawn.
+            requestAnimationFrame(() => setPainted(true))
             break
           case 'output':
             term.write(decomposeSaraAm(msg.data))
@@ -912,6 +927,7 @@ export default function Terminal({
       refreshRef.current = () => {}
       if (handleRef) handleRef.current = null
       cancelAnimationFrame(openFrame)
+      clearTimeout(paintFallback)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       clearProbe()
       if (sizeTimer) clearTimeout(sizeTimer)
@@ -1022,7 +1038,7 @@ export default function Terminal({
              builds once and never replaces. Nothing is lost: every gesture here
              resolves its cell from coordinates, never from the target. Touch
              only — a mouse wants the rows for xterm's own hover and click. */
-          className={`h-full w-full overflow-clip [-webkit-touch-callout:none] [-webkit-user-select:none] [&_.xterm]:h-full [&_.xterm-viewport]:!overflow-y-auto [&_.xterm-viewport]:!bg-transparent [&_.xterm-viewport]:[-webkit-overflow-scrolling:touch] ${
+          className={`h-full w-full overflow-clip ${painted ? '' : 'opacity-0'} [-webkit-touch-callout:none] [-webkit-user-select:none] [&_.xterm]:h-full [&_.xterm-viewport]:!overflow-y-auto [&_.xterm-viewport]:!bg-transparent [&_.xterm-viewport]:[-webkit-overflow-scrolling:touch] ${
             mobileRef.current ? '[&_.xterm-rows]:pointer-events-none' : ''
           }`}
         />

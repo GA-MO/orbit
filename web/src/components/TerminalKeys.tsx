@@ -262,32 +262,38 @@ export default function TerminalKeys({
 
   const arrowOf = (key: KeyDef) => keyOf(key, ARROW_W)
 
-  /* One slot, two states of the same question — how am I putting text in.
-     With the keyboard down the answer is the sheet, and tapping the terminal
-     is what raises the keyboard for anyone who wants to type at the prompt
-     directly (it always was; the button that offered to do it was saying the
-     same thing twice). With the keyboard up the only thing missing is a way
-     to put it away, because nothing else on screen blurs the textarea.
+  /* Two permanent slots, because they answer two different questions. The pen
+     is how a whole message gets written; the keyboard is how the prompt gets
+     typed at directly. Tapping the terminal raises the keyboard too, but that
+     is an unmarked gesture, and it is no help at all in the other direction —
+     nothing else on screen blurs the textarea. A toggle says both halves out
+     loud in one slot, and the row has the width for it: the fixed keys in this
+     row come to 44 + 44 + 40 + 40 with the arrow cluster at 128, which clears
+     a 375pt screen with room over. */
+  const toggleKeyboard = () => {
+    if (keyboardOpen) onBlur()
+    else onFocus()
+  }
 
-     They share a slot because the bar has no room for two. Every fixed key in
-     this row is at least 40px wide and `⏎`/`⌫` cannot shrink past that, so a
-     permanent extra button pushes the arrow cluster off the right edge on a
-     390pt screen — measured, not guessed. The Keys toggle leaving freed one
-     slot, and this row spent it on the breathing room it was short of. */
-  const writeButton = keyboardOpen ? (
+  const keyboardButton = (
     <IconButton
-      label="Hide keyboard"
+      label={keyboardOpen ? 'Hide keyboard' : 'Show keyboard'}
       size="lg"
-      className="bg-accent/15 text-accent"
+      className={keyboardOpen ? 'bg-accent/15 text-accent' : ''}
+      /* Touch first, and swallowed: a tap that reaches the document as a click
+         has already moved focus off the textarea, which closes the keyboard
+         before the toggle can decide to open it. */
       onTouchEnd={(e) => {
         e.preventDefault()
-        onBlur()
+        toggleKeyboard()
       }}
-      onClick={onBlur}
+      onClick={toggleKeyboard}
     >
       <KeyboardIcon size={20} />
     </IconButton>
-  ) : (
+  )
+
+  const writeButton = (
     <IconButton
       label={draftPending ? 'Message (unsent draft)' : 'Write a message'}
       size="lg"
@@ -326,6 +332,7 @@ export default function TerminalKeys({
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-1">
             {writeButton}
+            {keyboardButton}
             {ROW_LOWER.map((key) => keyOf(key))}
           </div>
           <div className="flex shrink-0 items-center gap-1">
