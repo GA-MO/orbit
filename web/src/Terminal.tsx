@@ -406,8 +406,13 @@ export default function Terminal({
         if (ws !== socket) return
         // Any frame at all proves the socket still carries traffic.
         clearProbe()
-        const msg = JSON.parse(event.data)
-        switch (msg.type) {
+        let msg: any
+        try {
+          msg = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        switch (msg?.type) {
           case 'ready':
             // Server attached a different session — remount instead of painting stale replay.
             if (msg.sessionId !== sessionId) {
@@ -840,7 +845,11 @@ export default function Terminal({
          the direction the paper would move. Left alone otherwise: xterm scrolls
          its own buffer with the finger perfectly well, and doing both would
          move it twice as far. */
-      if (!touchMoved || !appOwnsScreen(term)) return
+      /* An ended session's replay can leave xterm on the alternate screen
+         with mouse tracking on, and there is no program behind it to take
+         the wheel — sending it anyway ate the swipe and the history could not
+         be scrolled at all. Leave that one to xterm's own buffer. */
+      if (!touchMoved || readOnly || !appOwnsScreen(term)) return
       e.preventDefault()
       notchesFrom(touch.clientY, touch.clientX)
     }
@@ -849,7 +858,7 @@ export default function Terminal({
       cancelPress()
       /* Measured over the tail of the drag: a finger that swept the screen and
          then stopped before lifting has thrown nothing. */
-      if (touchMoved && appOwnsScreen(term)) {
+      if (touchMoved && !readOnly && appOwnsScreen(term)) {
         const v = tailVelocity()
         const end = samples[samples.length - 1]
         if (Math.abs(v) >= FLING_MIN_VELOCITY && end)

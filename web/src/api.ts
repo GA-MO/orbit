@@ -75,6 +75,16 @@ const get = async <T>(url: string): Promise<T> => {
   return res.json()
 }
 
+/* A write that returned the Response as-is let its caller "succeed" on a
+   4xx: the rename showed the old name and nothing said why. */
+const send = async (url: string, init: RequestInit): Promise<void> => {
+  const res = await authFetch(url, init)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error ?? `${url}: ${res.status}`)
+  }
+}
+
 export const checkAuth = async (): Promise<boolean> => {
   try {
     await get('/api/auth/check')
@@ -134,21 +144,19 @@ export const createSession = async (
   return res.json()
 }
 
-export const killSession = (id: string) => authFetch(`/api/sessions/${id}`, { method: 'DELETE' })
+export const killSession = (id: string) => send(`/api/sessions/${id}`, { method: 'DELETE' })
 
 /* A conversation from the Mac has no ✕ — its history is Claude Code's file and
    Orbit only reads it. Hiding is what the phone can honestly offer instead: the
    row goes away, the transcript does not. */
-export const hideSession = (id: string) =>
-  authFetch(`/api/sessions/${id}/hide`, { method: 'POST' })
+export const hideSession = (id: string) => send(`/api/sessions/${id}/hide`, { method: 'POST' })
 
 export const fetchHiddenCount = () => get<{ hidden: number }>('/api/sessions/hidden')
 
-export const unhideSessions = () =>
-  authFetch('/api/sessions/unhide', { method: 'POST' })
+export const unhideSessions = () => send('/api/sessions/unhide', { method: 'POST' })
 
 export const renameSession = (id: string, name: string) =>
-  authFetch(`/api/sessions/${id}`, {
+  send(`/api/sessions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -156,7 +164,7 @@ export const renameSession = (id: string, name: string) =>
 
 /** Mark a session's word as read — sent when it is actually on screen. */
 export const clearAttention = (id: string) =>
-  authFetch(`/api/sessions/${id}/attention`, { method: 'DELETE' })
+  send(`/api/sessions/${id}/attention`, { method: 'DELETE' })
 
 /** Start again from an ended session — fresh, or resuming the agent's conversation. */
 export const restartSession = async (id: string, resume = false): Promise<SessionInfo> => {

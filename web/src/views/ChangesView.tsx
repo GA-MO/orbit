@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   applyHunk,
   commitStaged,
@@ -177,7 +177,12 @@ function DiffSheet({
   onApply: (hunk: string) => void
   onClose: () => void
 }) {
-  const { meta, hunks } = parseHunks(diff?.patch ?? '')
+  /* Parsing and the word-level diff are the expensive part of this sheet —
+     the marks are an LCS per changed line pair — and the sheet re-renders
+     whenever the app does (a toast, a status change), not only when the
+     patch does. */
+  const { meta, hunks } = useMemo(() => parseHunks(diff?.patch ?? ''), [diff?.patch])
+  const marksByHunk = useMemo(() => hunks.map((hunk) => markHunk(hunk.lines)), [hunks])
   /* Hunks arrive; lines do not. A hunk is a unit the reader is choosing
      between, so a short sequence down the file helps them count. Two hundred
      lines staggering in individually is not that — it is a file that takes a
@@ -204,6 +209,8 @@ function DiffSheet({
         </div>
       ) : diff?.binary ? (
         <EmptyState title="Binary file" hint="There is nothing to read here line by line." />
+      ) : !diff ? (
+        <EmptyState title="Could not read the diff" hint="Close this and try again." />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto">
           {/* `w-max` so a long line scrolls sideways instead of wrapping: a
@@ -213,7 +220,7 @@ function DiffSheet({
               <DiffLine key={`m${i}`} line={line} kind={kindOf(line)} />
             ))}
             {hunks.map((hunk, h) => {
-              const marks = markHunk(hunk.lines)
+              const marks = marksByHunk[h]
               const enter = arriveHunk(hunk.header)
               return (
                 <div key={h} style={enter.style} className={enter.className}>
@@ -286,14 +293,23 @@ export default function ChangesView({ active, session, onToast }: Props) {
   /* Bumped after a hunk moves, because the diff on screen is now one hunk out
      of date on this side — and the sheet stays open on what is left of it. */
   const [diffNonce, setDiffNonce] = useState(0)
+  /* A fetch that failed used to leave `diff` null, which the sheet read as
+     "still loading" — a spinner with a toast behind it and no way out but
+     closing the sheet. */
+  const [diffFailed, setDiffFailed] = useState(false)
 
   useEffect(() => {
+    setDiffFailed(false)
     if (!open || !cwd) return setDiff(null)
     let cancelled = false
     setDiff(null)
     fetchGitDiff(cwd, open.file, open.staged)
       .then((d) => !cancelled && setDiff(d))
-      .catch((e) => !cancelled && onToast(e instanceof Error ? e.message : 'Could not read the diff'))
+      .catch((e) => {
+        if (cancelled) return
+        setDiffFailed(true)
+        onToast(e instanceof Error ? e.message : 'Could not read the diff')
+      })
     return () => {
       cancelled = true
     }
@@ -557,7 +573,7 @@ export default function ChangesView({ active, session, onToast }: Props) {
           staged={open.staged}
           splittable={open.splittable}
           busy={!!busy}
-          loading={!diff}
+          loading={!diff && !diffFailed}
           diff={diff}
           onApply={moveHunk}
           onClose={() => setOpen(null)}

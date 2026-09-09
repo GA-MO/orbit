@@ -113,9 +113,16 @@ export default function SessionsView({
     }
   }
 
+  /* Enter commits and unmounts the input, whose blur then commits again;
+     the first call wins and the second finds nothing to do. */
   const commitRename = async (id: string) => {
+    if (renamingId !== id) return
     setRenamingId(null)
-    await renameSession(id, renameValue.trim())
+    try {
+      await renameSession(id, renameValue.trim())
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Could not rename')
+    }
     refresh()
   }
 

@@ -1,4 +1,7 @@
-const CACHE = 'orbit-v1'
+/* Stamped per build (see vite.config.ts): a new build is a new cache, and the
+   activate step below throws the old one away — otherwise every deploy's
+   hashed bundle stayed cached for the life of the install. */
+const CACHE = 'orbit-__BUILD__'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.add('/')))
@@ -114,8 +117,14 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        const copy = response.clone()
-        caches.open(CACHE).then((cache) => cache.put(request, copy))
+        /* Only a good answer from this server. A 502 from the proxy while the
+           server restarts, or the server's own plain-text "web build not
+           found", would otherwise replace the cached shell and be what the
+           next offline launch shows. */
+        if (response.ok && response.type === 'basic') {
+          const copy = response.clone()
+          caches.open(CACHE).then((cache) => cache.put(request, copy))
+        }
         return response
       })
       .catch(() =>

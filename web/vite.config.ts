@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 /* The states gallery at /dev.html is a second entry, and it must never reach
    `dist`. The server hands out any file that exists there — only a *miss* is
@@ -22,8 +24,21 @@ const withGallery = !!process.env.ORBIT_GALLERY
    would otherwise look for index.html one directory too high. */
 const entry = (name: string) => new URL(name, import.meta.url).pathname
 
+/* The service worker is a public file, copied into dist untouched — so its
+   cache name was a constant, and a constant cannot say which build it belongs
+   to. This stamps it after the copy. */
+const stampServiceWorker = () => ({
+  name: 'orbit-stamp-sw',
+  closeBundle() {
+    const file = fileURLToPath(new URL('dist/sw.js', import.meta.url))
+    if (!existsSync(file)) return
+    const stamp = Date.now().toString(36)
+    writeFileSync(file, readFileSync(file, 'utf8').replace('__BUILD__', stamp))
+  },
+})
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), stampServiceWorker()],
   build: withGallery
     ? { rollupOptions: { input: { app: entry('index.html'), gallery: entry('dev.html') } } }
     : {},
