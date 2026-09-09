@@ -101,7 +101,7 @@ const TOOLS: Tool[] = [
   {
     name: 'orbit_capture',
     description:
-      'Render a running web app in headless Chrome and return the screenshot as an image. Use it to check your own UI work instead of asking the user to look. The capture also appears in the Captures tab on their phone.',
+      'Render a running web app in headless Chrome and return the screenshot as an image. Use it to check your own UI work instead of asking the user to look. The capture also appears in the Preview tab on their phone.',
     inputSchema: {
       type: 'object',
       properties: {
