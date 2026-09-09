@@ -14,6 +14,7 @@ const usage = `orbit — a phone-side console for the coding agents on this Mac
   orbit doctor             what this Mac has and what it is missing
   orbit mcp                the MCP server on stdio (what Claude Code runs)
   orbit hook approve|notify  the Claude Code hooks (what \`setup\` installs)
+  orbit version            which build this is
 `
 
 const exit = (code: number) => {
@@ -47,6 +48,11 @@ switch (command) {
     }
     break
   }
+  case 'version':
+  case '--version':
+  case '-v':
+    console.log((await import('./banner.js')).packageVersion())
+    break
   case 'help':
   case '--help':
   case '-h':

@@ -35,5 +35,8 @@ for target in "${targets[@]}"; do
     --asset=web/dist \
     --asset=server/package.json \
     server/dist/main.js --outfile "$out" >/dev/null
+  # A checksum beside each binary: the Homebrew formula names it, and a
+  # download that does not match it is not installed.
+  (cd dist && shasum -a 256 "$(basename "$out")" > "$(basename "$out").sha256")
   ls -la "$out" | awk '{printf "  %s  %.0f MB\n", $9, $5/1048576}'
 done

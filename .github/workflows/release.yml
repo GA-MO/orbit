@@ -1,0 +1,64 @@
+# A tag `v<version>` becomes a GitHub release with one executable per Mac
+# architecture and a checksum beside each, then a formula in the Homebrew
+# tap that names those checksums. Cut one with scripts/release.sh.
+name: release
+on:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: The tag must be the version the code says it is
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(bun -e "console.log(JSON.parse(await Bun.file('server/package.json').text()).version)")"
+          [ "$tag" = "$pkg" ] || { echo "tag v$tag but server/package.json says $pkg"; exit 1; }
+      - run: bash scripts/test.sh idle
+      - run: bash scripts/test.sh ask
+      - run: bash scripts/dist.sh all
+      - name: The x64 build must at least start (needs Rosetta on the runner)
+        continue-on-error: true
+        run: arch -x86_64 dist/orbit-darwin-x64 version
+      - run: dist/orbit-darwin-arm64 version
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "orbit ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            dist/orbit-darwin-arm64 dist/orbit-darwin-arm64.sha256 \
+            dist/orbit-darwin-x64 dist/orbit-darwin-x64.sha256
+
+  tap:
+    needs: build
+    runs-on: ubuntu-latest
+    # Needs a token that can push to the tap repository (a fine-grained PAT
+    # with contents:write on it), as the TAP_TOKEN secret. Without one this
+    # job is skipped and the formula can be placed by hand: scripts/tap.sh.
+    if: ${{ vars.TAP_REPO != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.TAP_REPO }}
+          token: ${{ secrets.TAP_TOKEN }}
+          path: tap
+      - name: Render and push the formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORBIT_REPO: ${{ github.repository }}
+          ORBIT_LICENSE: ${{ vars.ORBIT_LICENSE || 'MIT' }}
+        run: |
+          git -C tap config user.name "orbit-release"
+          git -C tap config user.email "orbit-release@users.noreply.github.com"
+          bash scripts/tap.sh "$GITHUB_REF_NAME" tap
+          git -C tap push

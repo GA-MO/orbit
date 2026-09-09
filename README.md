@@ -93,6 +93,30 @@ Code stay the machine's own. `orbit help` lists the rest.
 `make setup` / `make phone` from a checkout run the same code as
 `bun server/dist/main.js setup` / `phone`.
 
+## Releasing
+
+```sh
+scripts/release.sh 0.2.0    # sets the version, commits, tags v0.2.0, pushes
+```
+
+The tag runs `.github/workflows/release.yml`: both Mac binaries are built,
+attached to a GitHub release with a `.sha256` beside each, and — when the
+repository has a `TAP_REPO` variable (`<owner>/homebrew-tap`) and a
+`TAP_TOKEN` secret that can push to it — `Formula/orbit.rb` in that tap is
+rewritten from `packaging/homebrew/orbit.rb.tmpl` with those checksums. After
+that, on any Mac:
+
+```sh
+brew tap <owner>/tap
+brew install orbit
+orbit doctor && orbit setup && orbit phone
+```
+
+Without the tap wiring, `scripts/tap.sh v0.2.0 ../homebrew-tap` renders and
+commits the same formula by hand. The formula downloads from the release, so
+the repository has to be public (or the tap's users need a token Homebrew can
+use), and it needs a license to name.
+
 On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; to rotate it, remove the `token` key from that file rather than the file itself — the same file holds the push keypair, and losing that silently unsubscribes every phone).
 
 ## Testing
