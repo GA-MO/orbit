@@ -18,6 +18,7 @@ page is about *why* it is shaped the way it is.
 - [Attention and notifications](#attention-and-notifications)
 - [Authentication and pairing](#authentication-and-pairing)
 - [Runtime and distribution](#runtime-and-distribution)
+- [Implementation notes](#implementation-notes)
 
 ## The terminal
 
@@ -651,3 +652,289 @@ single port: `bun run build && bun run start`, then open
 
 Manifest, icons and a service worker make the app installable to the home
 screen. The service worker is registered in production builds only.
+
+## Implementation notes
+
+The source carries no comments; names carry the intent, and what a name
+cannot carry is here — platform quirks, chosen constants, rejected
+alternatives — keyed by the function or constant it belongs to.
+
+### PTY sessions (pty-manager.ts)
+
+- `ptyEnv` deletes `NO_COLOR` and `NODE_DISABLE_COLORS` before spawning: the server process often inherits them from the IDE that launched it, and they would turn every agent's UI monochrome.
+- `keepTailEndingOnLineBoundary` (`SCROLLBACK_LIMIT` = 200,000 chars) cuts at the next `\n` rather than the exact offset, because an exact cut lands mid-escape-sequence and the replay then starts with garbage.
+- `resize` drops a size the PTY already has. SIGWINCH is the only way into a full-screen app's screen, and the kernel raises it only when the size actually changes, so re-sending an identical size is not a redraw request — it is nothing. On reattach `index.ts` still calls it with the phone's current size, because the replay is the screen drawn for the size the agent *had*.
+- `kill` sends the default signal and then `SIGKILL` after `SIGKILL_AFTER_MS` = 3000: a hung agent or a child that traps the first signal would otherwise leave a live PTY behind a row marked ended. The empty catch covers the window between the liveness check and the signal.
+- `onQuiet` is a callback into `index.ts` rather than a call into `attention`: who should be interrupted for a settled session is a question about phones and pushes, which the thing that owns PTYs should not know about.
+- `restart` with `resume` splices the conversation id into a shell command line (`claude --resume <id>`), so the id is checked against `PLAIN_UUID` first; anything else is refused rather than quoted.
+- A resume replaces the old row only once the new launch has succeeded — a launch that failed must leave the old row intact, or the conversation drops out of the list.
+- `hide`/`unhide`/`hiddenCount` check against the rows the last scan produced rather than the disk: what the phone can hide is what it was just shown, so an unknown id is a 404 and an Orbit-owned ended session (which has `forget`) is refused. Unhide-all takes effect on the *next* scan, not immediately, because the rows were dropped from that scan's output.
+
+### Store (store.ts)
+
+- `LEGACY_MOUSE_REPORT_RESIDUE` strips `<n;n;nM` prefixes from persisted `firstCommand`: labels captured before the CSI stripper handled SGR mouse reports kept the body of the report, and this repairs them on read rather than requiring a migration.
+- `hidden.json` is its own file rather than a field in `sessions.json`, because `sessions.json` is rewritten from the live session maps on every change and an id with no session behind it has nowhere to live there.
+- A missing or truncated `hidden.json` reads as "nothing hidden": the user can fix that by hiding the row again; a crash on startup they cannot fix.
+
+### Terminal input screening (approval.ts)
+
+- `KEYSTROKE_MAX_LENGTH` = 3: a chunk at or below this passes unscreened, since interactive keys and their escape sequences (`\x1b[A`) arrive as one to three bytes. `screenWhole` exists for the hook path, where the command is known to be complete and there is no length below which it is "only typing".
+
+### Attention and notices (attention.ts, idle.ts, notify.ts)
+
+- `attention` is in memory on purpose: every live session dies with the server, so a persisted "waiting" record would outlive the thing it describes.
+- `QUIET_MS` = 10,000 is generous on purpose: the cost of waiting is a badge ten seconds late on a phone nobody has picked up; the cost of haste is calling a session "waiting" mid-tool-call and teaching the user to distrust the badge. `watch` takes `quietMs` as a parameter only so tests can shorten it.
+- `MIN_OUTPUT_SINCE_KEYSTROKE` = 200 bytes: the terminal echoes keystrokes as output, so without a floor a session opened and left alone would settle and announce itself off its own echo.
+- `MIN_STATEMENT_LENGTH` = 8: the last bytes on the wire are often a single cell repainted in place (spinner, elapsed clock, status-bar indicator) that arrive cursor-addressed and look like a short line. The floor throws them away so "Went quiet" speaks instead. Lines ending in `?` are exempt — "Retry?" is the whole point.
+- `AGENT_CHROME` lists lines an agent leaves on screen whatever it is doing (`? for shortcuts`, `esc to interrupt`, `⏵⏵`, `bypassing permissions`); they are the last thing drawn and would otherwise be the message every time.
+- `MISSED_KEPT` = 10 and `MISSED_MAX_AGE_MS` = 6h bound the replay-on-connect list; a missed notice carries `at` only because it is read late.
+- `broadcastPreview` returns a count and never throws on zero receivers: the fallback (a notice naming port and path) belongs to the route, which knows about push and the missed queue. Previews are never queued for a later phone — a frame opened onto work that has moved on is a confusing picture, not a stale one.
+- `answerWith`: `ANSWER_TOKEN_BYTES` = 24; a wrong nonce returns false and the route turns it into the same paced 401 a wrong token gets, so a nonce cannot be brute-forced faster than a token.
+
+### Push (push.ts)
+
+- Every send carries a `Shelf` (`ttlSeconds`, `topic`) because a push is a message handed to Apple, not a delivery: web-push's default TTL is four weeks, and a Mac shut down all evening would otherwise land a stack of stale banners.
+- `topicIsValid` rejects lengths where `len % 4 === 1`. RFC 8030's "up to 32 URL-safe base64 characters" reads like a character rule but Apple *decodes* the header, so an undecodable length is a 400 `BadWebPushTopic`. This cost five weeks: `orbit-notice` (12) went through by accident, `orbit-waiting` (13) and `orbit-ask` (9) were dropped at Apple every time, into a `console.error` nobody read. Hence `orbit-idle` and `orbit-question`, and `assertTopicsAcceptable()` at module load rather than at send time.
+- Topics are per kind (`NOTICE`, `WAITING`, `question`) so a session going quiet never collapses away an agent's own words or a question; two sessions settling in the same minute collapse to the later one, which is the right summary of "something wants you".
+- `THIRTY_MINUTES_S` for notices and idle: half an hour later the terminal has moved on; the in-app missed list keeps the message, expiring the push only loses the interruption. A question's TTL equals its timeout — it stops waiting on timeout.
+- `DEFAULT_CONTACT` / `vapidContact`: the VAPID subject must be a `mailto:` or `https:` URL (`CONTACT_SCHEME`) because Apple validates it.
+- `agent` and `ipv4Agent` both set `autoSelectFamily: false`: Apple's push host resolves to both families and Node's happy-eyeballs racer produced spurious failures. `send` retries once over IPv4 only when the request never reached the push service; a 4xx from the service is not retried.
+- `SEND_TIMEOUT_MS` = 10,000 guards a push service that accepts the connection and then says nothing, which would otherwise hold the notice path open indefinitely.
+- `subscribe` refuses non-https endpoints and caps at `MAX_SUBSCRIPTIONS` = 32, because the endpoint is a URL this server POSTs to on every notice. Re-subscribing replaces the same endpoint rather than duplicating it.
+- `ENDPOINT_GONE_STATUSES` = 404, 410 prune a subscription: a reinstalled app leaves a dead endpoint that fails every send otherwise.
+
+### Auth, pairing and the HTTP layer (index.ts, auth.ts, pairing.ts)
+
+- `storedToken` re-chmods `config.json` to `0o600` on every read: files written before that mode existed were world-readable. `loadKeys` in push.ts does the same for the VAPID private key.
+- `sessionValue` is `sha256("orbit-session:" + token)`, derived rather than a random id in memory, so a phone survives the frequent restarts of a personal server. `COOKIE_MAX_AGE` is one year.
+- `expiredSessionCookie` must reproduce the identical name, `Path` and `Secure` attributes with `Max-Age=0`; a mismatch makes the browser store a second cookie beside the live one and change nothing. It un-pairs a phone without rotating the token, because rotation would sign out every device and cost a restart that kills the running agent.
+- `isSecureRequest` reads `x-forwarded-proto`: behind `tailscale serve` TLS terminates upstream and the socket itself is plain http.
+- `originIsThisHost` accepts a request with no `Origin` (non-browser clients) and checks a browser's Origin against both `Host` and `X-Forwarded-Host`, because through the proxy `Host` is the loopback address.
+- `slowDownCredentialGuessing`: `FREE_ATTEMPTS` = 10, then 250 ms per extra attempt capped at `MAX_DELAY_MS` = 2000, forgotten after 60 s. A delay rather than a block because `tailscale serve` proxies every remote client from 127.0.0.1 — a block would lock the owner out. `WARN_EVERY_N_ATTEMPTS` = 10 logs past the free tries, the only place a guess is visible. `forgetFailures` on success so a logged-in phone never waits.
+- `readBody` pauses the request on a `BODY_LIMIT` (1 MiB) overflow rather than destroying it: destroying closed the socket before the 413 could be written, so the client saw a reset instead of an answer. The router closes the connection behind the response since the unread body is still on the wire.
+- `route` matches patterns by segment count, so `/api/sessions` and `/api/sessions/:id` cannot collide; only same-shape patterns (`/api/previews/live` vs `/api/previews/:port`) depend on registration order, and those are written adjacent.
+- `RUNNING_FROM_COMPILED_BINARY` is detected by `import.meta.url` starting with `file:///$bunfs/`; the embedded web app lives at `/$bunfs/root/dist`.
+- `wss` sets `maxPayload` to 1 MiB because a frame is a keystroke or a paste and the default (100 MiB) is a memory hole; `perMessageDeflate` at level 3 with `threshold` 1024 compresses agent output without spending CPU on keystrokes.
+- `MAX_BUFFERED` = 4 MiB on `ws.bufferedAmount`: a phone on a slow link reading a fast agent would otherwise have output queued in memory without bound; frames are dropped rather than queued, and the scrollback replay on reconnect fills the gap.
+- `shutdown` closes warm Chrome and every preview serve (8443+) but leaves the 443 front door alone; a 2 s `setTimeout(...).unref()` guarantees exit if either hangs.
+- `unhandledRejection` and `uncaughtException` are logged, not fatal: Node's default is to exit, and here exiting kills every PTY.
+- `pairBase` prefers the published tailnet address, then `pairing.lanAddress()` (first non-internal IPv4), then `localhost` — the order a phone could actually reach. `pairing`: `USES` = 10 per code, `CODE_BYTES` = 9.
+
+### Startup banner and QR (banner.ts, qr.ts)
+
+- `ACCENT` is cyan because it is the only basic colour legible on both light and dark terminal backgrounds.
+- `WIDE` = 64 columns is where the two-column layout starts wrapping values; below it the banner switches to one fact per line. No box is drawn because it would have to be laid out for a width the server cannot know.
+- `plainBanner`'s token line keeps its historical wording verbatim: it is what users copy and what `grep` in the troubleshooting docs matches.
+- `PACKAGE_JSON_CANDIDATES` reads `package.json` from disk (checkout) or `/$bunfs/root/package.json` (compiled) rather than importing it, avoiding `resolveJsonModule` and a bundled copy.
+- `renderBanner` takes the tailnet address as an argument because only `index.ts` knows whether it already paid for the `tailscale status` process; a self-fetching banner would spawn one per start and be untestable without Tailscale.
+- `qr.ts` uses a default import of `qrcode-terminal`: it assigns a whole object to `module.exports`, which the ESM loader cannot split into named exports. The `generate` callback is synchronous and is the only way to get the string instead of stdout.
+- `qrBlock` paints with `INK` = white-on-black pinned explicitly (kept even under `NO_COLOR`): small mode draws light modules with the terminal's default background, which on a dark terminal inverts the code. `QUIET` = 4 modules of margin is the spec's requirement, minus the library's own `OWN_MARGIN_MODULES` = 1.
+
+### Git (git.ts)
+
+- `DIFF_LIMIT` = 200,000 chars truncates a diff nobody will read on a phone; lockfiles routinely exceed it and the summary still counts them. `MAX_UNTRACKED_FILES_SIZED` = 50 caps per-file sizing of untracked files, because a stray `node_modules` is thousands of them.
+- `NEVER_PROMPT_ENV` also sets `GIT_OPTIONAL_LOCKS=0` so a status read never contends with an agent's own git commands for `index.lock`. `NO_ASKPASS_ENV` blanks `GIT_ASKPASS`/`SSH_ASKPASS` on push so a credential helper cannot pop a GUI on the Mac.
+- `TIMEOUT_MS` = 20 s; `PUSH_TIMEOUT_MS` = 60 s — long enough for a slow remote, short enough that a hung push ends.
+- `runNoIndexDiff`: `git diff --no-index` exits 1 when files differ, which is its success case, so exit 1 is not an error there.
+- `safeRelative` rejects anything climbing out of the repo or starting with `-`, which git would read as an option.
+- `applyHunk` rebuilds the patch header from the already-checked path and accepts only `HUNK_BODY_LINE` lines from the client, so a hunk can only ever be applied to the file it was read from; `--- a/other` lines in the body are rejected because they would pass the line-shape test and retarget the patch.
+- `unstagePaths` falls back from `restore --staged` to `rm --cached` when the error mentions `HEAD`: on a repository with no commits there is nothing to restore from.
+- `commit` reports counts via `show --numstat --format= HEAD` and `sumNumstat` rather than parsing git's "2 files changed" sentence, which is localised and changes shape with zero insertions.
+
+### Previews and ports (preview.ts, ports.ts)
+
+- `FIRST_PORT` = 8443 because `npm run preview:on` always used it; `MAX_PREVIEWS` = 12 bounds the scan.
+- `CLI_CANDIDATES` puts `ORBIT_TAILSCALE` first: every path ends at that binary, so it is how tests exercise publishing on a machine with no Tailscale, and the escape hatch for an install in neither of the two known places (`PATH`, `/Applications/Tailscale.app/Contents/MacOS/Tailscale`).
+- `findCli` and `tailnetHost` cache their answer and, on failure, refuse to retry for `RETRY_AFTER_FAILURE_MS` = 30,000 — a logged-out or not-yet-up Tailscale is worth asking again later, not on every request.
+- `run` surfaces the first stderr line as the error: the CLI puts the useful sentence there ("HTTPS must be enabled in the admin console").
+- `previewUrl` strips every leading slash and backslash and puts one back, so `//evil.com/x` cannot become a host; `..` is clamped by `new URL` against the origin, and the result is verified to share the origin. A full `http://` argument is refused as a plain `Error` so the module does not import `index.ts`'s `bad()`.
+- `ports.ts`: `EPHEMERAL_FROM` = 32,768 and `RESERVED_BELOW` = 1024 filter by number alone. `MACOS_SERVICE_BY_LSOF_NAME_PREFIX` keys are prefixes because `lsof -F` truncates command names to nine characters (`ControlCe`, `IPNExten`, `Tailscal`).
+- `listeners` runs `lsof -F pcn` (field format) because command names contain spaces (`Google Chrome H`) and the default table splits on whitespace; `runLsofKeepingPartialOutput` keeps stdout when lsof exits non-zero, which it does whenever some sockets are unreadable after printing the rest.
+- `respondsToHttp` (`HTTP_PROBE_TIMEOUT_MS` = 600) reads only enough bytes to see `HTTP/`; a database answers a `HEAD /` with its own protocol or silence. It is the only safety filter — the number and name filters just keep the list short — which is why it is exported and reused as the guard on publishing a port unattended.
+- `LOOPBACK_REACHABLE` lists the bind addresses the proxy can reach from the Mac; a server bound to a specific LAN IP is excluded.
+- `projectName` walks up to the nearest `.git` and stops at home: a dev server's cwd is often `repo/web`, and every monorepo answers `web`. `package.json`'s `name` was rejected (a file read per process, and a published name that is often not the folder). A cwd of `/`, `/Users` or home itself yields no label rather than the username.
+
+### Captures (screenshot.ts)
+
+- `launching` holds the in-flight Chrome launch so two captures asked at once (an agent issues them in parallel) share one browser instead of racing two.
+- `closeBrowserWhenIdle` (`BROWSER_IDLE_MS` = 60,000) is armed only when `inFlight` reaches zero — a capture that finishes while another runs must not schedule a close under it.
+- `navigateOrSettleForLoad` waits for `networkidle` and, on a plain timeout, falls back to `load` with `LOAD_FALLBACK_TIMEOUT_MS` = 5000; but a `net::*` error is thrown because Chrome renders its own "can't be reached" page, and saving that would report a picture instead of a failure.
+- `MAX_VIEWPORT_PX` = 4000 because Chrome allocates whatever viewport it is asked for; `scaleFactorFor` uses retina (2×) below `DESKTOP_WIDTH_PX` = 1200 and 1× above, where it only doubles an already large image.
+- The filename is `<timestamp>-<kind>-<label>.png` and `sanitize` keeps `:` (host:port is the point of the label); files without a kind segment predate `orbit_screen` and are URL renders.
+
+### MCP server (mcp.ts)
+
+- `MAX_IMAGE_WIDTH` = 1568: Claude resizes anything wider anyway, so a `sips -Z` downscale to a copy costs the agent fewer tokens while the original stays on disk.
+- `orbit_notify` defaults `kind` to `done`; before the field existed every message counted as done, which buried questions.
+- `initialize` echoes the client's `protocolVersion` to avoid a needless renegotiation; tool failures are returned as `isError` content, not JSON-RPC errors, so they land in the conversation.
+
+### Hooks, setup and launch (hooks.ts, setup.ts, launcher.ts, home.ts)
+
+- `readStdin` in both hooks resolves after `APPROVE_STDIN_LIMIT_MS` = 5000 / `NOTIFY_STDIN_LIMIT_MS` = 3000 regardless of EOF, so a hook never hangs Claude Code if stdin is not closed.
+- `describeStop` fires only when `ORBIT_SESSION === '1'`: at a desk a turn ending is not news, and the variable is inherited from the PTY the agent was launched in.
+- `APPROVE_OPTIONS` puts `Block` first because the phone emphasises the first option; exit 0 with empty stdout means "allow" and lets Claude Code's own permission flow continue.
+- `APPROVE_HOOK_TIMEOUT_S` = 190 in settings because the hook itself waits `APPROVE_TIMEOUT_SECONDS` = 180; Claude Code's default 60 would cut the hook off and let the command run while nobody had tapped.
+- `OUR_MARKS` includes the old script names (`orbit-approve.mjs`, `orbit-notify-hook.mjs`) so `setup` removes hooks installed by the pre-Bun scripts too. `Stop` and `Notification` hooks carry no matcher: a matcher on a non-tool event matches nothing.
+- `setup` refuses to overwrite a settings file it cannot parse, and backs up to `settings.json.orbit.bak` once. The MCP server is removed before `add` because `claude mcp add` on an existing name errors; on uninstall, an unrecognised failure of `remove` is reported rather than claimed as done.
+- `launcher.ts` spells out `bun` and `server/dist/main.js` as absolute paths: hooks and the MCP server run under Claude Code, not a shell with this user's PATH, and `~/.bun/bin` is on nobody else's.
+- `home.ts`: `ORBIT_HOME` relocates `~/.orbit` without moving `HOME`, because a scratch `HOME` also relocates shell rc files and agent credentials, leaving `claude` logged out. Read at call time, not import time, so modules loaded before the variable is set still land in the right place.
+
+### Transcripts (transcripts.ts)
+
+- `SCAN_LIMIT` = 25 transcripts are opened per scan (newest by mtime), `KEEP` = 10 reach the phone; behind those lie years of files, and each scan stats all of them (cheap) but parses only the window.
+- `HEAD_BYTES` = 256 KiB is read looking for `cwd` and the opening prompt, which sit within the first few entries (line 5 in practice); a read that fills the buffer discards its last line as half an entry.
+- `headsByFileIdentity` caches parsed heads keyed on `file:mtime:size`, since a transcript's head never changes; a conversation being written gets a fresh key and is re-parsed.
+- `isBoilerplateUserMessage` drops user entries starting with `<` (system reminders, slash commands) or `Caveat:` (the resume caveat), which all arrive typed as user messages.
+- `stillPresent` answers from every transcript on disk, not the scan window, and returns null when the scan found nothing at all: an empty projects directory and an unreadable one look identical, and concluding "every hidden id is gone" from a failed read would discard the hidden list.
+
+### The terminal component (Terminal.tsx)
+
+- `appOwnsScreen`: with mouse tracking on, xterm disables its own touch scrolling (`coreMouseService.areMouseEventsActive` gates `handleTouchStart`/`handleTouchMove`) and forwards the touch as a mouse event, which iOS never synthesises from a drag — so a swipe went nowhere until Orbit sent the wheel itself. Claude Code sets alternate screen and mouse tracking only once its UI takes over, not at startup; either flag alone hands the scroll to the app.
+- `wheelReport`: swipes go out as SGR wheel notches (`\x1b[<64/65;col;rowM`), not PageUp/PageDown — measured against `claude`, one wheel report moves the transcript exactly one line, PageDown a full page, and a page jump under a finger reads as a jump. The cell under the finger is included because a split-pane app would read it even though Claude Code does not.
+- `notchesFrom` / `wheelAnchorY`: one line of finger travel is one notch and the remainder carries into the next `touchmove`, so the pane follows the finger. `MAX_NOTCHES_PER_MOVE = 12` keeps a flick from firing a screenful in one frame.
+- `onTouchMove` sends no wheel for a read-only session even when xterm is on the alternate screen with mouse tracking on: an ended session's replay can leave it there with no program to take the wheel, and sending it ate the swipe so history could not scroll at all.
+- Fling constants: `FLING_SAMPLE_MS = 90` measures velocity over the tail of the drag so a swipe that stopped before lifting does not throw; `FLING_MIN_VELOCITY = 0.35` px/ms separates placed from thrown; `FLING_MAX_VELOCITY = 4` clamps because two samples a millisecond apart read as any speed and the glide is ~280x the velocity; `FLING_FRICTION = 0.94` per 60fps frame lands around two thirds of a second, about how long a thrown list keeps moving; `FLING_STOP_VELOCITY = 0.04` is where another notch would be a twitch. `tailVelocity` is shared between "cancel the press" and "glide" so both use one scale.
+- `startFling` runs on rAF so it stops dead when the tab is backgrounded, clamps `dt` to 64ms so a tab away for a second does not resume by firing that second's friction and travel in one frame, and aborts if `appOwnsScreen` flips false mid-glide.
+- `LONG_PRESS_MS = 420` arms rather than opens: the haptic tick (`navigator.vibrate(8)`) is the whole feedback, and the panel opens on `touchend` only if the finger never left `TOUCH_SLOP_PX = 8`. Every rule tried for separating press from scroll mid-gesture (distance, speed, direction, stillness) either misread a scroll or broke a selection, because they are the same movement until the finger stops. A `touchcancel` clears `armed` without opening, since iOS cancels when something else owns the gesture.
+- `onTouchEnd` calls `e.preventDefault()` before opening the select panel or the link sheet to swallow the click the browser emulates from the touch, which would land on the thing about to open. The link sheet's backdrop is armed 350ms late (`setLinkArmed`) for the same click.
+- Link activation via xterm's provider is deduplicated with an 800ms same-URI window (`lastLink`): a tap runs Orbit's hit test and Safari's synthesised click, which would answer one tap twice.
+- `.xterm-rows` gets `pointer-events: none` for touch only: a touch is delivered for its whole life to the node it started on, xterm's DOM renderer replaces a row's spans on every repaint, so a finger on a glyph held a detached node within a frame and the swipe died (measured: 2 notches vs 28 from a blank row). Landing on `.xterm-screen`, which `open()` builds once, fixes it; every gesture resolves its cell from coordinates, never from the target. A mouse keeps the rows for xterm's own hover and click. `touchmove` is registered non-passive so a drag can hold off the scroll.
+- `selectionInactiveBackground` equals `selectionBackground` (`#2c3654`): a long-press selection never focuses the terminal and xterm dims an unfocused selection to almost nothing, which on a phone reads as "the long press did nothing".
+- `decomposeSaraAm`: iOS Safari draws a lone ำ (U+0E33) as a dotted circle with a floating mark. xterm gives ำ its own cell and the shaper splits it into nikhahit + า with no base. Writing the canonical decomposition (ำ → ํา, Lao ຳ → ໍາ) puts the nikhahit in the consonant's cell; widths are untouched since the nikhahit is zero-width, so box drawing stays aligned. Applied to replay and output alike.
+- `gridRef`: a fresh XTerm is 80x24 until `fit()`, so a session switch showed one frame at a size the phone never has and the fit was then a real resize. The last fitted grid seeds the next terminal's constructor because the box has not moved.
+- `connect()` clears the pending resize queue and sets `sentSize` to the handshake size: `/ws?cols=&rows=` already tells the server the size, and without this the resize `fit()` raised moments earlier went out again 180ms later as news, which the server answered by walking the agent one row down and back — the jump on every session switch.
+- `redrawLocally` (`term.refresh(0, rows-1)`) is the only redraw. A size that did not move is never re-sent: re-announcing a known size produced two frames for two heights, which was the jump on every attach, keyboard and foreground. The one case it truly fixed — a half-drawn frame from an agent mid-write — fixes itself with the next output chunk.
+- `onResize` handler: xterm is refitted immediately (a reflow is ~3ms and keeps the composer row on screen) but the PTY is told once after `RESIZE_SETTLE_MS = 180` of quiet, because every size the agent hears is a SIGWINCH plus a full redraw, and a dozen chasing a sliding keyboard leave frames drawn for one height on a screen that is another. A settled size equal to `sentSize` (keyboard came and went inside one window) only redraws locally.
+- `fit()` is skipped when the container measures 0x0: a `display:none` container would collapse the grid and garble the buffer via reflow. The `try/catch` is because `fit()` can race with dispose during unmount.
+- `resync` on `visibilitychange`/`pageshow`: iOS suspends a backgrounded tab and the socket can die on the network with no `onclose`, so a returning phone finds a socket that looks open and carries nothing. It pings and closes the socket itself after `PROBE_TIMEOUT_MS = 3000` if nothing arrives; any frame clears the probe. An already-closed socket reconnects at once instead of waiting out `RECONNECT_DELAY_MS = 1500`.
+- The tab-return effect is purely local: another tab never sleeps the socket, so the buffer is current and only the picture went stale (xterm stops rendering an unseen box). The agent hears nothing unless the layout actually changed.
+- `painted` / `PAINT_TIMEOUT_MS = 700`: a switched-to terminal is held invisible (laid out, measured, fitted, not shown) until the replay is written, then revealed one rAF later so what appears is the finished screen rather than an empty frame and a scrolling write. The timeout is so a server that never answers cannot leave the box hidden.
+- On `ready` the terminal is `reset()` rather than cleared — a dropped connection can leave it mid-escape-sequence or on the alternate screen with mouse tracking on — and `viewing` is re-sent because the server assumes the session is on screen when the socket opens, which is wrong when the app was left on another tab.
+- `paste` handle uses `term.paste()` rather than `write()`: the agent's composer reads a bare newline as "send", so a written multi-line message arrives as several half-messages. xterm applies bracketed paste when the app asked for it and folds CRLF to CR otherwise. App.tsx sends every whole message this way.
+- xterm is opened one frame after mount via rAF so React StrictMode's throwaway first mount never starts xterm's internal timers, which fire after dispose and crash.
+- `term.textarea.readOnly = true` on mobile except during a deliberate focus: iOS otherwise pops the keyboard on scroll. A tap on a live session makes it writable and focuses; a read-only session never focuses since there is no PTY.
+- The terminal box uses `overflow: clip`, not `hidden`: xterm's screen is positioned and would paint over the key bar and tabs, and `hidden` would make it something iOS can scroll out from under the focused textarea.
+
+### Touch, selection and links (touch.ts, terminal-snapshot.ts, terminal-links.ts)
+
+- `isTouchDevice` checks the UA for iPhone/iPad/iPod as well as `(hover: none) and (pointer: coarse)`, because the media query alone misses phones that need touch handling.
+- `snapshot`: the in-place selection over the live terminal was abandoned because every repaint scrolls the buffer, `term.onScroll` had to drop the selection, and selecting while Claude Code was working was impossible; and "hold then drag" is the same movement for extend-selection and scroll, so one had to lose. A frozen copy moves nothing and hands selection to the platform. (DESIGN-NOTES still describes the grips; this replaced them.)
+- `MAX_ROWS = 3000` is counted in rows, not logical lines, so wrapping only shortens the panel; the cut is moved back to a logical-line boundary so the first line shown is not a tail. Trailing blank lines are popped (never past the pressed line) so the last line of the session sits at the bottom of the panel rather than twenty rows above it.
+- `logicalCells` is a `getCell` per column per row and runs only for the pressed line and the link scanner; the rest of the snapshot uses `translateToString`, because three thousand rows of `getCell` on a phone feels like the panel refusing to open. Cells rather than string offsets because a Thai cell can hold several characters and a wide glyph spans two columns.
+- `terminal-links.ts` scans cells, not string offsets, for the same reason; `URL_CHAR` is ASCII-only rather than "anything but a space", which keeps an adjacent Thai word out of the address.
+- `HOST` requires dot-separated labels that begin and end alphanumeric, or a bracketed IPv6 literal: `https://...:8443/` (a program eliding its hostname, Orbit's own docs included) used to be offered as a link and could only open a blank frame. Userinfo (`token@github.com`) is allowed because git remotes print it and stopping at `@` returned an address with no host.
+- `continues` accepts a continuation indent of at most `MAX_INDENT = 4` (Claude Code writes two spaces) and drops that indent, not the text after it.
+
+### App shell and boot (App.tsx, api.ts)
+
+- `openedWith` and `pairCode` are read at module load and cleared from the address bar immediately, but `openedWith` is spent only by the boot run that acts on it, after the `cancelled` check. Clearing on read handed it to the boot that `setLocked` immediately cancels, and the next boot fell back to the stored session — the one the notification was not about.
+- Boot deliberately starts no shell when there is nothing to reattach to: opening a tab used to put a program on someone's Mac, and a home-directory shell was rarely the session wanted.
+- `showNotice` queues toasts (3s each) because a reconnect delivers everything the phone slept through in a batch, and the last one winning would drop the rest. `alreadyPushed` notices skip `systemNotice` because a banner is already on screen.
+- `onAuthFail` calls `checkAuth()` for a fresh cookie and bumps `socketNonce` to remount the terminal: the stored token is usually still good when only the cookie expired, so nobody should retype it. An unreachable server is treated as locked.
+- Un-pairing lives in App rather than SessionsView because flipping `locked` is what tears down the socket and session; the push endpoint is read before the server request and cancelled after it succeeds, because the server must be told which endpoint is this phone while the subscription still exists.
+- `status` is shown as `connected` when there is no session and boot finished; otherwise the header sits on "Connecting…" forever with no socket to report on.
+- An uploaded image path goes into the draft (or the voice transcript via `setTranscript`, which makes it the baseline a restarted run appends after), never straight to the PTY; the sheet that opened the picker is read before the upload so the path lands where it is being looked at.
+- `preview` (agent `orbit_preview`) is framed from App, not the Preview tab, because the tab in front is nearly always the terminal. It renders only with no approval and no asks: a blocked question outranks it, and it is kept rather than dropped so it appears once answered. A second preview replaces the first; a frame already open from another component stays underneath.
+- On preview close the route is saved to `orbit.previewRoute.<localPort>` — keyed by local port because `tailscale serve` reassigns public ones — so the Preview tab reopens where the agent left it (`CapturesView` writes the same key).
+- Toasts with a `sessionId` for a session not on screen render as a button that navigates there; plain toasts stay a div because a button that does nothing reads as broken. Long toasts switch from `rounded-full` to `rounded-[22px]` because a four-line pill is a blob.
+- `api.ts` writes throw on non-2xx rather than returning the Response: a rename once "succeeded" on a 4xx and showed the old name with nothing said.
+- `unpair`: server call first, local storage cleared only on success — clearing on failure leaves a phone with no token but a live cookie, logged out yet able to open a socket, unrecoverable without retyping. Only `TOKEN_KEY`, `SESSION_KEY`, `RECENTS_KEY` go; dictation language, mic-primed flag, key-row and viewport preferences describe the phone, not the Mac, and survive.
+
+### Login and pairing (Login.tsx, QrScanner.tsx)
+
+- `busyRef` is a ref, not a dependency of the memoised `onResult`: the scanner's callback must not change between renders or its effect tears the camera down and restarts it.
+- `QrScanner` decodes with jsQR (Safari has no `BarcodeDetector`), dynamically imported from the tap that opens the sheet so the 47KB decoder stays out of the boot bundle for the paste-a-token majority. `getUserMedia` and the import start together in `Promise.all`: the download is the slow half, and asking for the camera first keeps the prompt inside the tap.
+- Frames are decoded at `min(1, 480 / videoWidth)` scale: jsQR is per-pixel and a 1080p frame at 60fps heats the phone, while a QR filling a third of the view is still tens of modules across at 480px. `inversionAttempts: 'attemptBoth'` because the QR is printed into a terminal, light-on-dark on a dark theme.
+- `playsInline muted autoPlay` are all required: without them iOS takes the video fullscreen the moment it plays, hiding the sheet and its cancel button. All camera state lives in one effect so there is exactly one place that can leak a stream (which keeps the iOS recording indicator lit with nothing on screen saying so). WebKit reports refusal as a DOMException name only, so `cameraDenied` translates it into the setting to change.
+
+### Voice (speech.ts, VoiceSheet.tsx)
+
+- `prime`: iOS does not reliably raise the microphone prompt for `SpeechRecognition.start` — it just refuses — so the first attempt calls `getUserMedia` inside the same gesture and starts the recogniser from its callback, which iOS accepts because the grant just happened. `MIC_GRANTED_KEY` skips priming thereafter.
+- `onerror` sets `listening = false` itself: iOS does not always fire `onend` after a refused start, and the sheet would otherwise show "Listening…" over an error.
+- `setLang` while listening aborts and restarts — safe only because the sole caller is a tap on the language chip, the gesture iOS wants. While still `preparing`, the pending `getUserMedia` callback picks up the new language on its own.
+- `errorMessage` names all three iOS switches because iOS reports all of them as `service-not-allowed`; the raw `code` is kept for diagnostics because phones have no devtools.
+- `VoiceSheet`'s "Continue listening" is full width at 44px because on iOS it is the most-pressed control in the sheet, more than Send.
+
+### Clipboard and links (clipboard.ts, local-url.ts)
+
+- `copyText` fallback for insecure contexts: iOS `execCommand('copy')` copies nothing from a readonly or offscreen field, so the proxy textarea is `contentEditable`, `readOnly = false`, on screen at 1px x 1px with `opacity: 0`.
+- `openExternal` clicks a real `target="_blank"` anchor rather than `window.open`: WebKit treats the synthetic click on a real link as navigation, while `window.open` from a standalone web app is what it has historically swallowed.
+- `localUrl`: when the rewritten port is Orbit's own it returns `location.origin + rest` to stay on the scheme and proxy already in use; a bare `www.` gets `https://`.
+
+### Sheets and views
+
+- `ComposeSheet` is a sheet, not a docked bar, so the terminal keeps its stripe; it is also the only surface iOS offers its own Paste menu over, which the old header paste button stood in for badly. It focuses on open with the caret at the end because a surviving draft is being returned to. The mic is not inside it: opening voice from inside put one sheet over another with the first one's keyboard still up eating the first tap.
+- `SelectSheet` renders the snapshot as one text node so a DOM offset equals a string offset — pre-selection and the Line button need no second index. `white-space: pre` with sideways scroll so a copied line matches the terminal and diffs keep their shape. The pressed word is scrolled to a third of the way down (the lines after it are usually what is wanted next). `copied` stores the text copied, not a boolean, so "Copied" cannot stand over a different selection. The panel must re-enable `user-select`, which the app turns off over the terminal.
+- `AskModal` has no dismiss (something on the Mac is blocked); two options render `flex-row-reverse` so the first, emphasised option sits under the thumb; empty options fall back to `Allow`/`Deny`. The title never wraps and the path truncates from the head with `min-w-0`, because a long path used to push the title onto two lines.
+- `TerminalKeys`: both rows are permanently up because folding them was a resize, and a mid-draw agent answering it left a half-written frame on screen — three client-side rounds did not close it. Keys are 40px tall, not 44, because three arrows plus a five-key row must clear 375px. `HOLD_MS = 400` / `REPEAT_MS = 80` for auto-repeat; `TAP_SLOP_PX = 10` cancels a moved tap. The keyboard toggle is handled on `touchend` with `preventDefault` because the click that follows blurs the textarea and closes the keyboard before the toggle can open it. The bar is `z-10` because xterm's positioned screen paints over a static bar. Arming Ctrl opens the keyboard because the letter must come from it.
+- `useArrival` fills its `seen` set in an effect, not during render: under StrictMode React renders twice before committing, and marking ids seen on the first pass leaves the committed pass believing everything already arrived, animating nothing ever. The stagger index counts only new ids; headers get synthetic ids so they take their turn.
+- `Sheet`: the scrim carries `backdrop-filter`, the panel does not — a second filter would have WebKit re-sampling two full-screen layers over a canvas that never stops repainting; the panel slides on transform alone.
+- `IconButton` sm/md are drawn small and use `hit-xy` to reach 44px without moving layout; lg is 44 and gets none. `Button` has no `disabled:opacity-*` because fading drags labels under 3:1 contrast; `.pill:disabled` draws the state. `Segmented` uses `max-w-full` and `min-w-0` children so four long labels (40 characters) truncate proportionally at 390px instead of running off the phone.
+- `CaptureSheet`: Full page is a modifier, not a fourth size, because the server only lets height run past the fold at a preset's width. Nothing is remembered; the old `orbit.screenshotPreset` key is deliberately never read again. Captions flip from `390 × 844` to `390 wide` because only the width holds on a full-page shot. The sheet closes before the shot, not after, since rendering takes seconds.
+- `CapturesView`: `busy` is a per-target string (two captures can run at once in the shared Chrome). Published list and dev ports are fetched on mount and on wake only (a process launch and a socket per candidate); liveness polls every 10s while active, with `ports` joined to a string so a same-set re-render does not restart the interval, and a failed poll leaves the last answer standing. A 30s `tick` re-renders tiles so `timeAgo` stops saying "now" forever.
+- `CapturesView` keeps `previews` whole (not reduced to its list) so `reason` can explain a machine that cannot publish. A row's ⧉ is disabled when not listening because Chrome returns a raw `net::` error with no picture, whereas ✕ stays live to stop an abandoned mapping. The escape-hatch URL field sits at the foot of the list because a top field spent a year looking like the page's subject. `MAX_TILE_RATIO = 16/9`: taller shots get a 9/16 frame with `object-cover` top-aligned rather than a metres-long tile.
+- `ChangesView`: `NOISE` drops only `diff --git`, `index`, `---`, `+++`; mode changes and rename sources stay. `marksByHunk` is memoised because the LCS per line pair re-ran on every app re-render (a toast, a status change). Arrival ids are hunk headers, not positions, so staging one hunk (which refetches the diff) does not replay the others' entrance. `canStage` requires `!diff.truncated` because a cut hunk may be half a hunk and git might accept the half; only `M` files are splittable. Status refetches on activation and `visibilitychange`, never on a timer, since `git status` walks the working tree. A failed diff fetch sets an error rather than leaving `diff` null, which the sheet read as loading.
+- `SessionsView`: the Mac-conversations group is collapsed by default and its hidden count fetched only when opened. `commitRename` guards `renamingId !== id` because Enter unmounts the input whose blur commits again. Un-pair lives behind a header icon rather than a list-end button because a scroll to the bottom used to land on it. The empty state counts Mac rows too so it never contradicts a group of ten below it. A guessed (idle) note uses the quiet colour and a non-pulsing dot.
+
+### Notices and push (notice.ts)
+
+- `registerPush` re-subscribes on every launch because subscriptions expire and endpoints rotate; failure is silent since no push is a degraded phone, not a broken app.
+- `pushEndpoint` is read separately from `dropPush` so the endpoint is handed to the server first and cancelled only after that succeeds; a failed un-pair leaves a phone that still gets notifications rather than one silently cut off.
+- `dropPush` cancels the browser-side subscription too, because it survives the app closing and would be handed straight back to the next `registerPush`. Its own failure does not stop sign-out: the server has forgotten the endpoint and the next push 410s and prunes.
+- `systemNotice` checks `getNotifications({ tag: 'orbit-notice' })` for the same body before showing, because the shared tag is supposed to replace the push banner and on iOS it does not always.
+
+### Service worker (sw.js)
+
+- `CACHE = 'orbit-__BUILD__'` is stamped per build by vite.config.ts and `activate` deletes other caches; otherwise every deploy's hashed bundle stayed cached for the life of the install.
+- Fetch is network-first with the cached shell as offline fallback, skipping `/api/`, `/ws` and `/healthz`. Only `response.ok && response.type === 'basic'` is cached: a 502 from the proxy during a restart, or the server's plain-text "web build not found", would otherwise replace the shell and be what the next offline launch shows.
+- Push: the first two `ask.options` become notification actions (a banner shows at most two; the rest are in the modal). Tag is `orbit-ask` for questions and `orbit-notice` otherwise, because replacing one with the other would drop whichever arrived first while only one is still waiting; `renotify: true` so each replacing notice still announces itself.
+- `notificationclick` on an `answer:` action posts `{id, token, choice}` to `/api/ask/answer` and opens nothing; on fetch failure it re-shows the question as a notification because the Mac is unreachable and the question is still waiting.
+
+### Viewport and entry (viewport.ts, main.tsx)
+
+- `watchViewport`: iOS never shrinks the layout viewport for the soft keyboard, so `inset: 0` leaves the composer, key bar and tabs behind the keys; Safari pans the visual viewport only far enough to reveal the focused element, and xterm's textarea rides the cursor near the top of a fresh session, so nothing moves. `--app-height` is `visualViewport.height`, `--app-top` is `offsetTop` (how far Safari already panned) which the shell adds back. Writes coalesce to one rAF per frame; `window.scrollTo(0,0)` undoes the document shift focusing an input can still cause. It runs before the first render so the shell is sized before first paint.
+- The service worker registers only under `import.meta.env.PROD` so HMR is never cached.
+
+### Diff highlighting (diff-words.ts)
+
+- `MIN_SIMILARITY = 0.3` (shared characters over the longer line): below it two lines are a delete and a write, and marking every token is true and useless. `MAX_TOKENS = 400` per line because the LCS is O(n x m) and lines that long are minified or generated.
+- `pair` pairs only equal-length runs of removed/added lines line-for-line; three-becoming-one has no line-to-line answer and guessing puts the highlight on whichever line lined up. A pair whose tokens all match (whitespace-only) returns null so the view falls back to whole-line colour.
+
+### Dev gallery (dev/*)
+
+- The gallery renders every state open with no controls, routing or clicks because `orbit_capture` screenshots are how agents review it and a click is a state a screenshot never reaches. The scaffold uses raw Tailwind rather than Orbit primitives so a broken Button cannot break the page auditing it. `Field` takes real `focused` because a document has one focused element and a faked ring would be a second definition of focus. Tokens are read from the live stylesheet so they cannot drift.
+
+### Test harness and scripts
+
+- `scripts/test.sh` picks the port itself from 3099 up and names the scratch HOME after it: asking the caller for one used to die on "port in use", so a second session invented its own port and HOME, which is how six `/tmp/orbit-smoke-31xx` directories outlived their runs. `:3001` is refused because the suites kill sessions and that is the live Orbit; `smoke.mjs` (`SMOKE_FORCE` overrides), `changes-smoke.mjs`, `shots.mjs` and `shots.sh` each refuse it independently.
+- `test.sh` exports `REAL_PATH` from `/bin/zsh -lic`: the scratch HOME has no rc files, so the server's login shell rebuilt PATH without `~/.local/bin` or version-manager shims and provider detection (`zsh -lic 'command -v claude'`) reported every agent "not installed" — a false negative nobody investigates.
+- `test.sh` sets `ORBIT_TAILSCALE` to `fake-tailscale.mjs`: the real CLI either skipped the preview tests or published real mappings, and `:8443 → 127.0.0.1:3099` once outlived the throwaway server and confused a debugging session weeks later. The fake keeps mappings in a JSON file under the test HOME, seeds `443 → 3001` (the front door `make phone` created) so Orbit must leave it alone untold, prints the CLI's words on stderr (which `preview.ts` reads), and keeps the trailing dot on `DNSName` because `preview.ts` strips it.
+- `test.sh` deletes the scratch HOME only when suites pass (a failed run's server log is what someone wants to read) and retries `rm -rf` five times at 0.3s because the server's shells write `.zsh_history` a moment after the server has gone.
+- `smoke.mjs` attaches the `gone` message listener before any `await`: under Bun the socket opens, is told `gone` and closes within ~3ms, before a fetch returns, so a listener attached after waits forever.
+- `smoke.mjs` asks resumability of the provider list, not the new session: a live session is never resumable by design (resuming would put a second agent into a held conversation), so gating on it skipped the test on every machine while claiming Claude was not installed.
+- `smoke.mjs` conversation bookkeeping runs in a child process with its own data directory because a second `PtyManager` on the same `~/.orbit` would be two writers of one `sessions.json`; every session it makes is killed immediately so a machine with Claude Code does not get real agents in a scratch folder.
+- `smoke.mjs` WINCH test: `trap 'echo W""INCH-HIT' WINCH` in the shell, the marker split so the command echo cannot be mistaken for the trap firing; a same-size reattach must not fire it, a different size must. This is the guard on "nothing forces a redraw".
+- `smoke.mjs` treats macOS's "could not create image from display" as a skip: it means the process lacks Screen Recording permission (normal for a server launched from an editor, CI or an agent shell), and failing on it teaches people to ignore red lines.
+- `smoke.mjs` dev-port test listens with an HTTP server on 3097 and a mute TCP server on 3096 because the HEAD probe, not a bare connect, is what separates a dev server from a database. The `POST /api/preview` non-HTTP stub uses `c.destroy()` because the probe half-closes and two half-closed ends leave a socket `close()` waits on forever.
+- `smoke.mjs` sends malformed frames (`null`, `garbage`, `[]`, resize with string or zero cols) because each once threw past the switch and exited the process with every session in it.
+- `smoke.mjs` Mac-transcript cap: twelve valid fixtures, ten reach the phone — the cap, not an age cutoff, keeps the list about Orbit's own sessions since a used machine has hundreds all touched this week. The MCP tool check is by name, not count, because a count was wrong about `orbit_preview` after a rename.
+- `smoke.mjs` sign-out asserts the `Set-Cookie` has the same name and `Path=/`, or the browser keeps the live cookie beside the expired one; the token is deliberately untouched (rotating would sign out every device and cost a restart).
+- `ask-smoke.mjs` tests `notify.ts` directly rather than over HTTP because the answer token would otherwise have to be recovered from an encrypted push payload. `topicIsValid`: proven against Apple's endpoint on 9 Sep 2026 — 12- and 10-character topics returned 201, 13-character and the 9-character `orbit-ask` returned 400 BadWebPushTopic; the rule is length (the header is decoded as base64url), not the characters, and both shipped topics were wrong for five weeks.
+- `idle-smoke.mjs` uses `QUIET = 120`ms against a fake session; the echo case matters because typed input is echoed as output and restarts the clock, so what stops a report is the turn's output count resetting, not a cancelled timer.
+- `touch-smoke.mjs` taps via Playwright's touchscreen so the emulated click follows (the reason tap handling swallows clicks); press-and-hold is dispatched in-page because Playwright has no API for it. The `hold` selector keeps dispatching to the original node even once detached, because a real finger does and resolving the target afresh had silently repaired the dead-glyph swipe bug. WebKit cannot construct `Touch` but has `createTouch`; Chromium is the reverse. `spanAt` finds a word by column because xterm draws a whole unstyled row as one span. The alt-screen app is written to a file because quoting through `node -e` over a pty breaks silently, and it repaints continuously because a draw-once app cannot reproduce the detached-node case.
+- `changes-smoke.mjs` scopes the "Stage" click to the sheet with an exact match because "Stage all" sits in the list behind it and a substring match clicks through. Both browser suites reset `errors` after login because the 401 that raised the login screen is the app working; touch-smoke also ignores `40[14]` for the login probe and example.com's missing `/a/b`.
+- `setup-smoke.mjs` makes its own HOME regardless of the script's because it edits `~/.claude/settings.json`; it asserts the approval hook carries `timeout: 190` (the one that fails open when wrong) and that legacy `scripts/orbit-approve.mjs` hooks are taken over rather than doubled, since double hooks buzz the phone twice per question.
+- `shots.sh` moves only `ORBIT_HOME`, keeping the real `HOME`, so a photographed session has the user's shell, PATH and agent credentials; the demo project lives under the real home because Orbit refuses sessions outside it. It unsets every `CLAUDE*` env var so an agent started from inside a Claude Code session does not print "transcript saving is off" in a published picture.
+- `shots.mjs` types `export PS1='storefront $ '; exec zsh -f` first because the machine's themed prompt carries a username, hostname and path into a published page; uses `git --no-pager` because `less` fills the scrollback with tildes; clicks `.xterm-screen` before typing because xterm only takes keystrokes once touched; stubs `SpeechRecognition` and skips `getUserMedia` priming because headless Chrome has no mic; intercepts `/api/dirs` and `/api/ports` so the folder picker and Preview tab show the demo rather than client names; saves JPEG q88 because ten 2x dark-grain PNGs were 7MB per re-run in git history; kills every session at the end because a dev server holding :5199 meets the next run as a busy port.
+
+### Installer and release scripts
+
+- `install.sh`: while the repo is private, assets come via `gh` when logged in, else via the API by asset id with `GITHUB_TOKEN` (private assets are only reachable by id). `ORBIT_LOCAL_DIR` replaces every fetch with a `cp` so `install-smoke.mjs` runs with no network or real binary. A missing or mismatched `.sha256` aborts before install. `xattr -d com.apple.quarantine` runs although nothing went through a browser — harmless when absent. The PATH line is appended to `~/.zshrc` only if the dir is not already on PATH and not already in the file (`ORBIT_NO_MODIFY_PATH` skips it).
+- `dist.sh` passes `--external chromium-bidi` because it is an optional require inside playwright-core (for Firefox) that the bundler cannot resolve and the binary never needs; `web/dist` and `server/package.json` go in as `--asset` because the server reads them from disk (`WEB_DIST`). A `.sha256` sits beside each binary because the Homebrew formula names it and `tap.sh` reads it from the release rather than this machine.
+- `release.sh` runs `bun install --silent` after bumping both package.json files because the lockfile carries workspace versions, and tolerates an empty commit for a version the files already carry.
+- `icons.mjs` reads colours out of `web/src/styles.css` and fails loudly if a token is missing; renders each size at exact pixels in system Chrome, since scaling down a bigger PNG is what turned the old favicon to mush. Sizes below 192 drop the satellite (~5% of width, a smudge at small sizes). `RIM = rgb(255 255 255 / 0.17)` keeps the ring dark under a satellite so the sweep is the bright thing; the satellite-less favicon opens the rim up. All PNGs are full-bleed ink (iOS will not round-trip transparency; Android's legacy path drops a white plate); apple-touch-icon is 180 unrounded since iOS applies its own squircle; maskable artwork sits inside the 80% safe circle. `syncColours` rewrites manifest and theme-color from `--color-ink` because three files once disagreed.
+
+### Site builder (docs/site/build.mjs)
+
+- Everything is embedded (fonts, screenshots as data URIs) so `index.html` opens off disk or by mail; `sips` does the image pass because macOS is the only platform anyway. Anuphan (Thai subset only) is embedded because Space Grotesk has no Thai and the fallback, Thonburi, is looped and reads like a government form beside a geometric sans.
+- `SHOT_WIDTH = 780`: the hero phone is 300 CSS px, retina asks for 600, and a 520px source upscaled looked soft. `make shots` already writes 780px JPEGs, so anything at or under that width is embedded verbatim with no second lossy pass; only PNGs or larger images go through sips at `SHOT_QUALITY = 82`.
