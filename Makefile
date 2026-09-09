@@ -1,5 +1,5 @@
-.PHONY: help install dev build start stop clean icons \
-	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-clean \
+.PHONY: help install setup unsetup dev build start stop clean icons shots \
+	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-setup test-clean \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
 
@@ -16,6 +16,7 @@ help: ## Show available targets
 	@echo ""
 	@echo "  Orbit — make targets"
 	@echo ""
+	@echo "  Setup:   make install && make setup   (first time on a machine)"
 	@echo "  Phone:   make phone   →  make stop when done"
 	@echo "  Test:    make test    (throwaway server on a spare port, never touches ~/.orbit)"
 	@echo "  Hygiene: make clean   (prune ~/.orbit caches; keeps auth/sessions)"
@@ -26,6 +27,15 @@ help: ## Show available targets
 
 install: ## Install dependencies
 	npm install
+
+# One command between `git clone` and a working setup. Everything it writes is
+# derived from where this checkout is, so nothing has a path to substitute by
+# hand — which is what made the old copy-this-JSON instructions fail silently.
+setup: ## Build, register the MCP server, and install the hooks (run after make install)
+	@node scripts/setup.mjs
+
+unsetup: ## Undo make setup (leaves the checkout and ~/.orbit alone)
+	@node scripts/setup.mjs --uninstall
 
 # ── local ──────────────────────────────────────────────
 
@@ -50,6 +60,9 @@ stop: ## Stop Orbit on :3001 and Tailscale HTTPS (443)
 		echo "  Nothing listening on :$(PORT)"; \
 	fi
 	@$(MAKE) --no-print-directory phone-off
+
+shots: ## Retake docs/images from the current UI (throwaway server, real HOME)
+	@scripts/shots.sh $(filter-out $@,$(MAKECMDGOALS))
 
 icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.svg)
 	@node scripts/icons.mjs
@@ -79,6 +92,9 @@ test-idle: ## Noticing a session went quiet (no server needed)
 
 test-ask: ## Answering a question from a notification (no server needed)
 	@scripts/test.sh ask
+
+test-setup: ## Wiring a checkout into Claude Code (no server needed)
+	@scripts/test.sh setup
 
 # A run cleans up after itself — unless it was killed outright (kill -9, or the
 # terminal it lived in went away), in which case its EXIT trap never fired. That

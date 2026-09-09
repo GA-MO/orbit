@@ -18,13 +18,27 @@
 ## ติดตั้ง
 
 ```sh
-npm run build              # ต้อง build ก่อน — MCP server อยู่ที่ server/dist/mcp.js
-claude mcp add -s user orbit -- node /Users/<คุณ>/Development/orbit/server/dist/mcp.js
+make install && make setup
 ```
 
-`-s user` ทำให้ใช้ได้ทุกโปรเจกต์ (เช่นตอนเปิด session ใน `orbit-demo`) ไม่ใช่แค่ใน repo นี้
-และต้องเป็น **path เต็ม** เพราะ agent อาจรันอยู่คนละโฟลเดอร์ เช็คด้วย `claude mcp list`
-หรือพิมพ์ `/mcp` ใน Claude Code
+(ติดตั้งเครื่องใหม่ทั้งเครื่อง — ตั้งแต่ของที่ต้องมีก่อน ไปจนถึงรันครั้งแรก — อยู่ที่
+[docs/SETUP.md](SETUP.md))
+
+`make setup` build ก่อน แล้วลงทะเบียน MCP server กับติดตั้ง hook ทั้งหมดในเอกสารนี้ให้เอง
+โดย **หา path จากตำแหน่งของ checkout เอง** ไม่มีอะไรให้แทนที่ด้วยมือ
+
+รันซ้ำได้เสมอ — มันลบ hook ของ Orbit ทุกตัวออกก่อนเขียนชุดปัจจุบันกลับไป เพราะฉะนั้น
+รันสองครั้งไม่ได้ hook ซ้อน และ**ย้าย checkout ไปที่ใหม่แล้วรันอีกทีคือวิธีซ่อม path**
+hook ของเครื่องมืออื่นใน `~/.claude/settings.json` ไม่ถูกแตะ และไฟล์เดิมถูกสำรองไว้ที่
+`settings.json.orbit.bak` ก่อนเขียนทุกครั้ง
+
+เช็คว่าติดแล้วด้วย `claude mcp list` หรือพิมพ์ `/mcp` ใน Claude Code — **session ที่เปิด
+ค้างอยู่ต้องเปิดใหม่** เพราะ MCP server ถูก spawn ตอนเริ่ม session
+
+ถอนออก: `make unsetup` (ไม่แตะ checkout และไม่แตะ `~/.orbit`)
+
+`-s user` คือสโคปที่มันลงให้ — ใช้ได้ทุกโปรเจกต์ (เช่นตอนเปิด session ใน `orbit-demo`)
+ไม่ใช่แค่ใน repo นี้ เพราะ agent อาจรันอยู่คนละโฟลเดอร์
 
 ### ลองใช้
 
@@ -76,24 +90,8 @@ Preview เกิดมาแก้ **บนมือถือไม่มีช
 terminal เท่านั้น — จากมือถือที่คว่ำอยู่บนโต๊ะ คำถามที่มี 4 ตัวเลือกหน้าตาเหมือน session
 ที่กำลังคิดอยู่ และรอได้ทั้งคืน hook ตัวนี้ส่งจังหวะพวกนั้นมาที่ Orbit
 
-ใส่ใน `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      { "matcher": "AskUserQuestion",
-        "hooks": [{ "type": "command", "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-notify-hook.mjs" }] }
-    ],
-    "Notification": [
-      { "hooks": [{ "type": "command", "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-notify-hook.mjs" }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-notify-hook.mjs" }] }
-    ]
-  }
-}
-```
+`make setup` ติดตั้ง hook นี้ให้แล้ว (`PreToolUse` เฉพาะ `AskUserQuestion`, `Notification`,
+`Stop` → `scripts/orbit-notify-hook.mjs`) ส่วนนี้อธิบายว่ามันทำอะไร ไม่ต้องแก้ JSON เอง
 
 | เหตุการณ์ | ส่งอะไร |
 | --- | --- |
@@ -114,30 +112,12 @@ Orbit กรองคำสั่งอันตรายที่ **คุณ**
 พิมพ์เข้า PTY hook ตัวนี้ปิดช่องว่างนั้นด้วยชุด pattern เดียวกัน (`rm -rf`, `sudo`,
 `git push --force`, เขียนดิสก์ดิบ, fork bomb, …)
 
-ใส่ใน `.claude/settings.json` ของโปรเจกต์ (หรือ `~/.claude/settings.json` ถ้าอยากให้ทุกที่):
+`make setup` ติดตั้งให้แล้วเช่นกัน — `PreToolUse` matcher `Bash` → `scripts/orbit-approve.mjs`
+พร้อม `"timeout": 190`
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /Users/<คุณ>/Development/orbit/scripts/orbit-approve.mjs",
-            "timeout": 190
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`timeout` สำคัญ: hook รอคำตอบจากมือถือได้ถึง 180 วินาที แต่ค่าเริ่มต้นของ Claude Code
-คือตัด hook ทิ้งที่ 60 วินาที ถ้าไม่ตั้งไว้ให้ยาวกว่า คำสั่งอันตรายจะ**หลุดผ่านเงียบ ๆ**
-ตอนคุณยังไม่ทันกด
+`timeout` คือเหตุผลหลักที่ไม่ควรก๊อป JSON เอง: hook รอคำตอบจากมือถือได้ถึง 180 วินาที
+แต่ค่าเริ่มต้นของ Claude Code คือตัด hook ทิ้งที่ 60 วินาที ถ้าตั้งไว้สั้นกว่า คำสั่ง
+อันตรายจะ**หลุดผ่านเงียบ ๆ** ตอนคุณยังไม่ทันกด
 
 พฤติกรรม:
 

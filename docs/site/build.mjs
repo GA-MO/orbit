@@ -4,9 +4,9 @@
  *
  * The page is meant to be opened straight off disk, mailed, or published as a
  * hosted artifact, so every asset is embedded: the Space Grotesk face the app
- * itself bundles, a Thai face to go with it, and the ten real screenshots from
- * docs/images (downscaled to phone size and re-encoded as JPEG, or the file
- * would be several megabytes).
+ * itself bundles, a Thai face to go with it, and the real screenshots from
+ * docs/images (downscaled to phone size and re-encoded, or the file would be
+ * several megabytes).
  *
  *   node docs/site/build.mjs
  *
@@ -50,8 +50,8 @@ function fontDataUri(file) {
 function shots() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-site-'))
   const out = {}
-  for (const file of fs.readdirSync(SHOT_DIR).filter((f) => f.endsWith('.png')).sort()) {
-    const name = path.basename(file, '.png')
+  for (const file of fs.readdirSync(SHOT_DIR).filter((f) => /\.(png|jpg)$/.test(f)).sort()) {
+    const name = path.basename(file).replace(/\.(png|jpg)$/, '')
     const jpg = path.join(tmp, `${name}.jpg`)
     execFileSync('sips', [
       '-s', 'format', 'jpeg',

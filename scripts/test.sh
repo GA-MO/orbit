@@ -9,6 +9,7 @@
 #   make test-preview-url # how an agent's path becomes a URL (no server needed)
 #   make test-idle       # noticing a session went quiet    (no server needed)
 #   make test-ask        # answering from a notification    (no server needed)
+#   make test-setup      # wiring a checkout into Claude Code (no server needed)
 #   make test-clean      # reap what a killed run left behind
 #
 # Everything the suites touch — sessions, captures, uploads, the access token —
@@ -123,8 +124,11 @@ case "$SUITE" in
   # Same: a stand-in session and a clock, no HTTP anywhere near it.
   idle)    run idle idle-smoke.mjs ;;
   ask)     run ask ask-smoke.mjs ;;
-  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs; run idle idle-smoke.mjs; run ask ask-smoke.mjs ;;
-  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, idle, ask, or all)" >&2; exit 1 ;;
+  # Makes a HOME of its own regardless of this script's, since it edits
+  # ~/.claude/settings.json and must never be able to reach the real one.
+  setup)   run setup setup-smoke.mjs ;;
+  all)     run smoke smoke.mjs; run touch touch-smoke.mjs; run changes changes-smoke.mjs; run preview-url preview-url-smoke.mjs; run idle idle-smoke.mjs; run ask ask-smoke.mjs; run setup setup-smoke.mjs ;;
+  *)       echo "  Unknown suite: $SUITE (expected smoke, touch, changes, preview-url, idle, ask, setup, or all)" >&2; exit 1 ;;
 esac
 
 echo ""

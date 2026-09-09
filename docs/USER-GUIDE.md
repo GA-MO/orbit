@@ -23,7 +23,7 @@ Orbit เปลี่ยน MacBook ของคุณเป็น AI developmen
 ที่เสียงใช้ไม่ได้บน HTTP เพราะเบราว์เซอร์ยอมให้ขอไมค์และลงทะเบียน service worker
 เฉพาะบน secure context (HTTPS) เท่านั้น — ไม่ใช่ข้อจำกัดของ Orbit เอง
 
-<img src="images/01-login.png" width="390" alt="หน้า login ใส่ access token">
+<img src="images/01-login.jpg" width="390" alt="หน้า login ใส่ access token">
 
 ## แท็บ Terminal: shell จริงบนมือถือ
 
@@ -34,7 +34,7 @@ Ctrl+C, interactive TUI ทำงานครบ header บอกว่ากำ
 ในภาพ: สร้างโปรเจกต์ `orbit-demo` เขียน `index.html` แล้วรัน
 `python3 -m http.server 4321` — ทั้งหมดพิมพ์จากมือถือ
 
-<img src="images/02-terminal.png" width="390" alt="terminal รัน dev server">
+<img src="images/02-terminal.jpg" width="390" alt="terminal รัน dev server">
 
 > 💡 **Session ไม่ตายเมื่อจอดับ** — ปิดเบราว์เซอร์ สลับแอป หรือเน็ตหลุด
 > กลับมาแล้ว shell ยังรันต่ออยู่พร้อมประวัติครบ
@@ -132,7 +132,7 @@ branch นี้ยังไม่เคยถูก push (กรณีหลั
 (shell ใช้คำสั่ง, agent ใช้พรอมป์ตแรก) ขึ้นเป็นตัวหนังสือ monospace ให้รู้ว่าไม่ใช่ชื่อที่ตั้งเอง
 พอตั้งชื่อทีหลังด้วย ✎ ชื่อที่ตั้งจะแทนที่ทันที
 
-<img src="images/09-sessions.png" width="390" alt="รายการ sessions">
+<img src="images/09-sessions.jpg" width="390" alt="รายการ sessions">
 
 ### session ไหนกำลังรอเราอยู่
 
@@ -192,7 +192,7 @@ branch นี้ยังไม่เคยถูก push (กรณีหลั
    โฟลเดอร์เยอะ) ถ้าเผลอเลือกโฟลเดอร์กว้าง ๆ อย่าง home จะมีคำเตือนสีเหลือง
    แต่ไม่ห้าม
 
-<img src="images/05-new-session.png" width="390" alt="สร้าง session ใหม่">
+<img src="images/05-new-session.jpg" width="390" alt="สร้าง session ใหม่">
 
 ## ใช้ Claude Code จากมือถือ
 
@@ -200,7 +200,7 @@ branch นี้ยังไม่เคยถูก push (กรณีหลั
 ในภาพ: session "demo feature" ใน `orbit-demo` สลับโมเดลด้วย `/model haiku`
 แล้วส่งพรอมป์ตทดสอบ — คำตอบกลับมาแสดงบนมือถือครบถ้วน
 
-<img src="images/06-claude-code.png" width="390" alt="Claude Code ตอบพรอมป์ตผ่านมือถือ">
+<img src="images/06-claude-code.jpg" width="390" alt="Claude Code ตอบพรอมป์ตผ่านมือถือ">
 
 ## สั่งงานด้วยเสียง 🎙
 
@@ -217,7 +217,7 @@ branch นี้ยังไม่เคยถูก push (กรณีหลั
   ก่อนค่อยส่งเอง
 - **Send ⏎** — พิมพ์ลง terminal แล้วส่งทันที
 
-<img src="images/07-voice.png" width="390" alt="voice input พร้อม transcript">
+<img src="images/07-voice.jpg" width="390" alt="voice input พร้อม transcript">
 
 ### บน iPhone ต้องรู้
 
@@ -262,7 +262,7 @@ URL ที่ capture สำเร็จจะกลายเป็นปุ่�
 
 ในภาพ: หน้าเว็บ `orbit-demo` ที่เพิ่งสร้างผ่าน terminal เมื่อครู่
 
-<img src="images/03-captures.png" width="390" alt="แท็บ captures">
+<img src="images/03-captures.jpg" width="390" alt="แท็บ captures">
 
 แตะภาพเพื่อดูเต็มจอ / **⇥** แทรก path ของภาพลง terminal เพื่อส่งให้ agent
 ดูต่อ ("ทำไมปุ่มเบี้ยว ดูจากภาพนี้") / **🗑** ลบ
@@ -287,7 +287,7 @@ npm run preview:off     # เลิกแชร์
 คำสั่งนี้ไม่ไปยุ่งกับ `tailscale serve` ของ Orbit เอง (พอร์ต 443 → 3001) —
 คนละพอร์ต แยกกันเปิดปิดได้
 
-<img src="images/04-capture-viewer.png" width="390" alt="ดูภาพเต็มจอ">
+<img src="images/04-capture-viewer.jpg" width="390" alt="ดูภาพเต็มจอ">
 
 ### ไม่ต้องพิมพ์พอร์ตเอง
 
@@ -359,7 +359,7 @@ Input ที่มาเป็นก้อน (วางข้อความ, �
 เช่น `rm -rf`, `sudo`, format disk, force push — ถ้าเจอ คำสั่งจะถูก**ยึดไว้ก่อน**
 และถามยืนยันบนจอ พร้อมแสดงคำสั่งเต็ม ๆ ให้อ่าน
 
-<img src="images/08-approval.png" width="390" alt="modal ยืนยันคำสั่งอันตราย">
+<img src="images/08-approval.jpg" width="390" alt="modal ยืนยันคำสั่งอันตราย">
 
 กด **Deny** = ทิ้งคำสั่ง ไม่มีอะไรถึง shell / **Run anyway** = ปล่อยผ่าน
 (การพิมพ์สดทีละตัวอักษรไม่ถูกตรวจ — มือคุณ ความรับผิดชอบคุณ)
@@ -390,7 +390,7 @@ terminal แสดงประวัติทั้งหมดแบบ **read-
 
 ในแท็บ Sessions แถวของ session ที่จบแล้วก็มี ↻ กับ ＋ เหมือนกัน
 
-<img src="images/10-ended-readonly.png" width="390" alt="ดูประวัติ session ที่จบแล้วแบบ read-only">
+<img src="images/10-ended-readonly.jpg" width="390" alt="ดูประวัติ session ที่จบแล้วแบบ read-only">
 
 ## ติดตั้งเป็นแอป (PWA)
 

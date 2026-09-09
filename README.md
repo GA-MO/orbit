@@ -46,7 +46,7 @@ Local AI coding hub — turn your MacBook into a personal AI development server 
 
 **Phase 7 — the agent's side of the app:**
 
-- **MCP server** (`server/src/mcp.ts`, stdio JSON-RPC, no framework): `orbit_capture` renders a URL and returns the *image* so the agent can look at its own UI work, `orbit_screen` hands it the Mac's screen, `orbit_notify` puts a line on the phone, `orbit_ask` puts a question on the phone and blocks until it is tapped. Register with `claude mcp add -s user orbit -- node <repo>/server/dist/mcp.js`
+- **MCP server** (`server/src/mcp.ts`, stdio JSON-RPC, no framework): `orbit_capture` renders a URL and returns the *image* so the agent can look at its own UI work, `orbit_screen` hands it the Mac's screen, `orbit_notify` puts a line on the phone, `orbit_ask` puts a question on the phone and blocks until it is tapped. Installed by `make setup`
 - **Mac → phone channel**: `POST /api/notify` and `POST /api/ask` broadcast over the existing WebSocket; questions outlive a reconnect (a phone that joins mid-question is caught up) and time out rather than hanging forever
 - **Reaching a phone that is asleep**: iOS freezes the page and drops its socket on lock, so a notice sent then reaches nobody at all. Two things cover that gap — the notice is held and replayed to whoever connects next (once, and only if it was never delivered live), and a Web Push wakes the service worker with the app closed. Push fires only when the live channel found nobody, so an open app never gets a banner and a toast for the same event. VAPID keys live in `~/.orbit/config.json`, subscriptions in `~/.orbit/push-subscriptions.json`, and retired endpoints prune themselves. iOS grants notification permission only from a tap inside an installed PWA, hence the opt-in row at the top of Sessions
 - **Knowing Claude is waiting**: its own question boxes and permission prompts live in the terminal, which is invisible to a phone in a pocket. `scripts/orbit-notify-hook.mjs` forwards `AskUserQuestion` (with the question and its options), the notifications that mean "waiting for you", and turn-end for sessions started from Orbit. All of it is sent `quiet`: the server drops it while Orbit is open, since a toast repeating what is on screen is noise. Nothing blocks — the hook fires a request and exits
@@ -95,6 +95,24 @@ focused flows (new session, voice) and modals only for interrupts (command appro
 
 ## Run
 
+First time on a machine:
+
+```sh
+make install    # dependencies
+make setup      # build, register the MCP server, install the Claude Code hooks
+```
+
+Full walkthrough for someone setting up a machine from scratch:
+[docs/SETUP.md](docs/SETUP.md).
+
+`make setup` resolves every path from this checkout, so nothing has to be
+substituted by hand — which is what made the old copy-this-JSON instructions in
+[docs/MCP.md](docs/MCP.md) fail silently. It is safe to re-run (it replaces its
+own hooks rather than adding a second copy, and backs up
+`~/.claude/settings.json` first) and `make unsetup` takes it all back out.
+Sessions already open keep the previous build: the MCP server is spawned when a
+session starts.
+
 Development (two ports, HMR):
 
 ```sh
@@ -123,6 +141,14 @@ On first launch the server prints `[orbit] access token: …` — enter that on 
 make test             # every suite
 make test-smoke       # API / MCP / hooks only (no browser)
 make test-touch       # touch behaviour only (needs system Chrome)
+make test-setup       # wiring a checkout into Claude Code (no server needed)
+```
+
+Screenshots and the product page are generated, not hand-taken:
+
+```sh
+make shots            # retake docs/images from the current UI
+node docs/site/build.mjs   # rebuild docs/site/index.html from those images
 make test-changes     # the Changes tab only (needs system Chrome)
 make test-preview-url # how an agent's path becomes a URL (no server)
 make test-idle        # noticing a session went quiet (no server)

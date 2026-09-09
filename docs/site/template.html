@@ -1,12 +1,27 @@
+<!doctype html>
+<html lang="th">
 <meta charset="utf-8">
 <title>Orbit — MacBook ของคุณ คือ AI dev server ที่สั่งจากมือถือ</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Orbit เปลี่ยน MacBook เป็น AI development server ส่วนตัว — terminal ตัวจริงที่ต่อกับ zsh บนเครื่องคุณ เปิดจากมือถือ โค้ดไม่เคยออกจากเครื่อง">
 <style>
-  /* ---------------------------------------------------------------
-     Orbit — one-page product site. Dark only, on purpose: the product
-     is a deep-space console and every screenshot in it is dark.
-     Tokens mirror web/src/styles.css so the page and the app agree.
-  --------------------------------------------------------------- */
+  /* ---------------------------------------------------------------------
+     Orbit — one page, one file, no network at open time.
+
+     The palette is the app's own, copied from web/src/styles.css rather than
+     approximated: warm-neutral greys around hue 38, and exactly two hues in
+     the whole page — amber for "something is running" and red for "this can
+     destroy something". Everything else is black, white, grey and silver.
+
+     That rule is the app's, and it is why this page was rebuilt: the old one
+     was blue-grey with a periwinkle accent, from before the app became a
+     machined object rather than a dark UI. A product page in the wrong
+     colours makes the screenshots in it look like someone else's app.
+
+     Depth is rims and edge-light, not drop shadows — same reasoning as the
+     app: a real edge is bright where it turns into the light and dies where
+     it turns away, which a uniform border cannot say.
+  --------------------------------------------------------------------- */
   @font-face {
     font-family: 'Space Grotesk Site';
     font-style: normal;
@@ -14,12 +29,9 @@
     font-display: swap;
     src: url({{FONT}}) format('woff2');
   }
-
-  /* Thai comes from Anuphan — loopless, geometric, cut to sit beside a Latin
-     sans like this one. It is second in every stack on purpose: Latin never
-     reaches it (Space Grotesk covers that), Thai never reaches Space Grotesk
-     (it has no Thai), so each script gets the face drawn for it. Anuphan runs
-     a little short next to Space Grotesk, hence size-adjust. */
+  /* Space Grotesk has no Thai. Anuphan is loopless and cut to sit beside a
+     geometric Latin sans; it is second in every stack because Latin never
+     reaches it and Thai never reaches Space Grotesk. */
   @font-face {
     font-family: 'Anuphan Site';
     font-style: normal;
@@ -32,2391 +44,665 @@
   :root {
     color-scheme: dark;
 
-    --ink: #0a0c10;
-    --surface: #12151a;
-    --raised: #181d26;
-    --overlay: #1e2430;
-    --line: #242b38;
-    --line-subtle: #1a202b;
-    --fore: #e9ecf2;
-    --mut: #8b94a8;
-    --faint: #566078;
-    --accent: #93a5fd;
-    --accent-strong: #6c7ff2;
-    --glow: #55d6f5;
+    --ink: #0d0c0a;
+    --surface: #171614;
+    --raised: #211f1c;
+    --overlay: #2c2a26;
+    --line: #3a3731;
+    --line-subtle: #272421;
+    --fore: #f5f3f0;
+    --mut: #a6a096;
+    --faint: #736d64;
+    --accent: #e4e6e9;
     --live: #f0b45c;
-    --ok: #58d68b;
-    --danger: #f3737b;
+    --danger: #e8636b;
+
+    --edge: rgb(255 255 255 / 0.07);
+    --edge-strong: rgb(255 255 255 / 0.14);
+    --lift: 0 1px 1px rgb(0 0 0 / 0.4), 0 8px 20px -12px rgb(0 0 0 / 0.7);
 
     --display: 'Space Grotesk Site', 'Anuphan Site', 'Noto Sans Thai', system-ui, sans-serif;
     --sans: 'Space Grotesk Site', 'Anuphan Site', 'Noto Sans Thai', -apple-system,
       BlinkMacSystemFont, system-ui, sans-serif;
-    /* mono has no Thai either — Thai inside <code> lands on Anuphan, not Thonburi */
     --mono: ui-monospace, 'SF Mono', Menlo, Monaco, 'Anuphan Site', monospace;
 
-    --r-card: 14px;
-    --r-field: 10px;
-
-    --col: 68ch;
-    --pad: clamp(1.1rem, 4vw, 2.5rem);
-    --topbar-h: 54px;
+    --wrap: 1080px;
+    --r: 14px;
   }
 
   * { box-sizing: border-box; }
 
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
   body {
     margin: 0;
-    background:
-      radial-gradient(1100px 620px at 78% -8%, rgb(108 127 242 / 0.16), transparent 62%),
-      radial-gradient(760px 520px at 4% 12%, rgb(85 214 245 / 0.07), transparent 60%),
-      var(--ink);
-    background-attachment: fixed;
+    background: var(--ink);
     color: var(--fore);
     font-family: var(--sans);
     font-size: 16px;
-    line-height: 1.72;
+    line-height: 1.75;
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+    /* One light source, top-left, so every rim below has something to be the
+       rim of. */
+    background-image: radial-gradient(120% 80% at 12% -10%, #1b1917 0%, var(--ink) 60%);
+    background-attachment: fixed;
   }
 
-  /* Thai sets tone marks above and vowels below the line, so headings need more
-     leading than a Latin-only page would want. */
-  h1, h2, h3, h4 { font-family: var(--display); text-wrap: balance; line-height: 1.32; margin: 0; font-weight: 600; }
+  a { color: inherit; }
+
+  h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; margin: 0; }
+  h1 { font-size: clamp(2rem, 5.4vw, 3.4rem); letter-spacing: -0.025em; }
+  h2 { font-size: clamp(1.5rem, 3.2vw, 2.1rem); }
+  h3 { font-size: 1.0625rem; }
   p { margin: 0; }
-  a { color: var(--accent); text-decoration-color: rgb(147 165 253 / 0.35); text-underline-offset: 3px; }
-  a:hover { color: var(--glow); }
-  code, kbd, samp { font-family: var(--mono); font-size: 0.88em; overflow-wrap: anywhere; }
-  :focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; border-radius: 4px; }
 
-  .mono { font-family: var(--mono); }
-  .num { font-variant-numeric: tabular-nums; }
+  code, .mono { font-family: var(--mono); font-size: 0.875em; }
+  code { color: var(--accent); }
 
-  /* ---- shell -------------------------------------------------- */
+  .wrap { width: 100%; max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
 
-  .shell { display: grid; grid-template-columns: 1fr; }
-
-  @media (min-width: 1080px) {
-    .shell { grid-template-columns: 232px minmax(0, 1fr); }
-  }
-
-  /* ---- rail (desktop table of contents) ------------------------ */
-
-  .rail {
-    display: none;
-    position: sticky;
-    top: 0;
-    align-self: start;
-    height: 100vh;
-    padding: 2rem 0 2rem 1.6rem;
-    border-right: 1px solid var(--line-subtle);
-  }
-
-  @media (min-width: 1080px) { .rail { display: block; } }
-
-  .rail-mark { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 2rem; }
-  .rail-mark b { font-family: var(--display); font-size: 1.05rem; letter-spacing: 0.02em; }
-  .rail-nav { display: flex; flex-direction: column; gap: 0.1rem; }
-
-  .rail-nav a {
-    display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    padding: 0.32rem 0.5rem;
-    border-left: 2px solid transparent;
-    color: var(--faint);
-    font-size: 0.82rem;
-    text-decoration: none;
-    transition: color 0.2s, border-color 0.2s;
-  }
-
-  .rail-nav a i {
-    font-family: var(--mono);
-    font-style: normal;
-    font-size: 0.68rem;
-    color: var(--line);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .rail-nav a:hover { color: var(--fore); }
-  .rail-nav a[aria-current='true'] { color: var(--fore); border-left-color: var(--accent-strong); }
-  .rail-nav a[aria-current='true'] i { color: var(--accent); }
-
-  .rail-foot { position: absolute; bottom: 1.8rem; left: 1.6rem; font-size: 0.72rem; color: var(--faint); }
-
-  /* ---- flow of the page --------------------------------------- */
-
-  main { min-width: 0; }
-
-  section {
-    padding: clamp(3.4rem, 9vw, 6.4rem) max(var(--pad), env(safe-area-inset-right))
-      clamp(3.4rem, 9vw, 6.4rem) max(var(--pad), env(safe-area-inset-left));
-    border-top: 1px solid var(--line-subtle);
-    scroll-margin-top: calc(var(--topbar-h) + 8px);
-  }
-  section:first-of-type { border-top: 0; }
-  .wrap { max-width: 1080px; margin-inline: auto; }
-  .col { max-width: var(--col); }
+  section { padding: clamp(64px, 9vw, 120px) 0; }
+  section + section { border-top: 1px solid var(--line-subtle); }
 
   .eyebrow {
     font-family: var(--mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.16em;
+    font-size: 12px;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--faint);
-    margin-bottom: 0.9rem;
+    margin-bottom: 14px;
   }
+  .lede { color: var(--mut); font-size: 1.0625rem; max-width: 62ch; margin-top: 18px; }
+  .head { max-width: 68ch; }
 
-  h2 { font-size: clamp(1.55rem, 3.6vw, 2.3rem); letter-spacing: -0.015em; }
-  .lede { color: var(--mut); margin-top: 0.9rem; font-size: 1.02rem; }
-  h3 { font-size: 1.12rem; }
-
-  .stack { display: flex; flex-direction: column; gap: 1.15rem; }
-  .stack-lg { display: flex; flex-direction: column; gap: 2.2rem; }
-
-  /* ---- topbar -------------------------------------------------- */
-
-  .topbar {
+  /* ---- header ---------------------------------------------------------- */
+  header.bar {
     position: sticky;
     top: 0;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    min-height: var(--topbar-h);
-    padding: 0.45rem max(var(--pad), env(safe-area-inset-right)) 0.45rem
-      max(var(--pad), env(safe-area-inset-left));
-    padding-top: max(0.45rem, env(safe-area-inset-top));
-    background: rgb(10 12 16 / 0.86);
+    z-index: 20;
+    background: rgb(13 12 10 / 0.82);
     backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--line-subtle);
   }
+  .bar .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 600; letter-spacing: 0.02em; }
+  .mark {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #fff 0%, #b9b3a8 38%, #4a463f 100%);
+    box-shadow: 0 0 0 1px var(--line), 0 0 14px -4px rgb(255 255 255 / 0.5);
+  }
+  .bar nav { margin-left: auto; display: flex; gap: 22px; font-size: 13px; color: var(--mut); }
+  .bar nav a { text-decoration: none; }
+  .bar nav a:hover { color: var(--fore); }
+  @media (max-width: 760px) { .bar nav { display: none; } }
 
-  @media (min-width: 1080px) { .topbar { display: none; } }
-
-  .topbar-mark {
-    display: flex;
+  /* ---- hero ------------------------------------------------------------ */
+  .hero { padding-top: clamp(56px, 8vw, 96px); }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: clamp(32px, 5vw, 72px);
     align-items: center;
-    gap: 0.55rem;
-    flex: none;
-    font-family: var(--display);
-    font-weight: 600;
-    color: var(--fore);
-    text-decoration: none;
   }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; } }
 
-  /* How far down the page you are — the only orientation cue a phone gets. */
-  .progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; }
-  .progress span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent-strong), var(--glow)); }
+  .hero h1 { max-width: 15ch; text-wrap: balance; }
+  .hero h1 .dim { color: var(--mut); }
+  .hero-sub { color: var(--mut); font-size: 1.125rem; margin-top: 22px; max-width: 54ch; }
 
-  /* ---- mobile section menu -------------------------------------- */
-
-  .navbtn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    min-width: 0;
-    min-height: 40px;
-    padding: 0.3rem 0.7rem 0.3rem 0.85rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--raised);
-    color: var(--fore);
-    font: inherit;
-    font-size: 0.86rem;
-    cursor: pointer;
-  }
-
-  .navbtn b { font-family: var(--mono); font-size: 0.7rem; font-weight: 400; color: var(--accent); }
-  .navbtn b:empty { display: none; }
-  .navbtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .navbtn svg { flex: none; width: 13px; height: 13px; stroke: var(--faint); fill: none; stroke-width: 2; transition: transform 0.2s; }
-  .navbtn[aria-expanded='true'] { border-color: var(--accent-strong); }
-  .navbtn[aria-expanded='true'] svg { transform: rotate(180deg); }
-
-  .navsheet { position: fixed; inset: 0; z-index: 39; display: none; background: rgb(6 8 11 / 0.6); }
-  .navsheet.on { display: block; }
-
-  .navsheet-panel {
-    position: absolute;
-    inset: 0 0 auto;
-    max-height: 92vh;
-    overflow-y: auto;
-    padding: calc(var(--topbar-h) + env(safe-area-inset-top) + 0.5rem) var(--pad) 1.1rem;
-    background: rgb(13 16 21 / 0.98);
-    border-bottom: 1px solid var(--line);
-    box-shadow: 0 30px 70px -34px #000;
-    opacity: 0;
-    transform: translateY(-10px);
-    transition: opacity 0.22s ease, transform 0.22s ease;
-  }
-
-  .navsheet.on .navsheet-panel { opacity: 1; transform: none; }
-
-  .navsheet a.nav-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    min-height: 46px;
-    padding: 0.45rem 0.7rem;
-    border-radius: 10px;
-    color: var(--mut);
-    font-size: 0.98rem;
-    text-decoration: none;
-  }
-
-  .navsheet a.nav-item i { font-family: var(--mono); font-style: normal; font-size: 0.72rem; color: var(--faint); }
-  .navsheet a.nav-item[aria-current='true'] { background: rgb(108 127 242 / 0.14); color: var(--fore); }
-  .navsheet a.nav-item[aria-current='true'] i { color: var(--accent); }
-  .navsheet .btn { width: 100%; justify-content: center; margin-top: 0.7rem; }
-
-  /* ---- the orbit mark ------------------------------------------ */
-
-  .orbit-track {
-    position: relative;
-    flex: none;
-    border-radius: 999px;
-    border: 1.5px solid var(--line);
-    background: radial-gradient(closest-side, transparent 55%, rgb(108 127 242 / 0.12));
-  }
-
-  .orbit-track::before {
-    content: '';
-    position: absolute;
-    inset: 28%;
-    border-radius: 999px;
-    background: linear-gradient(135deg, var(--accent-strong), var(--glow));
-  }
-
-  .orbit-track::after {
-    content: '';
-    position: absolute;
-    inset: -1.5px;
-    border-radius: 999px;
-    background: radial-gradient(circle at 50% 0%, var(--glow) 0 12%, transparent 13%);
-    animation: orbit-spin 6s linear infinite;
-  }
-
-  @keyframes orbit-spin { to { transform: rotate(360deg); } }
-
-  /* ---- buttons / chips ----------------------------------------- */
-
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
   .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.62rem 1.05rem;
-    border-radius: var(--r-field);
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 20px; border-radius: 999px;
     border: 1px solid var(--line);
     background: var(--raised);
-    color: var(--fore);
-    font: inherit;
-    font-size: 0.9rem;
-    cursor: pointer;
-    text-decoration: none;
-    transition: border-color 0.18s, background 0.18s, transform 0.18s;
+    box-shadow: inset 0 1px 0 var(--edge);
+    color: var(--fore); text-decoration: none; font-size: 14px; font-weight: 500;
   }
-
-  .btn:hover { border-color: var(--accent-strong); background: var(--overlay); }
-  .btn:active { transform: translateY(1px); }
-
-  .btn-primary {
-    border-color: transparent;
-    background: linear-gradient(120deg, var(--accent-strong), #4aa9d8);
-    color: #0a0c10;
-    font-weight: 600;
+  .btn:hover { border-color: var(--overlay); background: var(--overlay); }
+  .btn.solid {
+    background: linear-gradient(180deg, #ffffff, #dcd8d1);
+    color: #14120f; border-color: transparent;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6), 0 6px 18px -10px rgb(255 255 255 / 0.5);
   }
+  .btn.solid:hover { background: linear-gradient(180deg, #ffffff, #ece8e1); }
 
-  .btn-primary:hover { background: linear-gradient(120deg, #7d8ef5, var(--glow)); color: #0a0c10; }
-  .btn-sm { padding: 0.34rem 0.7rem; font-size: 0.78rem; }
-
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
   .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.22rem 0.6rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: rgb(24 29 38 / 0.8);
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--mut);
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--line-subtle); background: var(--surface);
+    font-size: 12.5px; color: var(--mut);
   }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); box-shadow: 0 0 8px var(--live); }
 
-  .chip-ok { color: var(--ok); border-color: rgb(88 214 139 / 0.32); }
-  .chip-live { color: var(--live); border-color: rgb(240 180 92 / 0.32); }
-  .chip-danger { color: var(--danger); border-color: rgb(243 115 123 / 0.32); }
-
-  .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
-  .pulse { animation: pulse 2.4s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-  /* ---- cards --------------------------------------------------- */
-
-  .card {
-    border: 1px solid var(--line);
-    border-radius: var(--r-card);
-    background: linear-gradient(180deg, rgb(24 29 38 / 0.9), rgb(18 21 26 / 0.9));
-    padding: 1.2rem 1.3rem;
-  }
-
-  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
-  .grid-2 { display: grid; gap: 1.4rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-
-  .card h3 { margin-bottom: 0.45rem; }
-  .card p { color: var(--mut); font-size: 0.92rem; }
-
-  .panel {
-    border: 1px solid var(--line);
-    border-radius: var(--r-card);
-    background: rgb(18 21 26 / 0.72);
-    overflow: hidden;
-  }
-
-  .panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--line-subtle);
-    background: rgb(24 29 38 / 0.6);
-  }
-
-  .panel-title { font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
-  .panel-body { padding: 1.1rem; }
-
-  /* ---- hero ---------------------------------------------------- */
-
-  .hero { padding-top: clamp(2.6rem, 7vw, 5rem); }
-  .hero-grid { display: grid; gap: clamp(2rem, 5vw, 3.4rem); align-items: center; }
-  @media (min-width: 900px) { .hero-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); } }
-
-  .hero h1 {
-    font-size: clamp(2.1rem, 6.2vw, 3.65rem);
-    letter-spacing: -0.03em;
-    line-height: 1.26;
-    font-weight: 600;
-  }
-
-  .hero h1 .grad {
-    background: linear-gradient(105deg, var(--accent), var(--glow));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .hero-sub { color: var(--mut); font-size: clamp(1rem, 2.4vw, 1.12rem); max-width: 46ch; margin-top: 1.15rem; }
-  .hero-cta { display: flex; flex-wrap: wrap; gap: 0.7rem; margin-top: 1.7rem; }
-  .hero-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 1.6rem; }
-
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--line-subtle); border: 1px solid var(--line-subtle); border-radius: var(--r-card); overflow: hidden; margin-top: 2.6rem; }
-  .stat { background: rgb(18 21 26 / 0.9); padding: 0.95rem 1.05rem; }
-  .stat b { display: block; font-family: var(--display); font-size: 1.45rem; font-variant-numeric: tabular-nums; }
-  .stat span { font-size: 0.78rem; color: var(--faint); }
-
-  /* ---- phone frame --------------------------------------------- */
-
+  /* ---- the phone ------------------------------------------------------- */
   .phone {
-    position: relative;
     width: min(300px, 82vw);
-    margin-inline: auto;
-    border: 1px solid var(--line);
-    border-radius: 34px;
+    margin: 0 auto;
+    border-radius: 44px;
     padding: 9px;
-    background: linear-gradient(160deg, #1b212c, #0d1015);
-    box-shadow: 0 40px 90px -40px rgb(85 214 245 / 0.35), 0 0 0 1px rgb(255 255 255 / 0.02) inset;
+    background: linear-gradient(160deg, #3b3833, #171614 45%, #0f0e0c);
+    box-shadow:
+      inset 0 1px 0 var(--edge-strong),
+      0 30px 60px -30px rgb(0 0 0 / 0.9),
+      0 0 0 1px #000;
   }
+  .phone img { display: block; width: 100%; border-radius: 36px; background: var(--ink); }
+  .phone.tilt { transform: rotate(-1.2deg); }
 
-  .phone-screen {
-    border-radius: 26px;
-    background: var(--ink);
-    overflow: hidden;
+  .shot-caption { margin-top: 16px; text-align: center; font-size: 12.5px; color: var(--faint); }
+
+  /* ---- stats ----------------------------------------------------------- */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    margin-top: clamp(48px, 7vw, 80px);
+    background: var(--line-subtle);
     border: 1px solid var(--line-subtle);
-    aspect-ratio: 390 / 760;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .phone-notch { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 84px; height: 5px; border-radius: 999px; background: rgb(255 255 255 / 0.07); }
-
-  .ph-head { display: flex; align-items: center; gap: 0.5rem; padding: 1.4rem 0.75rem 0.55rem; border-bottom: 1px solid var(--line-subtle); }
-  .ph-title { font-size: 0.76rem; font-weight: 600; }
-  .ph-title small { display: block; font-family: var(--mono); font-size: 0.6rem; color: var(--faint); font-weight: 400; }
-
-  .ph-term { flex: 1; padding: 0.7rem 0.75rem; font-family: var(--mono); font-size: 0.63rem; line-height: 1.62; overflow: hidden; color: #cfd6e4; }
-  .ph-term .u { color: var(--glow); }
-  .ph-term .g { color: var(--ok); }
-  .ph-term .m { color: var(--mut); }
-  .ph-term .a { color: var(--live); }
-  .caret { display: inline-block; width: 6px; height: 0.95em; background: var(--glow); vertical-align: text-bottom; animation: blink 1.1s step-end infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  .ph-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line-subtle); padding: 0.4rem 0 0.75rem; }
-  .ph-tab { text-align: center; font-size: 0.6rem; color: var(--faint); }
-  .ph-tab.on { color: var(--accent); }
-
-  /* ---- architecture diagram ------------------------------------ */
-
-  .arch { display: grid; gap: 1.2rem; }
-  @media (min-width: 900px) { .arch { grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr); align-items: start; } }
-
-  .layers { display: flex; flex-direction: column; gap: 0.55rem; }
-
-  .layer {
-    display: grid;
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 0.85rem;
-    align-items: center;
-    width: 100%;
-    text-align: left;
-    padding: 0.85rem 1rem;
-    border: 1px solid var(--line);
-    border-radius: var(--r-card);
-    background: rgb(24 29 38 / 0.62);
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    transition: border-color 0.2s, background 0.2s, transform 0.2s;
-  }
-
-  .layer:hover { border-color: var(--accent-strong); transform: translateX(3px); }
-  .layer[aria-pressed='true'] { border-color: var(--accent-strong); background: rgb(108 127 242 / 0.12); box-shadow: 0 0 0 1px rgb(108 127 242 / 0.25); }
-
-  .layer-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: rgb(10 12 16 / 0.75); border: 1px solid var(--line); }
-  .layer-icon svg { width: 17px; height: 17px; stroke: var(--accent); fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-  .layer b { display: block; font-family: var(--display); font-size: 0.95rem; }
-  .layer small { display: block; color: var(--faint); font-family: var(--mono); font-size: 0.71rem; }
-
-  .layer-link { display: grid; grid-template-columns: 34px 1fr; gap: 0.85rem; align-items: center; padding: 0 1rem; }
-  .layer-link .wire { display: grid; place-items: center; }
-  .layer-link .wire span { display: block; width: 1px; height: 22px; background: linear-gradient(180deg, var(--line), var(--accent-strong)); }
-  .layer-link em { font-style: normal; font-family: var(--mono); font-size: 0.7rem; color: var(--faint); }
-
-  .arch-detail { position: sticky; top: 1rem; }
-  .arch-detail h3 { display: flex; align-items: center; gap: 0.5rem; }
-  .arch-detail .kv { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.9rem; font-size: 0.85rem; margin-top: 0.9rem; }
-  .arch-detail .kv dt { color: var(--faint); font-family: var(--mono); font-size: 0.74rem; }
-  .arch-detail .kv dd { margin: 0; color: var(--mut); }
-  .arch-detail .files { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 1rem; }
-  .arch-detail p { margin-top: 0.9rem; color: var(--mut); font-size: 0.9rem; }
-
-  .toggle-row { display: flex; align-items: center; gap: 0.4rem; }
-  .seg { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgb(10 12 16 / 0.6); gap: 2px; }
-  .seg button { border: 0; background: transparent; color: var(--mut); font: inherit; font-size: 0.76rem; padding: 0.22rem 0.72rem; border-radius: 999px; cursor: pointer; }
-  .seg button[aria-pressed='true'] { background: var(--overlay); color: var(--fore); }
-
-  /* ---- flow simulator ------------------------------------------ */
-
-  .flow-picker { display: flex; flex-wrap: wrap; gap: 0.45rem; }
-
-  .flow-picker button {
-    padding: 0.42rem 0.85rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: rgb(18 21 26 / 0.8);
-    color: var(--mut);
-    font: inherit;
-    font-size: 0.82rem;
-    cursor: pointer;
-    transition: color 0.18s, border-color 0.18s;
-  }
-
-  .flow-picker button:hover { color: var(--fore); }
-  .flow-picker button[aria-pressed='true'] { color: var(--fore); border-color: var(--accent-strong); background: rgb(108 127 242 / 0.14); }
-
-  .flowrail { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 0.3rem 0 0.9rem; }
-
-  .fnode {
-    flex: 1 0 118px;
-    border: 1px solid var(--line);
-    border-radius: 11px;
-    background: rgb(18 21 26 / 0.85);
-    padding: 0.6rem 0.65rem;
-    transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
-  }
-
-  .fnode b { display: block; font-size: 0.8rem; font-family: var(--display); }
-  .fnode small { display: block; font-family: var(--mono); font-size: 0.65rem; color: var(--faint); line-height: 1.45; }
-  .fnode.on { border-color: var(--live); background: rgb(240 180 92 / 0.1); box-shadow: 0 0 0 1px rgb(240 180 92 / 0.35), 0 8px 30px -14px var(--live); }
-  .fnode.on b { color: var(--live); }
-  .fnode.dim { opacity: 0.42; }
-
-  .fwire { flex: 0 0 26px; display: grid; place-items: center; color: var(--line); }
-  .fwire svg { width: 22px; height: 12px; stroke: currentColor; fill: none; stroke-width: 1.4; }
-  .fwire.on { color: var(--live); }
-
-  .flow-steps { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem; }
-
-  .fstep {
-    display: grid;
-    grid-template-columns: 26px minmax(0, 1fr);
-    gap: 0.7rem;
-    align-items: start;
-    width: 100%;
-    text-align: left;
-    border: 1px solid transparent;
-    border-radius: var(--r-field);
-    background: transparent;
-    color: var(--faint);
-    font: inherit;
-    font-size: 0.9rem;
-    padding: 0.55rem 0.7rem;
-    cursor: pointer;
-    transition: color 0.2s, background 0.2s, border-color 0.2s;
-  }
-
-  .fstep:hover { color: var(--mut); background: rgb(30 36 48 / 0.4); }
-  .fstep i { font-style: normal; font-family: var(--mono); font-size: 0.72rem; padding-top: 0.15rem; font-variant-numeric: tabular-nums; }
-  .fstep b { display: block; font-weight: 500; font-family: var(--sans); }
-  .fstep span { display: block; font-size: 0.84rem; line-height: 1.6; }
-  .fstep.on { color: var(--fore); background: rgb(108 127 242 / 0.1); border-color: rgb(108 127 242 / 0.35); }
-  .fstep.on i { color: var(--live); }
-  .fstep.done { color: var(--mut); }
-  .fstep code { color: var(--accent); background: rgb(108 127 242 / 0.12); padding: 0.05rem 0.3rem; border-radius: 4px; }
-
-  .flow-ctl { display: flex; align-items: center; gap: 0.45rem; }
-  .flow-note { display: flex; gap: 0.6rem; align-items: flex-start; margin-top: 0.9rem; padding: 0.7rem 0.85rem; border-radius: var(--r-field); border: 1px solid var(--line-subtle); background: rgb(30 36 48 / 0.4); color: var(--mut); font-size: 0.86rem; }
-  .flow-note b { color: var(--fore); font-weight: 600; }
-
-  /* ---- manual -------------------------------------------------- */
-
-  .manual { display: grid; gap: 1.6rem; }
-  @media (min-width: 900px) { .manual { grid-template-columns: minmax(0, 320px) minmax(0, 1fr); align-items: start; } }
-
-  .shotbox { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 0.7rem; }
-  .shot-frame { border: 1px solid var(--line); border-radius: 24px; padding: 8px; background: linear-gradient(160deg, #1b212c, #0d1015); }
-  .shot-frame img { display: block; width: 100%; border-radius: 18px; cursor: zoom-in; }
-  .shot-cap { font-size: 0.8rem; color: var(--faint); text-align: center; }
-
-  .steps { display: flex; flex-direction: column; gap: 0.5rem; }
-
-  details.step {
-    border: 1px solid var(--line);
-    border-radius: var(--r-card);
-    background: rgb(18 21 26 / 0.7);
+    border-radius: var(--r);
     overflow: hidden;
   }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat { background: var(--surface); padding: 22px 20px; }
+  .stat b { display: block; font-family: var(--display); font-size: 1.9rem; line-height: 1.1; }
+  .stat span { font-size: 12.5px; color: var(--faint); }
 
-  details.step[open] { border-color: rgb(108 127 242 / 0.45); background: rgb(24 29 38 / 0.75); }
-
-  details.step > summary {
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    padding: 0.8rem 1rem;
-    cursor: pointer;
-    list-style: none;
-    font-family: var(--display);
-    font-size: 0.98rem;
+  /* ---- cards ----------------------------------------------------------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 40px; }
+  .card {
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--r);
+    background: var(--surface);
+    box-shadow: inset 0 1px 0 var(--edge), var(--lift);
+    padding: 22px;
   }
+  .card p { color: var(--mut); font-size: 14.5px; margin-top: 10px; }
+  .card .k { font-family: var(--mono); font-size: 12px; color: var(--faint); letter-spacing: .06em; }
 
-  details.step > summary::-webkit-details-marker { display: none; }
-  details.step > summary::after { content: '+'; margin-left: auto; color: var(--faint); font-family: var(--mono); }
-  details.step[open] > summary::after { content: '−'; color: var(--accent); }
-  details.step > summary i { font-style: normal; font-family: var(--mono); font-size: 0.72rem; color: var(--accent); }
-  .step-body { padding: 0 1rem 1.05rem; color: var(--mut); font-size: 0.92rem; display: flex; flex-direction: column; gap: 0.7rem; }
-  .step-body ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
-  .step-body strong { color: var(--fore); font-weight: 600; }
-
-  .callout { border-left: 2px solid var(--live); background: rgb(240 180 92 / 0.07); padding: 0.6rem 0.85rem; border-radius: 0 8px 8px 0; font-size: 0.88rem; color: var(--mut); }
-  .callout.info { border-left-color: var(--glow); background: rgb(85 214 245 / 0.06); }
-  .callout.bad { border-left-color: var(--danger); background: rgb(243 115 123 / 0.07); }
-  .callout b { color: var(--fore); }
-
-  /* ---- code ---------------------------------------------------- */
-
-  .code {
+  /* ---- the path -------------------------------------------------------- */
+  .path {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-top: 40px;
+  }
+  @media (max-width: 900px) { .path { grid-template-columns: 1fr; } }
+  .hop {
     position: relative;
-    border: 1px solid var(--line);
-    border-radius: var(--r-field);
-    background: #0b0e13;
-    overflow: hidden;
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--r);
+    background: var(--surface);
+    box-shadow: inset 0 1px 0 var(--edge);
+    padding: 18px 16px;
+  }
+  .hop b { font-family: var(--display); font-size: 14.5px; display: block; }
+  .hop span { display: block; font-size: 12.5px; color: var(--faint); margin-top: 6px; }
+  .hop em { font-family: var(--mono); font-style: normal; font-size: 11.5px; color: var(--mut); }
+  .hop::after {
+    content: '';
+    position: absolute; right: -8px; top: 50%;
+    width: 6px; height: 6px; margin-top: -4px;
+    border-top: 1px solid var(--line); border-right: 1px solid var(--line);
+    transform: rotate(45deg);
+  }
+  .hop:last-child::after { display: none; }
+  @media (max-width: 900px) {
+    .hop::after { right: 50%; top: auto; bottom: -9px; margin: 0 -3px 0 0; transform: rotate(135deg); }
   }
 
-  .code pre { margin: 0; padding: 0.85rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.75; color: #d3dae8; }
-  .code .cm { color: var(--faint); }
-  .code .fn { color: var(--glow); }
-  .code .st { color: var(--ok); }
-  .copy { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity 0.18s; }
-  .code:hover .copy, .copy:focus-visible { opacity: 1; }
-
-  /* No hover on a phone — a button that only appears on hover is a button
-     that does not exist. Show it, and keep the first code line clear of it. */
-  @media (hover: none) {
-    .copy { opacity: 1; }
-    .code pre { padding-top: 2.7rem; }
-  }
-
-  .tabs { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
-  .tabs button { padding: 0.36rem 0.8rem; border: 1px solid transparent; border-radius: var(--r-field); background: transparent; color: var(--faint); font: inherit; font-size: 0.83rem; cursor: pointer; }
-  .tabs button:hover { color: var(--fore); }
-  .tabs button[aria-selected='true'] { color: var(--fore); border-color: var(--line); background: var(--raised); }
-
-  /* ---- approval demo ------------------------------------------- */
-
-  .demo-input { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-
-  .demo-input input {
-    flex: 1 1 260px;
-    min-width: 0;
-    padding: 0.6rem 0.85rem;
-    border-radius: var(--r-field);
-    border: 1px solid var(--line);
-    background: #0b0e13;
-    color: var(--fore);
-    font-family: var(--mono);
-    font-size: 0.85rem;
-  }
-
-  .demo-input input:focus { border-color: var(--accent-strong); outline: none; }
-  .demo-samples { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
-  .demo-samples button { font-family: var(--mono); cursor: pointer; }
-
-  .verdict { margin-top: 1rem; border-radius: var(--r-card); border: 1px solid var(--line); padding: 0.9rem 1rem; background: rgb(11 14 19 / 0.7); }
-  .verdict.held { border-color: rgb(243 115 123 / 0.5); background: rgb(243 115 123 / 0.08); }
-  .verdict.pass { border-color: rgb(88 214 139 / 0.4); background: rgb(88 214 139 / 0.06); }
-  .verdict h4 { font-family: var(--display); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; }
-  .verdict p { margin-top: 0.4rem; font-size: 0.88rem; color: var(--mut); }
-  .verdict .modal-mock { margin-top: 0.8rem; border: 1px solid rgb(243 115 123 / 0.4); border-radius: var(--r-field); padding: 0.75rem 0.85rem; background: rgb(10 12 16 / 0.8); }
-  .verdict .modal-mock code { display: block; color: var(--danger); word-break: break-all; margin: 0.45rem 0 0.7rem; }
-  .verdict .modal-mock .row { display: flex; gap: 0.5rem; }
-
-  /* ---- reference table ----------------------------------------- */
-
-  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-card); }
-  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.86rem; }
-  th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line-subtle); vertical-align: top; }
-  thead th { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); background: rgb(24 29 38 / 0.6); position: sticky; top: 0; }
-  tbody tr:last-child td { border-bottom: 0; }
-  tbody tr:hover { background: rgb(30 36 48 / 0.35); }
-  td.mono { color: var(--accent); white-space: nowrap; }
-  td.desc { color: var(--mut); }
-  tr[hidden] { display: none; }
-
-  .filter { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.7rem; }
-  .filter input { flex: 1 1 200px; max-width: 320px; padding: 0.45rem 0.75rem; border-radius: var(--r-field); border: 1px solid var(--line); background: #0b0e13; color: var(--fore); font-family: var(--mono); font-size: 0.82rem; }
-  .filter input:focus { border-color: var(--accent-strong); outline: none; }
-  .filter span { font-size: 0.78rem; color: var(--faint); }
-
-  /* ---- timeline ------------------------------------------------ */
-
-  .timeline { display: flex; flex-direction: column; gap: 0; }
-
-  .tl {
+  /* ---- tour ------------------------------------------------------------ */
+  .tour { display: grid; gap: clamp(56px, 8vw, 96px); margin-top: clamp(48px, 6vw, 72px); }
+  .row {
     display: grid;
-    grid-template-columns: 92px 1fr;
-    gap: 1rem;
-    padding: 0.85rem 0;
-    border-bottom: 1px solid var(--line-subtle);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(28px, 5vw, 64px);
+    align-items: center;
   }
-
-  .tl:last-child { border-bottom: 0; }
-  .tl-when { font-family: var(--mono); font-size: 0.76rem; color: var(--faint); padding-top: 0.15rem; }
-  .tl b { font-family: var(--display); font-size: 0.98rem; }
-  .tl p { color: var(--mut); font-size: 0.88rem; margin-top: 0.2rem; }
-  .tl.open b { color: var(--mut); }
-
-  /* ---- lightbox ------------------------------------------------ */
-
-  .lightbox {
-    position: fixed;
-    inset: 0;
-    z-index: 90;
-    display: none;
-    place-items: center;
-    padding: 2rem 1rem;
-    background: rgb(6 8 11 / 0.9);
-    backdrop-filter: blur(6px);
+  .row.flip .text { order: 2; }
+  @media (max-width: 860px) {
+    .row { grid-template-columns: 1fr; }
+    .row.flip .text { order: 0; }
   }
+  .row h3 { font-size: 1.375rem; }
+  .row p { color: var(--mut); margin-top: 14px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .pair .phone { width: 100%; padding: 7px; border-radius: 32px; }
+  .pair .phone img { border-radius: 26px; }
+  /* A sheet lives at the bottom of the screen, and half a phone of black above
+     it says nothing at this size. These two are cropped to the half that has
+     the sheet in it, from the bottom edge up. */
+  .pair.sheets .phone img { aspect-ratio: 9 / 11; object-fit: cover; object-position: bottom; }
 
-  .lightbox.on { display: grid; }
-  .lightbox img { max-width: min(420px, 92vw); max-height: 86vh; border-radius: 20px; border: 1px solid var(--line); }
-  .lightbox button { position: absolute; top: 1rem; right: 1rem; }
-
-  /* ---- footer -------------------------------------------------- */
-
-  footer { padding: 3rem var(--pad) 4rem; border-top: 1px solid var(--line-subtle); color: var(--faint); font-size: 0.86rem; }
-  footer .wrap { display: flex; flex-wrap: wrap; gap: 1.6rem; justify-content: space-between; }
-  footer b { color: var(--fore); font-family: var(--display); }
-  footer ul { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-
-  /* ---- phone pass ----------------------------------------------
-     Everything below only fires on a phone-sized screen. Three things
-     drive it: Thai needs more type size and leading than the desktop
-     scale gives it, a thumb needs ~44px of target, and nothing may ask
-     the reader to scroll sideways to finish a sentence.
-  --------------------------------------------------------------- */
-
-  @media (max-width: 899px) {
-    body { font-size: 16.5px; line-height: 1.78; }
-
-    .lede { font-size: 1.06rem; }
-    .card p,
-    .step-body,
-    .callout,
-    .flow-note,
-    .verdict p,
-    .arch-detail p,
-    .tl p,
-    footer { font-size: 0.98rem; line-height: 1.75; }
-    /* a label column steals half the line — stack the pairs instead */
-    .arch-detail .kv { grid-template-columns: 1fr; gap: 0.1rem; font-size: 0.95rem; }
-    .arch-detail .kv dd + dt { margin-top: 0.6rem; }
-    .fstep { font-size: 0.98rem; }
-    .fstep span { font-size: 0.95rem; }
-    .shot-cap { font-size: 0.88rem; }
-    .code pre { font-size: 0.84rem; }
-
-    /* thumb-sized targets */
-    .btn { min-height: 46px; padding: 0.7rem 1.15rem; }
-    .btn-sm { min-height: 40px; padding: 0.45rem 0.9rem; font-size: 0.83rem; }
-    .navbtn .btn-sm { min-height: 40px; }
-    .flow-picker button { min-height: 42px; padding: 0.5rem 0.95rem; font-size: 0.88rem; }
-    .seg button { min-height: 36px; padding: 0.4rem 0.95rem; font-size: 0.82rem; }
-    .layer { padding: 1rem; }
-    details.step > summary { min-height: 54px; padding: 0.95rem 1rem; }
-
-    /* iOS zooms the whole page when a focused field is under 16px */
-    .demo-input input,
-    .filter input { font-size: 16px; min-height: 46px; }
-    /* field and its button belong on one line — stacked they read as two steps */
-    .demo-input { flex-wrap: nowrap; }
-    .demo-input input { flex: 1 1 auto; }
-    .demo-input button { flex: 0 0 auto; }
-    .filter { flex-wrap: wrap; }
-    .filter input { max-width: none; }
-
-    /* the hero mock is scenery — let the words above it own the fold */
-    .phone { width: min(264px, 68vw); }
-    .stats { grid-template-columns: repeat(2, 1fr); margin-top: 2rem; }
-
-    /* sticky columns need a second column to be sticky beside */
-    .arch-detail, .shotbox { position: static; }
-    .layers .arch-detail { border-color: rgb(108 127 242 / 0.4); background: rgb(108 127 242 / 0.06); }
-
-    .panel-head { flex-direction: column; align-items: stretch; gap: 0.75rem; }
-    .toggle-row { justify-content: space-between; }
-    .flow-ctl > #flowPlay { flex: 1; justify-content: center; }
-
-    /* one row of tabs that scrolls, instead of four rows that reflow */
-    .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 0.25rem; }
-    .tabs::-webkit-scrollbar { display: none; }
-    .tabs button { flex: none; min-height: 42px; }
-
-    .lightbox { padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom)); }
-    .lightbox button { top: calc(0.9rem + env(safe-area-inset-top)); }
-
-    footer { padding-bottom: calc(3rem + env(safe-area-inset-bottom)); }
-    footer .wrap { gap: 1.4rem; }
+  .note {
+    margin-top: 18px; padding: 14px 16px;
+    border: 1px solid var(--line-subtle); border-left: 2px solid var(--line);
+    border-radius: 0 var(--r) var(--r) 0;
+    background: var(--surface);
+    font-size: 14px; color: var(--mut);
   }
+  .note.warn { border-left-color: var(--danger); }
+  .note.live { border-left-color: var(--live); }
+  .note b { color: var(--fore); }
 
-  @media (max-width: 720px) {
-    /* A two-column table on a 390px screen is a sentence cut in half.
-       Same rows, stacked into cards, nothing to scroll sideways for. */
-    .table-wrap { border: 0; border-radius: 0; overflow: visible; }
-    table { display: block; min-width: 0; font-size: 0.95rem; }
-    thead { display: none; }
-    tbody, tr, td { display: block; width: 100%; }
-
-    tbody tr {
-      border: 1px solid var(--line);
-      border-radius: var(--r-card);
-      background: rgb(24 29 38 / 0.5);
-      padding: 0.8rem 0.95rem;
-      margin-bottom: 0.5rem;
-    }
-
-    tbody tr:hover { background: rgb(24 29 38 / 0.5); }
-    td { padding: 0; border-bottom: 0; }
-    td + td { margin-top: 0.35rem; }
-    td.mono { white-space: normal; font-size: 0.9rem; }
-    .howto td:first-child { color: var(--fore); }
-    .howto td + td::before { content: '↳ '; color: var(--accent); }
-
-    .tl { grid-template-columns: 1fr; gap: 0.2rem; }
-    .tl-when { letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.72rem; }
-
-    /* the screenshot rides inside whichever step is open (see placeShot) */
-    .step-body .shotbox { margin-top: 0.15rem; }
-    .step-body .shot-frame { width: fit-content; max-width: 100%; margin-inline: auto; padding: 6px; border-radius: 20px; }
-    .step-body .shot-frame img { width: auto; max-width: 100%; max-height: 54vh; margin-inline: auto; border-radius: 15px; }
+  /* ---- tools ----------------------------------------------------------- */
+  .tools {
+    /* Five tools, five columns where they fit: auto-fit at a wider minimum
+       left a fifth cell alone on a row of its own, with the grid's own
+       background showing through the rest of it as a grey slab. */
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1px; margin-top: 40px;
+    background: var(--line-subtle); border: 1px solid var(--line-subtle); border-radius: var(--r); overflow: hidden;
   }
+  .tool { background: var(--surface); padding: 20px; }
+  .tool b { font-family: var(--mono); font-size: 13px; color: var(--fore); }
+  .tool p { color: var(--mut); font-size: 13.5px; margin-top: 8px; }
 
-  @media (max-width: 430px) {
-    .hero-cta { flex-direction: column; align-items: stretch; }
-    .hero-cta .btn { justify-content: center; }
-    .verdict .modal-mock .row .btn { flex: 1; justify-content: center; }
+  /* ---- code ------------------------------------------------------------ */
+  pre {
+    margin: 28px 0 0;
+    padding: 18px 20px;
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--r);
+    background: #100f0d;
+    box-shadow: inset 0 1px 0 var(--edge);
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.9;
+    color: var(--fore);
   }
+  pre .c { color: var(--faint); }
 
-  /* the node rail scrolls sideways on purpose — snap it so it lands square */
-  .flowrail { scroll-snap-type: x proximity; scroll-padding-inline: 0.5rem; -webkit-overflow-scrolling: touch; }
-  .fnode { scroll-snap-align: center; }
-
-  /* ---- reveal -------------------------------------------------- */
-
-  .rv { opacity: 0; transform: translateY(14px); transition: opacity 0.6s ease, transform 0.6s ease; }
-  .rv.in { opacity: 1; transform: none; }
-
-  @media (prefers-reduced-motion: reduce) {
-    * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
-    .rv { opacity: 1; transform: none; }
-  }
+  /* ---- footer ---------------------------------------------------------- */
+  footer { padding: 48px 0 64px; border-top: 1px solid var(--line-subtle); color: var(--faint); font-size: 13px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
 </style>
 
-<div class="shell">
-  <aside class="rail">
-    <div class="rail-mark">
-      <span class="orbit-track" style="width:26px;height:26px"></span>
-      <b>Orbit</b>
-    </div>
-    <nav class="rail-nav" id="railNav">
-      <a href="#what"><i>01</i>Orbit คืออะไร</a>
-      <a href="#arch"><i>02</i>สถาปัตยกรรม</a>
-      <a href="#flow"><i>03</i>Flow การทำงาน</a>
-      <a href="#features"><i>04</i>ความสามารถ</a>
-      <a href="#manual"><i>05</i>คู่มือใช้งาน</a>
-      <a href="#security"><i>06</i>ความปลอดภัย</a>
-      <a href="#agent"><i>07</i>ฝั่งของ agent</a>
-      <a href="#start"><i>08</i>เริ่มใช้งาน</a>
-      <a href="#api"><i>09</i>อ้างอิง API</a>
-      <a href="#status"><i>10</i>สถานะโปรเจกต์</a>
+<header class="bar">
+  <div class="wrap">
+    <span class="brand"><span class="mark"></span>Orbit</span>
+    <nav>
+      <a href="#what">คืออะไร</a>
+      <a href="#path">เส้นทาง</a>
+      <a href="#tour">พาชม</a>
+      <a href="#agent">ฝั่ง agent</a>
+      <a href="#safety">ความปลอดภัย</a>
+      <a href="#start">เริ่มใช้</a>
     </nav>
-    <div class="rail-foot">v0.1.0 · local-first</div>
-  </aside>
-
-  <main>
-    <header class="topbar">
-      <a class="topbar-mark" href="#top">
-        <span class="orbit-track" style="width:22px;height:22px"></span>
-        Orbit
-      </a>
-      <button class="navbtn" type="button" id="navToggle" aria-expanded="false" aria-controls="navSheet">
-        <b id="navHereNum"></b>
-        <span id="navHere">สารบัญ</span>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="progress"><span id="progressBar"></span></div>
-    </header>
-
-    <!-- ================= HERO ================= -->
-    <section class="hero" id="top">
-      <div class="wrap hero-grid">
-        <div>
-          <div class="eyebrow">Local AI coding hub · macOS</div>
-          <h1>Claude Code รันอยู่บน MacBook<br><span class="grad">คุณสั่งมันจากในกระเป๋า</span></h1>
-          <p class="hero-sub">
-            Orbit เปลี่ยน MacBook เป็น AI development server ส่วนตัว — terminal ตัวจริง
-            ที่ต่อกับ zsh บนเครื่องคุณ เปิดผ่านเบราว์เซอร์มือถือ ไม่ใช่ chat wrapper
-            ไม่ใช่ cloud IDE และโค้ดไม่เคยออกจากเครื่อง
-          </p>
-          <div class="hero-cta">
-            <a class="btn btn-primary" href="#start">ติดตั้งใน 3 คำสั่ง</a>
-            <a class="btn" href="#flow">ดู flow การทำงาน</a>
-          </div>
-          <div class="hero-chips">
-            <span class="chip"><span class="dot" style="background:var(--ok)"></span>Claude Code</span>
-            <span class="chip">Codex CLI</span>
-            <span class="chip">Gemini CLI</span>
-            <span class="chip">zsh</span>
-          </div>
-        </div>
-
-        <div class="phone" aria-hidden="true">
-          <div class="phone-notch"></div>
-          <div class="phone-screen">
-            <div class="ph-head">
-              <span class="orbit-track" style="width:18px;height:18px"></span>
-              <div class="ph-title">demo feature<small>~/Development/orbit-demo</small></div>
-            </div>
-            <div class="ph-term" id="heroTerm"></div>
-            <div class="ph-tabs">
-              <div class="ph-tab on">Terminal</div>
-              <div class="ph-tab">Sessions</div>
-              <div class="ph-tab">Captures</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="wrap stats">
-        <div class="stat"><b class="num">4</b><span>agent providers</span></div>
-        <div class="stat"><b class="num">0</b><span>พอร์ตที่เปิดสู่อินเทอร์เน็ต</span></div>
-        <div class="stat"><b class="num">2</b><span>ด่านกรองคำสั่งอันตราย</span></div>
-        <div class="stat"><b class="num">4</b><span>MCP tools ให้ agent เรียกเอง</span></div>
-      </div>
-    </section>
-
-    <!-- ================= WHAT ================= -->
-    <section id="what">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">01 — Orbit คืออะไร</div>
-          <h2>ไม่ใช่แอปแชทที่คุยกับ AI แต่คือรีโมทของเครื่องคุณเอง</h2>
-          <p class="lede">
-            สิ่งที่คุณเห็นบนมือถือคือ terminal จริงตัวเดียวกับที่รันอยู่บน Mac —
-            ANSI สี, TUI, prompt ที่ต้องกดตอบ, Ctrl+C, scrollback ครบ
-            ไม่มีการแปลงเป็นข้อความสวย ๆ ระหว่างทาง
-          </p>
-        </div>
-
-        <div class="grid rv">
-          <div class="card">
-            <h3>MacBook คือ source of truth</h3>
-            <p>
-              ไฟล์ กิต เครื่องมือ และ agent ทั้งหมดอยู่บนเครื่องคุณ Orbit ไม่ซิงก์โค้ดขึ้นที่ไหน
-              และไม่มีบัญชีให้สมัคร — single-user, local-first
-            </p>
-          </div>
-          <div class="card">
-            <h3>Session ไม่ตายเมื่อจอดับ</h3>
-            <p>
-              PTY อยู่ฝั่ง Mac มือถือเป็นแค่จอ ปิดเบราว์เซอร์ สลับแอป เน็ตหลุด
-              กลับมาแล้วงานยังเดินอยู่ พร้อมประวัติที่เล่นย้อนกลับให้ครบ
-            </p>
-          </div>
-          <div class="card">
-            <h3>มือถือเห็น ก็สั่งได้</h3>
-            <p>
-              พิมพ์ พูด ส่งรูป หรือกด capture หน้าเว็บที่ agent เพิ่งแก้ —
-              ทุกอย่างจบในจอเดียวโดยไม่ต้องเดินไปเปิดฝาโน้ตบุ๊ก
-            </p>
-          </div>
-        </div>
-
-        <div class="col rv">
-          <div class="callout info">
-            <b>เส้นแบ่งที่ชัดเจน:</b> Orbit ไม่ได้แทน agent และไม่ได้เขียนโค้ดเอง —
-            มันคือชั้นที่ทำให้ agent ซึ่งออกแบบมาสำหรับหน้าจอ 27 นิ้ว
-            ใช้งานได้จริงบนจอ 6 นิ้วในมือคุณ
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= ARCHITECTURE ================= -->
-    <section id="arch">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">02 — สถาปัตยกรรม</div>
-          <h2>ห้าชั้น จากนิ้วคุณถึง zsh</h2>
-          <p class="lede">แตะแต่ละชั้นเพื่อดูว่ามันคืออะไร รันด้วยอะไร และอยู่ไฟล์ไหนในโปรเจกต์</p>
-        </div>
-
-        <div class="panel rv">
-          <div class="panel-head">
-            <span class="panel-title">Request path</span>
-            <div class="toggle-row">
-              <span class="panel-title">เข้าถึงผ่าน</span>
-              <div class="seg" id="transportSeg">
-                <button type="button" data-transport="lan" aria-pressed="false">LAN</button>
-                <button type="button" data-transport="ts" aria-pressed="true">Tailscale</button>
-              </div>
-            </div>
-          </div>
-          <div class="panel-body arch">
-            <div class="layers" id="layers">
-              <button class="layer" type="button" data-layer="client" aria-pressed="true">
-                <span class="layer-icon"><svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18.5h2"/></svg></span>
-                <span>
-                  <b>มือถือ / เบราว์เซอร์</b>
-                  <small>React · Vite · xterm.js · PWA</small>
-                </span>
-              </button>
-
-              <div class="layer-link"><span class="wire"><span></span></span><em id="wireTransport">HTTPS + WSS ผ่าน WireGuard tunnel</em></div>
-
-              <button class="layer" type="button" data-layer="transport" aria-pressed="false">
-                <span class="layer-icon"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M3.5 9h17M3.5 15h17M12 3c2.5 2.6 2.5 15.4 0 18M12 3C9.5 5.6 9.5 18.4 12 21"/></svg></span>
-                <span>
-                  <b>ชั้นเชื่อมต่อ + auth</b>
-                  <small>Bearer token · session cookie · Tailscale</small>
-                </span>
-              </button>
-
-              <div class="layer-link"><span class="wire"><span></span></span><em>ws://…/ws + /api/*</em></div>
-
-              <button class="layer" type="button" data-layer="server" aria-pressed="false">
-                <span class="layer-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span>
-                <span>
-                  <b>Orbit server</b>
-                  <small>Node.js · TypeScript · ws · พอร์ต 3001</small>
-                </span>
-              </button>
-
-              <div class="layer-link"><span class="wire"><span></span></span><em>write() / onData()</em></div>
-
-              <button class="layer" type="button" data-layer="pty" aria-pressed="false">
-                <span class="layer-icon"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M7 9l3 3-3 3M12.5 15H17"/></svg></span>
-                <span>
-                  <b>PTY manager</b>
-                  <small>node-pty · zsh -lic · scrollback</small>
-                </span>
-              </button>
-
-              <div class="layer-link"><span class="wire"><span></span></span><em>stdin / stdout ของโปรเซสจริง</em></div>
-
-              <button class="layer" type="button" data-layer="agent" aria-pressed="false">
-                <span class="layer-icon"><svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 13h.01M15 13h.01"/></svg></span>
-                <span>
-                  <b>Agent CLI</b>
-                  <small>claude · codex · gemini · shell</small>
-                </span>
-              </button>
-
-              <div class="layer-link"><span class="wire"><span></span></span><em>อ่าน/เขียนไฟล์ · git · เครื่องมือของคุณ</em></div>
-
-              <button class="layer" type="button" data-layer="disk" aria-pressed="false">
-                <span class="layer-icon"><svg viewBox="0 0 24 24"><path d="M3 7l2-3h14l2 3v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M3 7h18M8 12h8"/></svg></span>
-                <span>
-                  <b>ดิสก์ของคุณ</b>
-                  <small>~/Development · ~/.orbit</small>
-                </span>
-              </button>
-            </div>
-
-            <div class="card arch-detail" id="archDetail"></div>
-          </div>
-        </div>
-
-        <div class="col rv">
-          <p class="lede" style="margin:0">
-            สังเกตว่าไม่มีกล่องไหนอยู่บนคลาวด์เลย — สิ่งเดียวที่ออกนอกเครื่องคือ
-            สิ่งที่ agent ของคุณเรียกเอง (Anthropic/OpenAI/Google API) กับ dictation ของ Apple
-            ตอนสั่งงานด้วยเสียง
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= FLOW ================= -->
-    <section id="flow">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">03 — Flow การทำงาน</div>
-          <h2>เดินทีละก้าว ดูว่าข้อมูลวิ่งผ่านอะไรบ้าง</h2>
-          <p class="lede">
-            เลือกสถานการณ์ แล้วกด Play — กล่องที่กำลังทำงานจะสว่างขึ้นตามจังหวะ
-            หรือแตะขั้นตอนไหนก็ได้เพื่อกระโดดไปตรงนั้น
-          </p>
-        </div>
-
-        <div class="panel rv">
-          <div class="panel-head">
-            <div class="flow-picker" id="flowPicker"></div>
-            <div class="flow-ctl">
-              <button class="btn btn-sm" type="button" id="flowPrev" aria-label="ขั้นตอนก่อนหน้า">←</button>
-              <button class="btn btn-sm btn-primary" type="button" id="flowPlay">▶ Play</button>
-              <button class="btn btn-sm" type="button" id="flowNext" aria-label="ขั้นตอนถัดไป">→</button>
-            </div>
-          </div>
-          <div class="panel-body">
-            <div class="flowrail" id="flowRail"></div>
-            <div class="flow-steps" id="flowSteps"></div>
-            <div class="flow-note" id="flowNote"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= FEATURES ================= -->
-    <section id="features">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">04 — ความสามารถ</div>
-          <h2>ทุกอย่างที่ต้องเดินไปหน้าเครื่อง ถูกย้ายมาไว้ในมือ</h2>
-        </div>
-
-        <div class="grid rv">
-          <div class="card">
-            <div class="chip chip-ok" style="margin-bottom:.6rem"><span class="dot"></span>Terminal</div>
-            <h3>Terminal ตัวจริง</h3>
-            <p>
-              xterm.js ↔ WebSocket ↔ node-pty ↔ zsh — สี ANSI, cursor movement,
-              prompt แบบโต้ตอบ, Ctrl+C, resize ตามคีย์บอร์ดบนจอ และแถบคีย์ลัด
-              สำหรับปุ่มที่คีย์บอร์ดมือถือไม่มี
-            </p>
-          </div>
-          <div class="card">
-            <h3>สลับ agent ได้ในแตะเดียว</h3>
-            <p>
-              Claude Code, Codex CLI, Gemini CLI หรือ shell เปล่า ๆ —
-              Orbit ตรวจเองว่าเครื่องคุณลงตัวไหนไว้บ้าง ผ่าน login shell จริง
-              การ์ดของตัวที่ยังไม่ได้ลงจะจางไว้
-            </p>
-          </div>
-          <div class="card">
-            <h3>Session ที่จำได้ข้ามการรีสตาร์ท</h3>
-            <p>
-              metadata + ประวัติ terminal เก็บใน <code>~/.orbit/</code>
-              server ดับแล้วเปิดใหม่ session เก่ายังเปิดอ่านได้แบบ read-only
-              และกด ↻ ให้ agent สานบทสนทนาเดิมต่อได้
-            </p>
-          </div>
-          <div class="card">
-            <div class="chip" style="margin-bottom:.6rem">🎙 HTTPS เท่านั้น</div>
-            <h3>สั่งงานด้วยเสียง ไทย/EN</h3>
-            <p>
-              พูดแล้วได้ transcript ที่ <strong>แก้ก่อนส่งได้</strong> —
-              Insert (พิมพ์เฉย ๆ) หรือ Send (พิมพ์แล้วเคาะ Enter)
-              จูนมาสำหรับ WebKit บน iPhone โดยเฉพาะ
-            </p>
-          </div>
-          <div class="card">
-            <h3>คัดลอกได้ แตะลิงก์ได้</h3>
-            <p>
-              กดค้างเพื่อเลือก <strong>คำ</strong> ใต้นิ้ว (path ยาว ๆ ติดมาทั้งก้อน)
-              ลากจุดสองข้างปรับทีละตัวอักษร หรือกด Line เอาทั้งบรรทัด แล้ว Copy —
-              ส่วน URL แตะแล้วเลือกได้ว่าจะเปิดหรือคัดลอก (ไม่เด้งออกจากแอปเอง)
-              <code>localhost</code> ถูกแปลงให้ชี้กลับมาที่ Mac ให้อัตโนมัติ
-            </p>
-          </div>
-          <div class="card">
-            <h3>ส่งภาพให้ agent</h3>
-            <p>
-              เลือกรูปหรือถ่ายสด → อัปโหลดไป <code>~/.orbit/uploads/</code>
-              แล้ว path ถูกพิมพ์ลง terminal ให้อัตโนมัติ พิมพ์ต่อได้เลยว่าจะให้ทำอะไรกับภาพนั้น
-            </p>
-          </div>
-          <div class="card">
-            <h3>ตรวจงานด้วยตา</h3>
-            <p>
-              ใส่ URL ของ dev server แล้วกด Capture — Chrome จริงบน Mac render
-              ที่ viewport Phone / Tablet / Desktop หรือจับหน้าจอ Mac ทั้งจอ
-              สำหรับ Simulator กับแอป native
-            </p>
-          </div>
-          <div class="card">
-            <div class="chip chip-danger" style="margin-bottom:.6rem"><span class="dot"></span>Guard</div>
-            <h3>ด่านกรองคำสั่งอันตราย</h3>
-            <p>
-              ข้อความที่วางหรือสั่งด้วยเสียงถูกตรวจก่อนถึง shell —
-              เจอ <code>rm -rf</code>, <code>sudo</code>, force push ฯลฯ
-              จะยึดไว้แล้วถามยืนยันพร้อมแสดงคำสั่งเต็ม
-            </p>
-          </div>
-          <div class="card">
-            <h3>ติดตั้งเป็นแอป (PWA)</h3>
-            <p>
-              manifest + service worker + ไอคอน — Add to Home Screen แล้วเปิดเต็มจอ
-              ไม่มีแถบเบราว์เซอร์ ฟอนต์ bundle มาในเครื่อง ไม่แตะ CDN
-            </p>
-          </div>
-          <div class="card">
-            <div class="chip chip-live" style="margin-bottom:.6rem"><span class="dot pulse"></span>MCP</div>
-            <h3>agent เรียกหาคุณได้เอง</h3>
-            <p>
-              MCP server ที่มากับ Orbit ให้ agent capture เอง ดูภาพเอง
-              เตือนขึ้นมือถือ และ <strong>ถามแล้วรอ</strong> คำตอบจากคุณกลางทาง
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= MANUAL ================= -->
-    <section id="manual">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">05 — คู่มือใช้งาน</div>
-          <h2>เดินครบทุกหน้าจอ ด้วยภาพจากเครื่องจริง</h2>
-          <p class="lede">
-            ทุกภาพถ่ายจากการใช้งานจริงบน viewport ขนาด iPhone (390×844) —
-            แตะหัวข้อเพื่อกางรายละเอียด ภาพทางซ้ายจะเปลี่ยนตาม
-          </p>
-        </div>
-
-        <div class="manual rv">
-          <div class="shotbox">
-            <div class="shot-frame">
-              <img id="shotImg" src="{{SHOT:01-login}}" alt="หน้าจอ Orbit บนมือถือ">
-            </div>
-            <div class="shot-cap" id="shotCap">หน้า login — ใส่ access token ครั้งเดียว</div>
-          </div>
-
-          <div class="steps" id="manualSteps">
-            <details class="step" open data-shot="01-login" data-cap="หน้า login — ใส่ access token ครั้งเดียว">
-              <summary><i>01</i>จับคู่กับ Mac ครั้งแรก</summary>
-              <div class="step-body">
-                <p>
-                  รัน server บน Mac แล้วเปิด URL จากมือถือ ครั้งแรกจะเจอหน้า login
-                  ใส่ access token ที่ server พิมพ์ใน console (<code>[orbit] access token: …</code>)
-                  ใส่ครั้งเดียว เครื่องจำไว้ให้
-                </p>
-                <ul>
-                  <li><strong>HTTPS ผ่าน Tailscale</strong> (แนะนำ) — <code>https://&lt;เครื่อง&gt;.&lt;tailnet&gt;.ts.net</code> ใช้ได้ทุกฟีเจอร์ และเข้าจากนอกบ้านได้</li>
-                  <li><strong>LAN ธรรมดา</strong> — <code>http://&lt;ip-ของ-mac&gt;:3001</code> ต้องอยู่ WiFi วงเดียวกัน และเสียงกับ Add to Home Screen จะใช้ไม่ได้</li>
-                </ul>
-                <div class="callout info">
-                  ที่เสียงใช้ไม่ได้บน HTTP ไม่ใช่ข้อจำกัดของ Orbit —
-                  เบราว์เซอร์ยอมให้ขอไมค์และลงทะเบียน service worker เฉพาะบน secure context เท่านั้น
-                </div>
-              </div>
-            </details>
-
-            <details class="step" data-shot="02-terminal" data-cap="แท็บ Terminal — รัน dev server จากมือถือ">
-              <summary><i>02</i>แท็บ Terminal: shell จริงบนมือถือ</summary>
-              <div class="step-body">
-                <p>
-                  เข้ามาแล้วเจอ terminal ที่ต่อกับ zsh บน Mac ตรง ๆ header บอกว่ากำลังอยู่ session ไหน
-                  โฟลเดอร์อะไร และสถานะเชื่อมต่อ — วงแหวน orbit หมุนคือต่ออยู่
-                </p>
-                <p>
-                  ในภาพ: สร้างโปรเจกต์ <code>orbit-demo</code> เขียน <code>index.html</code>
-                  แล้วรัน <code>python3 -m http.server 4321</code> ทั้งหมดพิมพ์จากมือถือ
-                </p>
-                <div class="callout">
-                  <b>Session ไม่ตายเมื่อจอดับ</b> — ปิดเบราว์เซอร์ สลับแอป หรือเน็ตหลุด
-                  กลับมาแล้ว shell ยังรันต่ออยู่พร้อมประวัติครบ
-                </div>
-              </div>
-            </details>
-
-            <details class="step" data-shot="09-sessions" data-cap="แท็บ Sessions — ศูนย์ควบคุมทุก session">
-              <summary><i>03</i>แท็บ Sessions: ศูนย์ควบคุม</summary>
-              <div class="step-body">
-                <p>
-                  เห็นทุก session ในที่เดียว จุดสีเหลืองกระพริบคือกำลังรันอยู่
-                  แต่ละแถวบอก agent โฟลเดอร์ และอายุ
-                </p>
-                <ul>
-                  <li><strong>แตะแถว</strong> — สลับไป session นั้น</li>
-                  <li><strong>✎</strong> — ตั้งชื่อ/เปลี่ยนชื่อ</li>
-                  <li><strong>🗑 ตัวที่รันอยู่</strong> — หยุด ประวัติย้ายไปหมวด Ended</li>
-                  <li><strong>＋ ตัวที่จบแล้ว</strong> — เริ่มใหม่ด้วย agent + โฟลเดอร์ + ชื่อเดิม</li>
-                  <li><strong>🗑 ตัวที่จบแล้ว</strong> — ลบถาวรพร้อมประวัติ</li>
-                </ul>
-                <p>
-                  ไม่ตั้งชื่อก็ยังแยกออก — <strong>คำสั่งแรกที่พิมพ์จะกลายเป็นชื่อให้เอง</strong>
-                  (shell ใช้คำสั่ง, agent ใช้พรอมป์ตแรก) ขึ้นเป็น monospace ให้รู้ว่าไม่ใช่ชื่อที่ตั้งเอง
-                </p>
-              </div>
-            </details>
-
-            <details class="step" data-shot="05-new-session" data-cap="สร้าง session ใหม่ — เลือก agent + โฟลเดอร์">
-              <summary><i>04</i>สร้าง session ใหม่</summary>
-              <div class="step-body">
-                <ul>
-                  <li><strong>เลือก agent</strong> — การ์ดจะจางถ้ายังไม่ได้ติดตั้ง CLI ตัวนั้น</li>
-                  <li><strong>ตั้งชื่อ</strong> ไม่บังคับ แต่ช่วยมากเมื่อเปิดหลายตัวพร้อมกัน</li>
-                  <li><strong>เลือกโฟลเดอร์</strong> — recent projects กดแตะเดียว หรือ browse เอง; git repo มีสัญลักษณ์ branch สีเขียว และมีช่อง filter เมื่อโฟลเดอร์เยอะ</li>
-                </ul>
-                <div class="callout">
-                  เผลอเลือกโฟลเดอร์กว้าง ๆ อย่าง home จะมีคำเตือนสีเหลืองขึ้น — เตือนแต่ไม่ห้าม
-                </div>
-              </div>
-            </details>
-
-            <details class="step" data-shot="06-claude-code" data-cap="Claude Code ตอบพรอมป์ตผ่านมือถือ">
-              <summary><i>05</i>ใช้ Claude Code จากมือถือ</summary>
-              <div class="step-body">
-                <p>
-                  เลือกการ์ด Claude Code + โฟลเดอร์โปรเจกต์ → ได้ Claude Code ตัวจริงรันบน Mac
-                  สลับโมเดลด้วย <code>/model haiku</code> ใช้ slash command ได้ครบเหมือนนั่งหน้าเครื่อง
-                </p>
-                <p>
-                  agent ถูก launch ผ่าน <code>zsh -lic 'exec &lt;cmd&gt;'</code> เพื่อให้ PATH จริงของคุณมีผล —
-                  ออกจาก agent เมื่อไหร่ session ก็จบตามนั้น
-                </p>
-              </div>
-            </details>
-
-            <details class="step" data-shot="07-voice" data-cap="Voice input — แก้ transcript ได้ก่อนส่ง">
-              <summary><i>06</i>สั่งงานด้วยเสียง</summary>
-              <div class="step-body">
-                <p>ปุ่มไมค์บน header → พูด → transcript ขึ้นสด แก้ข้อความได้ก่อนส่ง แล้วเลือก Insert หรือ Send ⏎</p>
-                <div class="callout bad">
-                  <b>บน iPhone ต้องรู้</b> — iOS ไม่ได้ถอดเสียงในเครื่อง แต่ยิงไปที่บริการ dictation ของ Apple
-                  จึงมีข้อจำกัดที่ Android ไม่มี
-                </div>
-                <ul>
-                  <li><strong>เลือกภาษาก่อนพูด</strong> — ปุ่ม ไทย/EN ฟังทีละภาษา ไทยปนอังกฤษในประโยคเดียวไม่เวิร์ค ศัพท์เทคนิคอย่าง <code>npm run build</code> ให้พิมพ์เอาเองในช่อง transcript</li>
-                  <li><strong>ฟังทีละช่วง</strong> — เงียบสักพัก iOS ปิด session เอง กด <strong>Continue listening</strong> พูดต่อได้ ข้อความเดิมไม่หาย</li>
-                  <li><strong>สวิตช์ 3 ตัวต้องเปิดครบ</strong> — Speech Recognition ให้ Safari, Enable Dictation, และ Microphone ใน Website Settings; ปิดตัวไหนก็ขึ้น <code>service-not-allowed</code> เหมือนกันหมด แก้แล้วต้อง reload</li>
-                  <li><strong>ห้ามใช้จากไอคอน Home Screen</strong> — WebKit บล็อก speech recognition ใน PWA แบบ standalone ให้เปิดผ่าน Safari ปกติ</li>
-                </ul>
-              </div>
-            </details>
-
-            <details class="step" data-shot="03-captures" data-cap="แท็บ Captures — แกลเลอรีตามสัดส่วนจริง">
-              <summary><i>07</i>แท็บ Captures: ตรวจงานด้วยตา</summary>
-              <div class="step-body">
-                <p>
-                  ใส่ URL ของ dev server เลือกขนาดจอ (Phone / Tablet / Desktop หรือติ๊ก Full page)
-                  แล้วกด Capture — Mac เปิด Chrome แบบ headless render แล้วเก็บภาพไว้ในแกลเลอรี
-                </p>
-                <ul>
-                  <li>dev server ไม่ได้รัน → ขึ้น error ตรง ๆ ไม่ใช่เก็บภาพหน้า "เข้าไม่ได้" ของ Chrome มาให้เหมือนสำเร็จ</li>
-                  <li>URL ที่ capture สำเร็จกลายเป็นปุ่มลัด (เก็บ 4 อันล่าสุด) ไม่ต้องพิมพ์ <code>localhost:5173</code> ใหม่บนคีย์บอร์ดมือถือ</li>
-                  <li>ใต้ภาพบอกว่าเป็นภาพของอะไร ไม่ใช่มีแค่เวลา</li>
-                </ul>
-                <p>
-                  อยากกดจริงไม่ใช่ดูภาพนิ่ง — ปุ่ม <strong>เปิดในเบราว์เซอร์</strong>
-                  ข้างปุ่ม Capture เปิดแอปที่รันบน Mac เป็นแท็บจริงบนมือถือ
-                  และ <code>npm run preview:on</code> เติม HTTPS ให้ dev server
-                  ที่ <code>:8443</code> สำหรับแอปที่ต้องการ secure context ของตัวเอง
-                </p>
-              </div>
-            </details>
-
-            <details class="step" data-shot="04-capture-viewer" data-cap="ดูภาพเต็มจอ — ⇥ แทรก path ให้ agent">
-              <summary><i>08</i>ส่งภาพกลับให้ agent ดูต่อ</summary>
-              <div class="step-body">
-                <p>
-                  แตะภาพเพื่อดูเต็มจอ กด <strong>⇥</strong> เพื่อแทรก path ของภาพลง terminal —
-                  แล้วพิมพ์ต่อว่า "ทำไมปุ่มเบี้ยว ดูจากภาพนี้"
-                </p>
-                <p>
-                  สลับสวิตช์ <strong>Mac screen</strong> แล้ว Capture = จับหน้าจอ Mac ทั้งจอ
-                  ใช้ดูของที่ headless Chrome เห็นไม่ได้ — iOS Simulator, Xcode, แอป native, Figma
-                </p>
-                <div class="callout bad">
-                  ถ้ายังไม่ได้เปิดสิทธิ์ Screen Recording ให้แอปที่รัน Orbit server
-                  macOS <b>จะไม่ error</b> แต่จะได้ภาพ desktop เปล่าที่ไม่มีหน้าต่างแอปเลย —
-                  เห็นแบบนั้นเมื่อไหร่ให้ไปเปิดสิทธิ์ที่ Privacy &amp; Security
-                </div>
-              </div>
-            </details>
-
-            <details class="step" data-shot="08-approval" data-cap="Command approval — ยึดคำสั่งไว้ก่อนถาม">
-              <summary><i>09</i>เมื่อเจอคำสั่งอันตราย</summary>
-              <div class="step-body">
-                <p>
-                  Input ที่มาเป็นก้อน (วางข้อความ, สั่งด้วยเสียง, automation) ถูกตรวจกับ pattern อันตราย
-                  เจอแล้วคำสั่งจะถูก<strong>ยึดไว้ก่อน</strong> และถามยืนยันพร้อมแสดงคำสั่งเต็มให้อ่าน
-                </p>
-                <p>
-                  <strong>Deny</strong> = ทิ้งคำสั่ง ไม่มีอะไรถึง shell ·
-                  <strong>Run anyway</strong> = ปล่อยผ่าน
-                </p>
-                <div class="callout">
-                  การพิมพ์สดทีละตัวอักษรไม่ถูกตรวจ — มันประกอบกลับเป็นคำสั่งอย่างเชื่อถือได้ไม่ได้
-                  และนั่นคือมือคุณเองอยู่แล้ว
-                </div>
-              </div>
-            </details>
-
-            <details class="step" data-shot="10-ended-readonly" data-cap="Session ที่จบแล้ว — ประวัติแบบ read-only">
-              <summary><i>10</i>ประวัติไม่หาย และทำงานต่อได้</summary>
-              <div class="step-body">
-                <p>
-                  Session ที่จบแล้ว (agent ออกเอง, กดหยุด, หรือ server restart) ยังเปิดดูได้ —
-                  terminal แสดงประวัติทั้งหมดแบบ read-only พร้อมป้ายใน header
-                  แถบคีย์ลัดซ่อนไปเองเพราะไม่มี PTY ให้ส่งอะไรแล้ว
-                </p>
-                <ul>
-                  <li><strong>↻ Resume</strong> — ให้ agent สานบทสนทนาล่าสุดของโฟลเดอร์นั้นต่อ (<code>claude --continue</code>, <code>codex resume --last</code>)</li>
-                  <li><strong>＋ New</strong> — เริ่มใหม่หมดด้วย agent + โฟลเดอร์ + ชื่อเดิม ไม่เอาบทสนทนาเก่ามา</li>
-                </ul>
-                <div class="callout info">
-                  ↻ ขึ้นเฉพาะ session ที่จบล่าสุดของโฟลเดอร์+agent นั้น และต้องไม่มีตัวไหนรันค้างอยู่ —
-                  เพราะคำสั่งพวกนี้รู้จักแค่ "โฟลเดอร์" ไม่รู้จัก session ของ Orbit
-                  กดจากรายการเก่าก็จะได้บทสนทนาล่าสุดอยู่ดี และถ้ามี agent ทำงานอยู่
-                  จะกลายเป็นสองตัวจับบทสนทนาเดียวกัน
-                </div>
-              </div>
-            </details>
-          </div>
-        </div>
-
-        <div class="col rv">
-          <h3 style="margin-bottom:.7rem">สรุป flow ที่ใช้บ่อย</h3>
-          <div class="table-wrap">
-            <table class="howto">
-              <thead><tr><th>อยากทำ</th><th>ทำยังไง</th></tr></thead>
-              <tbody>
-                <tr><td class="desc">สั่ง Claude แก้โค้ดโปรเจกต์ X</td><td class="desc">Sessions → ＋ → Claude Code → เลือก X → Start</td></tr>
-                <tr><td class="desc">ดูว่าเมื่อกี้ agent ทำอะไรไป</td><td class="desc">Sessions → แตะ session (จบแล้วก็เปิดดูได้)</td></tr>
-                <tr><td class="desc">ตรวจหน้าเว็บหลัง agent แก้</td><td class="desc">Captures → ใส่ URL → เลือกขนาดจอ → Capture</td></tr>
-                <tr><td class="desc">ดู Simulator / แอป native</td><td class="desc">Captures → Mac screen → Capture</td></tr>
-                <tr><td class="desc">ส่ง error screenshot ให้ agent</td><td class="desc">Terminal → 🖼 → เลือกรูป → พิมพ์คำสั่งต่อท้าย path</td></tr>
-                <tr><td class="desc">สั่งงานยาว ๆ ไม่อยากพิมพ์</td><td class="desc">Terminal → 🎙 → พูด → แก้ transcript → Send</td></tr>
-                <tr><td class="desc">หยุดทุกอย่างชั่วคราว</td><td class="desc">ปิดเบราว์เซอร์ไปเลย — ทุก session รอต่ออยู่บน Mac</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= SECURITY ================= -->
-    <section id="security">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">06 — ความปลอดภัย</div>
-          <h2>มันคุมคอมพิวเตอร์ส่วนตัวคุณ จึงต้องคิดเรื่องนี้ก่อน</h2>
-          <p class="lede">
-            ลองพิมพ์คำสั่งดูว่าด่านกรองจะจับหรือไม่ — ตัวตรวจด้านล่างใช้ชุด pattern
-            ชุดเดียวกับที่อยู่ใน <code>server/src/approval.ts</code> จริง
-          </p>
-        </div>
-
-        <div class="panel rv">
-          <div class="panel-head"><span class="panel-title">Command screening · ลองเอง</span></div>
-          <div class="panel-body">
-            <div class="demo-input">
-              <label for="cmdInput" style="position:absolute;left:-9999px">คำสั่งที่จะทดสอบ</label>
-              <input id="cmdInput" value="rm -rf ~/Development/orbit/node_modules" spellcheck="false" autocomplete="off">
-              <button class="btn" type="button" id="cmdRun">ตรวจ</button>
-            </div>
-            <div class="demo-samples" id="cmdSamples"></div>
-            <div class="verdict" id="verdict"></div>
-          </div>
-        </div>
-
-        <div class="grid-2 rv">
-          <div class="card">
-            <h3>Token ที่ไม่เคยโผล่ใน URL</h3>
-            <p>
-              ทุก <code>/api/*</code> และ WebSocket ต้องมี <code>Authorization: Bearer</code>
-              token ถูกสร้างลง <code>~/.orbit/config.json</code> และพิมพ์ใน console ครั้งแรก
-            </p>
-            <p style="margin-top:.7rem">
-              แต่ WebSocket handshake กับ <code>&lt;img src&gt;</code> แนบ header ไม่ได้ —
-              สองอย่างนี้จึงใช้คุกกี้ <code>HttpOnly; SameSite=Strict</code> ที่ออกโดย
-              <code>GET /api/auth/check</code> ซึ่งเก็บ <strong>แฮชของ token ไม่ใช่ตัว token</strong>
-              และอนุญาตแค่การอ่านกับ socket ไม่เคยอนุญาตให้เขียน
-            </p>
-          </div>
-          <div class="card">
-            <h3>สองด่าน สองแหล่งที่มา</h3>
-            <p>
-              ด่านแรกดูสิ่งที่ <strong>คุณ</strong> ส่งเข้า terminal
-              ด่านที่สองคือ hook <code>orbit-approve.mjs</code> ที่ดักเครื่องมือ Bash ของ agent เอง
-              ซึ่งไม่เคยผ่าน PTY เลย
-            </p>
-            <p style="margin-top:.7rem">
-              ไม่มีใครตอบ หรือไม่มีมือถือต่ออยู่ → <strong>ปฏิเสธ</strong> (fail closed) ·
-              Orbit server ไม่ได้รัน → <strong>ปล่อยผ่าน</strong> (fail open)
-              เพื่อไม่ให้ Claude Code พังตอนใช้งานปกติ
-            </p>
-          </div>
-          <div class="card">
-            <h3>ไม่มีอะไรโผล่สู่อินเทอร์เน็ต</h3>
-            <p>
-              Tailscale สร้าง tunnel WireGuard ระหว่างอุปกรณ์ของคุณเอง —
-              ไม่ต้องเปิดพอร์ต ไม่ต้องตั้ง DDNS
-              <code>tailscale serve</code> เติม HTTPS ใบจริงให้โดยยังอยู่ใน tailnet เท่านั้น
-            </p>
-          </div>
-          <div class="card">
-            <h3>ขอบเขตที่บังคับไว้ในโค้ด</h3>
-            <p>
-              การเลือกโฟลเดอร์ถูกจำกัดไว้ใต้ home directory (<code>safePath()</code>)
-              อัปโหลดมีเพดานขนาด และ session id ที่มือถือจำไว้แต่ Mac ไม่มีแล้ว
-              จะถูกตอบว่า <code>gone</code> แทนที่จะแอบเปิด shell ใหม่ในโฮมใต้ id เดิม
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= AGENT SIDE ================= -->
-    <section id="agent">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">07 — ฝั่งของ agent</div>
-          <h2>ให้ agent มองเห็นงานตัวเอง และเรียกหาคุณเป็น</h2>
-          <p class="lede">
-            ปกติ Orbit คือมือถือสั่ง Mac — MCP server ที่มากับโปรเจกต์คือทางกลับกัน
-            ทั้งหมดคุยกับ server ที่พอร์ต 3001 ด้วย token ใน <code>~/.orbit/config.json</code>
-          </p>
-        </div>
-
-        <div class="grid rv">
-          <div class="card">
-            <h3 class="mono" style="color:var(--accent)">orbit_capture</h3>
-            <p>render เว็บที่รันอยู่แล้ว <strong>เห็นภาพเลย</strong> ไม่ใช่ได้แค่ path — รูปโผล่ในแท็บ Captures ของคุณด้วย</p>
-          </div>
-          <div class="card">
-            <h3 class="mono" style="color:var(--accent)">orbit_screen</h3>
-            <p>จับหน้าจอ Mac จริง สำหรับ Simulator, Xcode, แอป native ที่ headless Chrome เห็นไม่ได้</p>
-          </div>
-          <div class="card">
-            <h3 class="mono" style="color:var(--accent)">orbit_notify</h3>
-            <p>ส่งข้อความสั้นขึ้นมือถือ เช่น "งานเสร็จแล้ว" — เงียบไว้ถ้าคุณเปิด Orbit ดูอยู่</p>
-          </div>
-          <div class="card">
-            <h3 class="mono" style="color:var(--accent)">orbit_ask</h3>
-            <p>ถามคำถามขึ้นมือถือ <strong>แล้วรอ</strong> จนกว่าจะกดตอบ หมดเวลา 120 วิ ก็บอก agent ว่าไม่มีใครตอบ</p>
-          </div>
-        </div>
-
-        <div class="grid-2 rv">
-          <div class="card">
-            <h3>รู้ว่า Claude กำลังรอคุณอยู่</h3>
-            <p>
-              กล่องคำถามและการขออนุญาตของ Claude Code วาดอยู่ใน terminal เท่านั้น —
-              จากมือถือที่คว่ำอยู่บนโต๊ะ มันหน้าตาเหมือน session ที่กำลังคิด และรอได้ทั้งคืน
-            </p>
-            <p style="margin-top:.7rem">
-              hook <code>orbit-notify-hook.mjs</code> ส่งจังหวะพวกนั้นมาที่ Orbit:
-              <code>AskUserQuestion</code> พร้อมตัวเลือก, <code>Notification</code> ที่แปลว่ากำลังรอ,
-              และ <code>Stop</code> เฉพาะ session ที่เปิดจาก Orbit — ทั้งหมดส่งแบบ quiet
-              จึงไม่เด้งซ้ำสิ่งที่คุณเห็นอยู่แล้ว
-            </p>
-          </div>
-          <div class="card">
-            <h3>ปลุกมือถือที่หลับอยู่</h3>
-            <p>
-              iOS แช่แข็งหน้าเว็บและตัด socket ตอนล็อกจอ ข้อความที่ส่งตอนนั้นจึงไม่ถึงใครเลย
-              Orbit อุดช่องนี้สองชั้น: เก็บข้อความไว้ replay ให้คนที่ต่อเข้ามาคนถัดไป (ครั้งเดียว
-              และเฉพาะที่ยังไม่เคยส่งถึงใคร) กับ Web Push ที่ปลุก service worker ได้แม้แอปปิดสนิท
-            </p>
-            <p style="margin-top:.7rem">
-              push ยิงเฉพาะตอนช่องทางสดหาใครไม่เจอ — แอปที่เปิดอยู่จึงไม่ได้ทั้ง banner และ toast พร้อมกัน
-            </p>
-          </div>
-        </div>
-
-        <div class="col rv">
-          <div class="callout bad">
-            <b>ก่อนสั่ง <code>orbit_screen</code>:</b> เมื่อสิทธิ์ผ่านแล้ว มันเห็นทุกอย่างบนจอ —
-            ตอนทดสอบครั้งแรก ภาพที่ได้มี terminal ที่มี access token ของ Orbit พิมพ์ค้างอยู่ติดมาด้วย
-            และภาพนั้นเข้าไปอยู่ในบริบทของ agent ปิดหรือย่อสิ่งที่ไม่อยากให้เห็นก่อน
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= START ================= -->
-    <section id="start">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">08 — เริ่มใช้งาน</div>
-          <h2>จากศูนย์ถึงสั่งงานจากมือถือ</h2>
-          <p class="lede">ทั้งหมดรันบน Mac ของคุณ ไม่ต้องสมัครอะไร</p>
-        </div>
-
-        <div class="rv">
-          <div class="tabs" id="startTabs" role="tablist">
-            <button type="button" role="tab" aria-selected="true" data-tab="dev">Development</button>
-            <button type="button" role="tab" aria-selected="false" data-tab="prod">Production (PWA)</button>
-            <button type="button" role="tab" aria-selected="false" data-tab="ts">Tailscale + HTTPS</button>
-            <button type="button" role="tab" aria-selected="false" data-tab="mcp">MCP + hooks</button>
-            <button type="button" role="tab" aria-selected="false" data-tab="smoke">Smoke test</button>
-          </div>
-          <div id="startPanes"></div>
-        </div>
-
-        <div class="grid rv">
-          <div class="card">
-            <h3>ต้องมีอะไรบ้าง</h3>
-            <p>
-              macOS (Apple Silicon), Node.js, zsh และ agent CLI อย่างน้อยหนึ่งตัว —
-              Google Chrome สำหรับฟีเจอร์ capture (ใช้ Chrome ของระบบ ไม่ดาวน์โหลด browser เพิ่ม)
-            </p>
-          </div>
-          <div class="card">
-            <h3>เกร็ดที่ทำให้ไม่ต้องงง</h3>
-            <p>
-              npm ถอด execute bit ของ <code>spawn-helper</code> ที่มากับ node-pty
-              ทำให้ PTY spawn ไม่ขึ้น — <code>postinstall</code> ที่ root แก้สิทธิ์ให้อัตโนมัติทุกครั้งที่ install
-            </p>
-          </div>
-          <div class="card">
-            <h3>อยากหมุน token ใหม่</h3>
-            <p>
-              ลบ <code>~/.orbit/config.json</code> แล้วรัน server ใหม่ —
-              จะได้ token ใหม่พิมพ์ใน console และเครื่องที่เคย login ไว้จะเด้งกลับหน้า login
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= API ================= -->
-    <section id="api">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">09 — อ้างอิง</div>
-          <h2>API และข้อความบนสาย</h2>
-          <p class="lede">ทุก <code>/api/*</code> ต้องมี bearer token — ยกเว้นที่ระบุว่าใช้คุกกี้ได้</p>
-        </div>
-
-        <div class="rv">
-          <div class="filter">
-            <label for="apiFilter" style="position:absolute;left:-9999px">กรอง</label>
-            <input id="apiFilter" placeholder="กรอง เช่น session, push, ws" autocomplete="off">
-            <span id="apiCount"></span>
-          </div>
-          <div class="table-wrap">
-            <table id="apiTable">
-              <thead><tr><th>Endpoint / message</th><th>ทำอะไร</th></tr></thead>
-              <tbody id="apiBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= STATUS ================= -->
-    <section id="status">
-      <div class="wrap stack-lg">
-        <div class="col rv">
-          <div class="eyebrow">10 — สถานะโปรเจกต์</div>
-          <h2>ทุกเฟสในสเปกถูกทำครบแล้ว</h2>
-          <p class="lede">และมีของที่เกินสเปกเดิมมาอีกชุดหนึ่ง</p>
-        </div>
-
-        <div class="timeline card rv">
-          <div class="tl"><div class="tl-when">Phase 1</div><div><b>Terminal ตัวจริง</b><p>xterm.js + node-pty + WebSocket, persistent session, auto-reconnect, เลย์เอาต์สำหรับมือถือ</p></div></div>
-          <div class="tl"><div class="tl-when">Phase 2</div><div><b>Agent provider system</b><p>Claude Code / Codex / Gemini / shell พร้อมตรวจว่าติดตั้งตัวไหนไว้ และ folder picker ที่รู้จัก git repo</p></div></div>
-          <div class="tl"><div class="tl-when">Phase 3</div><div><b>Session management</b><p>metadata + ประวัติลง <code>~/.orbit/</code>, อยู่รอดข้าม server restart, resume บทสนทนาเดิมได้</p></div></div>
-          <div class="tl"><div class="tl-when">Phase 4</div><div><b>เสียง ภาพ auth และ PWA</b><p>voice input ไทย/EN, image upload, access token + session cookie, ติดตั้งลงหน้าจอโฮมได้</p></div></div>
-          <div class="tl"><div class="tl-when">Phase 5</div><div><b>Screenshot validation + command approval</b><p>capture ผ่าน Chrome จริง, Mac screen, และด่านกรองคำสั่งอันตราย</p></div></div>
-          <div class="tl"><div class="tl-when">Phase 6</div><div><b>Mobile UX polish</b><p>named session, ชื่ออัตโนมัติจากคำสั่งแรก, แถบคีย์ลัด, safe area และคีย์บอร์ดบนจอ</p></div></div>
-          <div class="tl"><div class="tl-when">Phase 7</div><div><b>ฝั่งของ agent</b><p>MCP server, ช่องทาง Mac→มือถือ, Web Push, hook แจ้งเตือนและ hook อนุมัติ</p></div></div>
-          <div class="tl open"><div class="tl-when">ยังเปิดอยู่</div><div><b>สิ่งที่ยังไม่ได้ทำ</b><p>แท็บ Files/Diff, session timeline, เลย์เอาต์หลายหน้าต่างบนแท็บเล็ต, ผูก capture เข้ากับ session ที่สั่งมัน</p></div></div>
-        </div>
-      </div>
-    </section>
-
-    <footer>
-      <div class="wrap">
-        <div>
-          <div class="rail-mark" style="margin-bottom:.6rem">
-            <span class="orbit-track" style="width:22px;height:22px"></span>
-            <b>Orbit</b>
-          </div>
-          <div>Local AI coding hub · single-user · local-first<br>MacBook คือ source of truth</div>
-        </div>
-        <div>
-          <b>เอกสารในโปรเจกต์</b>
-          <ul>
-            <li><a href="../../README.md">README.md</a> — ภาพรวมและสถานะ</li>
-            <li><a href="../USER-GUIDE.md">docs/USER-GUIDE.md</a> — คู่มือฉบับเต็ม</li>
-            <li><a href="../MCP.md">docs/MCP.md</a> — MCP + hooks</li>
-            <li><a href="../TAILSCALE.md">docs/TAILSCALE.md</a> — ใช้จากนอกบ้าน</li>
-          </ul>
-        </div>
-        <div>
-          <b>เส้นทางลัด</b>
-          <ul>
-            <li><a href="#arch">สถาปัตยกรรม</a></li>
-            <li><a href="#flow">Flow การทำงาน</a></li>
-            <li><a href="#manual">คู่มือใช้งาน</a></li>
-            <li><a href="#start">เริ่มใช้งาน</a></li>
-          </ul>
-        </div>
-      </div>
-    </footer>
-  </main>
-</div>
-
-<div class="navsheet" id="navSheet">
-  <div class="navsheet-panel">
-    <nav id="navSheetNav"></nav>
-    <a class="btn btn-primary" href="#start" data-nav-close>ติดตั้งใน 3 คำสั่ง</a>
   </div>
-</div>
+</header>
 
-<div class="lightbox" id="lightbox">
-  <button class="btn btn-sm" type="button" id="lightboxClose">ปิด</button>
-  <img id="lightboxImg" src="" alt="ภาพขยาย">
-</div>
+<!-- ================= HERO ================= -->
+<section class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow">Local AI coding hub · macOS</div>
+      <h1>agent รันอยู่บน MacBook<br><span class="dim">คุณสั่งจากในกระเป๋า</span></h1>
+      <p class="hero-sub">
+        Orbit เปลี่ยน MacBook เป็น AI development server ส่วนตัว — terminal ตัวจริงที่ต่อกับ
+        zsh บนเครื่องคุณ เปิดผ่านเบราว์เซอร์มือถือ ไม่ใช่ chat wrapper ไม่ใช่ cloud IDE
+        และโค้ดไม่เคยออกจากเครื่อง
+      </p>
+      <div class="cta">
+        <a class="btn solid" href="#start">ติดตั้งใน 2 คำสั่ง</a>
+        <a class="btn" href="#tour">ดูของจริง</a>
+      </div>
+      <div class="chips">
+        <span class="chip"><span class="dot"></span>Claude Code</span>
+        <span class="chip">Codex CLI</span>
+        <span class="chip">Gemini CLI</span>
+        <span class="chip">zsh</span>
+      </div>
+    </div>
 
-<script>
-  window.__ORBIT_SHOTS__ = {{SHOTS_JSON}}
-</script>
+    <div>
+      <div class="phone tilt">
+        <img src="{{SHOT:02-terminal}}" alt="Orbit บนมือถือ — dev server ของโปรเจกต์ storefront กำลังรันอยู่ในเทอร์มินัลจริง">
+      </div>
+      <p class="shot-caption">ทุกภาพในหน้านี้มาจากแอปจริง ถ่ายด้วย <code>make shots</code></p>
+    </div>
+  </div>
 
-<script>
-  (() => {
-    'use strict'
-    const $ = (s, r = document) => r.querySelector(s)
-    const $$ = (s, r = document) => [...r.querySelectorAll(s)]
-    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat"><b>4</b><span>agent ที่เลือกได้</span></div>
+      <div class="stat"><b>0</b><span>พอร์ตที่เปิดสู่อินเทอร์เน็ต</span></div>
+      <div class="stat"><b>2</b><span>ด่านกรองคำสั่งอันตราย</span></div>
+      <div class="stat"><b>5</b><span>MCP tools ให้ agent เรียกเอง</span></div>
+    </div>
+  </div>
+</section>
 
-    /* ---------- reveal on scroll ---------- */
-    const revealer = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            e.target.classList.add('in')
-            revealer.unobserve(e.target)
-          }
-        }
-      },
-      { rootMargin: '0px 0px -8% 0px' },
-    )
-    $$('.rv').forEach((el) => revealer.observe(el))
+<!-- ================= WHAT ================= -->
+<section id="what">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">01 — Orbit คืออะไร</div>
+      <h2>ไม่ใช่แอปแชทที่คุยกับ AI แต่คือรีโมทของเครื่องคุณเอง</h2>
+      <p class="lede">
+        สิ่งที่เห็นบนมือถือคือ terminal ตัวเดียวกับที่รันอยู่บน Mac — ANSI สี, TUI,
+        prompt ที่ต้องกดตอบ, Ctrl+C, scrollback ครบ ไม่มีการแปลงเป็นข้อความสวย ๆ ระหว่างทาง
+      </p>
+    </div>
 
-    /* ---------- section menu (phone) ----------
-       The desktop rail is the table of contents; on a phone it is not on
-       screen at all, so the same ten links become a sheet under the topbar
-       and the topbar itself always names the section you are standing in. */
-    const sheet = $('#navSheet')
-    const navBtn = $('#navToggle')
+    <div class="grid">
+      <div class="card">
+        <div class="k">01</div>
+        <h3>MacBook คือ source of truth</h3>
+        <p>
+          ไฟล์ กิต เครื่องมือ และ agent ทั้งหมดอยู่บนเครื่องคุณ Orbit ไม่ซิงก์โค้ดขึ้นที่ไหน
+          และไม่มีบัญชีให้สมัคร — single-user, local-first
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">02</div>
+        <h3>Session ไม่ตายเมื่อจอดับ</h3>
+        <p>
+          PTY อยู่ฝั่ง Mac มือถือเป็นแค่จอ ปิดเบราว์เซอร์ สลับแอป เน็ตหลุด
+          กลับมาแล้วงานยังเดินอยู่ พร้อมประวัติที่เล่นย้อนให้ครบ
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">03</div>
+        <h3>มือถือเห็น ก็สั่งได้</h3>
+        <p>
+          พิมพ์ พูด แนบรูป ดูดิฟฟ์ เปิดแอปที่รันอยู่จริง — จบในจอเดียว
+          โดยไม่ต้องเดินไปเปิดฝาโน้ตบุ๊ก
+        </p>
+      </div>
+    </div>
 
-    $('#navSheetNav').innerHTML = $$('#railNav a')
-      .map((a) => '<a class="nav-item" href="' + a.hash + '"><i>' + a.querySelector('i').textContent + '</i>' + a.lastChild.textContent + '</a>')
-      .join('')
+    <div class="note">
+      <b>เส้นแบ่งที่ชัดเจน:</b> Orbit ไม่ได้แทน agent และไม่ได้เขียนโค้ดเอง —
+      มันคือชั้นที่ทำให้ agent ซึ่งออกแบบมาสำหรับจอ 27 นิ้ว ใช้งานได้จริงบนจอ 6 นิ้วในมือคุณ
+    </div>
+  </div>
+</section>
 
-    const sheetLinks = $$('#navSheet a.nav-item')
+<!-- ================= PATH ================= -->
+<section id="path">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">02 — เส้นทางของหนึ่งคีย์สโตรก</div>
+      <h2>จากนิ้วคุณถึง zsh ผ่านห้าชั้น</h2>
+      <p class="lede">
+        ไม่มีคลาวด์อยู่ในเส้นนี้ ตัวอักษรที่พิมพ์เดินทางในอุโมงค์ WireGuard ของ Tailscale
+        เข้า Node บนเครื่องคุณ แล้วลงไปที่ PTY ตัวจริง
+      </p>
+    </div>
 
-    function setSheet(open) {
-      sheet.classList.toggle('on', open)
-      navBtn.setAttribute('aria-expanded', String(open))
-      document.body.style.overflow = open ? 'hidden' : ''
-    }
+    <div class="path">
+      <div class="hop"><b>มือถือ</b><span>xterm.js ใน Safari หรือ PWA บนหน้าจอโฮม</span></div>
+      <div class="hop"><b>tailnet</b><span>HTTPS 443 <em>tailscale serve</em> ไม่แตะเราเตอร์</span></div>
+      <div class="hop"><b>Orbit</b><span>Node บน <em>:3001</em> — auth, WebSocket, REST</span></div>
+      <div class="hop"><b>node-pty</b><span>เทอร์มินัลจริง ขนาดจอเท่ากับของมือถือ</span></div>
+      <div class="hop"><b>zsh + agent</b><span>PATH ของคุณเอง ในโฟลเดอร์ของคุณเอง</span></div>
+    </div>
 
-    navBtn.addEventListener('click', () => setSheet(!sheet.classList.contains('on')))
-    sheet.addEventListener('click', (e) => {
-      if (e.target === sheet || e.target.closest('a')) setSheet(false)
-    })
-    addEventListener('keydown', (e) => { if (e.key === 'Escape') setSheet(false) })
+    <div class="note live">
+      PTY อยู่ฝั่ง Mac ทั้งหมด มือถือจึงเป็นแค่จอกับคีย์บอร์ด — นั่นคือเหตุผลที่จอดับแล้ว
+      งานไม่หยุด และเป็นเหตุผลเดียวกับที่ประวัติย้อนหลังกลับมาครบเมื่อเปิดใหม่
+    </div>
+  </div>
+</section>
 
-    /* ---------- scroll spy + progress ---------- */
-    const links = $$('#railNav a')
-    const spy = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue
-          const hash = '#' + e.target.id
-          links.forEach((a) => a.setAttribute('aria-current', String(a.hash === hash)))
-          sheetLinks.forEach((a) => a.setAttribute('aria-current', String(a.hash === hash)))
-          const here = sheetLinks.find((a) => a.hash === hash)
-          if (here) {
-            $('#navHereNum').textContent = here.querySelector('i').textContent
-            $('#navHere').textContent = here.lastChild.textContent
-          } else {
-            $('#navHereNum').textContent = ''
-            $('#navHere').textContent = 'สารบัญ'
-          }
-        }
-      },
-      { rootMargin: '-45% 0px -50% 0px' },
-    )
-    $$('main section[id]').forEach((s) => spy.observe(s))
+<!-- ================= TOUR ================= -->
+<section id="tour">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">03 — พาชมของจริง</div>
+      <h2>ทุกอย่างที่เคยต้องเดินไปหน้าเครื่อง ถูกย้ายมาไว้ในมือ</h2>
+      <p class="lede">
+        ภาพทั้งหมดถ่ายจาก Orbit ที่รันอยู่จริง ไม่ใช่ mockup — สคริปต์เดินแอปทีละหน้าจอ
+        แล้วบันทึกภาพเอง เพื่อให้คู่มือไม่แก่กว่าโค้ด
+      </p>
+    </div>
 
-    const bar = $('#progressBar')
-    let ticking = false
-    addEventListener(
-      'scroll',
-      () => {
-        if (ticking) return
-        ticking = true
-        requestAnimationFrame(() => {
-          const max = document.documentElement.scrollHeight - innerHeight
-          bar.style.width = (max > 0 ? Math.min(1, scrollY / max) * 100 : 0) + '%'
-          ticking = false
-        })
-      },
-      { passive: true },
-    )
+    <div class="tour">
 
-    /* ---------- hero terminal ---------- */
-    const heroLines = [
-      { cls: 'm', text: '~/Development/orbit-demo' },
-      { cls: 'u', text: '❯ claude', pause: 420 },
-      { cls: 'm', text: 'Claude Code · sonnet' },
-      { cls: '', text: '' },
-      { cls: 'a', text: '› เพิ่มปุ่ม dark mode ในหน้า index', type: true },
-      { cls: '', text: '' },
-      { cls: 'g', text: '● Edit index.html' },
-      { cls: 'm', text: '  +18 −2' },
-      { cls: 'g', text: '● orbit_capture localhost:4321' },
-      { cls: 'm', text: '  รูปเข้าแท็บ Captures แล้ว' },
-      { cls: '', text: '' },
-      { cls: '', text: 'ปุ่มอยู่มุมขวาบน คอนทราสต์ผ่านทั้งสองธีม' },
-    ]
+      <div class="row">
+        <div class="text">
+          <div class="eyebrow">Terminal</div>
+          <h3>agent ตอบคุณบนจอ 6 นิ้ว โดยไม่ต้องย่ออะไรเลย</h3>
+          <p>
+            Claude Code, Codex หรือ Gemini รันในเทอร์มินัลจริง สีครบ กล่องคำถามครบ
+            กด Enter ตอบได้ กด Ctrl+C หยุดได้ แถบปุ่มด้านล่างมีคีย์ที่คีย์บอร์ดมือถือไม่มี —
+            Esc, Tab, Ctrl, ลูกศร และ ^C
+          </p>
+        </div>
+        <div class="phone"><img src="{{SHOT:06-claude-code}}" alt="Claude Code ตอบคำถามเรื่องฟังก์ชัน total ในเทอร์มินัลบนมือถือ"></div>
+      </div>
 
-    const term = $('#heroTerm')
+      <div class="row flip">
+        <div class="text">
+          <div class="eyebrow">พิมพ์ · พูด · แนบรูป</div>
+          <h3>พิมพ์ยาว ๆ บนจอสัมผัสไม่สนุก จึงมีอีกสองทาง</h3>
+          <p>
+            ปุ่มปากกาเปิดกล่องข้อความที่แก้ได้ก่อนส่ง ปุ่มไมค์เปิด dictation ไทย/อังกฤษ
+            ที่ถอดเสียงมาให้แก้ก่อนเช่นกัน — เพราะเครื่องถอดเสียงฟังผิดได้
+            และที่ที่ควรแก้คำผิดคือก่อนกดส่ง ไม่ใช่ในพรอมป์ตของ agent
+          </p>
+          <div class="note">รูปจากกล้องหรืออัลบั้มอัปโหลดขึ้น Mac แล้ววาง path ลงเทอร์มินัลให้เอง</div>
+        </div>
+        <div class="pair sheets">
+          <div class="phone"><img src="{{SHOT:12-message}}" alt="กล่องข้อความสำหรับพิมพ์ก่อนส่งเข้าเทอร์มินัล"></div>
+          <div class="phone"><img src="{{SHOT:07-voice}}" alt="สั่งงานด้วยเสียงภาษาไทย พร้อม transcript ที่แก้ได้"></div>
+        </div>
+      </div>
 
-    function renderHero(upto, typedChars) {
-      const html = heroLines.slice(0, upto).map((l, i) => {
-        let t = l.text
-        if (i === upto - 1 && typedChars != null) t = t.slice(0, typedChars)
-        const safe = t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-        return '<div class="' + l.cls + '">' + (safe || '&nbsp;') + '</div>'
-      })
-      term.innerHTML = html.join('') + '<div><span class="caret"></span></div>'
-    }
+      <div class="row">
+        <div class="text">
+          <div class="eyebrow">Changes</div>
+          <h3>เทอร์มินัลบอกว่า agent ทำอะไร แท็บนี้บอกว่ามันเขียนอะไร</h3>
+          <p>
+            สถานะ git ของโฟลเดอร์ที่ session นั้นอยู่ — ไฟล์ที่แก้ จำนวนบรรทัดเข้าออก
+            และไฟล์ที่ยังไม่เคยถูก track เปิดดูดิฟฟ์ทีละ hunk ได้ stage ได้ commit ได้
+            โดยไม่ต้องพิมพ์คำสั่ง git บนจอสัมผัส
+          </p>
+        </div>
+        <div class="phone"><img src="{{SHOT:11-changes}}" alt="แท็บ Changes แสดงไฟล์ที่แก้พร้อมจำนวนบรรทัด"></div>
+      </div>
 
-    async function playHero() {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-      for (;;) {
-        renderHero(0)
-        for (let i = 0; i < heroLines.length; i++) {
-          const line = heroLines[i]
-          if (line.type && !reduced) {
-            for (let c = 0; c <= line.text.length; c++) {
-              renderHero(i + 1, c)
-              await wait(38)
-            }
-          } else {
-            renderHero(i + 1)
-          }
-          await wait(reduced ? 120 : line.pause || 240)
-        }
-        await wait(4200)
-        if (reduced) return
-      }
-    }
-    playHero()
+      <div class="row flip">
+        <div class="text">
+          <div class="eyebrow">Preview</div>
+          <h3>ดูงานที่เพิ่งแก้ ทั้งแบบภาพนิ่งและแบบกดได้จริง</h3>
+          <p>
+            Orbit หา dev server ที่รันอยู่บนเครื่องเอง แล้วให้เลือกสองอย่าง: capture เป็นภาพ
+            (เรนเดอร์ด้วย Chrome จริงที่ขนาดจอมือถือ แท็บเล็ต หรือเดสก์ท็อป) หรือเผยแพร่พอร์ตนั้น
+            เข้า tailnet แล้วเปิดเป็นเฟรมทับเทอร์มินัล — แตะได้ กรอกฟอร์มได้ โดย session ไม่หลุด
+          </p>
+        </div>
+        <div class="pair">
+          <div class="phone"><img src="{{SHOT:03-captures}}" alt="แท็บ Preview แสดงพอร์ตที่รันอยู่และภาพที่ capture ไว้"></div>
+          <div class="phone"><img src="{{SHOT:04-capture-viewer}}" alt="ดูภาพ capture เต็มจอ"></div>
+        </div>
+      </div>
 
-    /* ---------- architecture ---------- */
-    const LAYERS = {
-      client: {
-        title: 'มือถือ / เบราว์เซอร์',
-        role: 'จอและอินพุตเท่านั้น ไม่มี state ของงานอยู่ที่นี่',
-        tech: 'React · TypeScript · Vite · Tailwind v4 · xterm.js · service worker',
-        holds: 'session id ใน localStorage, token, ค่าที่จำไว้ของ voice/capture',
-        files: ['web/src/App.tsx', 'web/src/Terminal.tsx', 'web/src/views/'],
-        note:
-          'ปิดแท็บนี้ไปไม่มีอะไรพัง — สิ่งที่หายคือ "จอ" ไม่ใช่ "งาน" ' +
-          'เปิดกลับมาเมื่อไหร่ก็ขอ replay จาก server ใหม่ได้',
-      },
-      transport: {
-        title: 'ชั้นเชื่อมต่อ + auth',
-        role: 'พิสูจน์ตัวตนก่อนให้แตะ API หรือเปิด socket',
-        tech: 'HTTP/WS · Bearer token · HttpOnly SameSite=Strict cookie · Tailscale (WireGuard)',
-        holds: 'token ใน ~/.orbit/config.json — คุกกี้เก็บแค่แฮชของมัน',
-        files: ['server/src/auth.ts', 'docs/TAILSCALE.md'],
-        note:
-          'WebSocket handshake กับ <img src> แนบ header ไม่ได้ จึงมีคุกกี้ไว้เฉพาะสองงานนั้น ' +
-          'และคุกกี้อนุญาตแค่การอ่านกับ socket ไม่เคยอนุญาตให้เขียน',
-      },
-      server: {
-        title: 'Orbit server',
-        role: 'router ของทั้งระบบ — REST, WebSocket, ด่านอนุมัติ, capture, push',
-        tech: 'Node.js · TypeScript · ws · playwright-core · web-push',
-        holds: 'sessions.json, scrollback/, screenshots/, uploads/, push-subscriptions.json',
-        files: ['server/src/index.ts', 'server/src/notify.ts', 'server/src/screenshot.ts'],
-        note:
-          'พอร์ตเดียว (3001) ในโหมด production — เสิร์ฟทั้งไฟล์ของ web/dist และ API ' +
-          'เพื่อให้เป็น origin เดียวกัน ซึ่ง PWA และคุกกี้ต้องการ',
-      },
-      pty: {
-        title: 'PTY manager',
-        role: 'เจ้าของ pseudo-terminal ตัวจริง และเป็นที่ที่ session มีชีวิตอยู่',
-        tech: 'node-pty · zsh -lic · debounced persistence',
-        holds: 'บัฟเฟอร์ scrollback ต่อ session, ชื่อที่จับจากคำสั่งแรก, exit code',
-        files: ['server/src/pty-manager.ts', 'server/src/store.ts'],
-        note:
-          'เพราะ PTY อยู่ที่นี่ ไม่ใช่ในเบราว์เซอร์ session จึงรอดจากการล็อกจอ ' +
-          'เน็ตหลุด และการปิดแอป — และเขียนประวัติลงดิสก์แบบหน่วงจังหวะ พร้อม flush ตอนปิดเครื่อง',
-      },
-      agent: {
-        title: 'Agent CLI',
-        role: 'ตัวที่ทำงานจริง — Orbit ไม่ได้ห่อหรือแปลอะไรของมันเลย',
-        tech: 'claude · codex · gemini · zsh',
-        holds: 'บทสนทนาของตัวเอง (Orbit ไม่ยุ่ง) และตัวแปร ORBIT_SESSION ที่ PTY ตั้งให้',
-        files: ['server/src/providers.ts', 'scripts/orbit-approve.mjs'],
-        note:
-          "launch ผ่าน zsh -lic 'exec …' เพื่อให้ PATH จริงของคุณมีผล " +
-          'ตัวแปร ORBIT_SESSION คือสิ่งที่ทำให้ hook รู้ว่า session นี้เปิดมาจาก Orbit',
-      },
-      disk: {
-        title: 'ดิสก์ของคุณ',
-        role: 'ปลายทางของทุกอย่าง — โค้ดจริง กิตจริง ไฟล์จริง',
-        tech: 'APFS · git · เครื่องมือที่คุณลงไว้เอง',
-        holds: '~/Development/… (งานของคุณ) และ ~/.orbit/ (สถานะของ Orbit)',
-        files: ['~/.orbit/config.json', '~/.orbit/sessions.json', '~/.orbit/scrollback/'],
-        note:
-          'การเลือกโฟลเดอร์ถูกจำกัดไว้ใต้ home directory และไม่มีอะไรถูกซิงก์ขึ้นที่ไหน — ' +
-          'ลบ ~/.orbit ทิ้งคือการล้าง Orbit ทั้งหมด งานของคุณไม่ถูกแตะ',
-      },
-    }
+      <div class="row">
+        <div class="text">
+          <div class="eyebrow">Sessions</div>
+          <h3>หลาย session พร้อมกัน และรู้ว่าอันไหนกำลังรอคุณ</h3>
+          <p>
+            แถวที่มีชีวิตเรืองแสงจากข้างใน แถวที่รอคำตอบมีขอบสว่าง — สองอย่างนี้อยู่คนละช่อง
+            ของสายตา จึงไม่กลืนกัน session ที่จบแล้วเปิดย้อนดูได้แบบอ่านอย่างเดียว
+            และกด Resume ให้ agent คุยต่อจากบทสนทนาเดิมได้
+          </p>
+        </div>
+        <div class="pair">
+          <div class="phone"><img src="{{SHOT:09-sessions}}" alt="รายการ session พร้อมแถวที่กำลังรอคำตอบ"></div>
+          <div class="phone"><img src="{{SHOT:10-ended-readonly}}" alt="เปิดดูประวัติของ session ที่จบแล้วแบบอ่านอย่างเดียว"></div>
+        </div>
+      </div>
 
-    const detail = $('#archDetail')
-    const archHome = detail.parentElement
-    const archWide = matchMedia('(min-width: 900px)')
-    let layerKey = 'client'
+      <div class="row flip">
+        <div class="text">
+          <div class="eyebrow">การอนุมัติ</div>
+          <h3>คำสั่งที่ทำลายของได้ ต้องผ่านนิ้วคุณก่อน</h3>
+          <p>
+            ทุกก้อนข้อความที่ถูกวาง พูด หรือส่งมาจากอัตโนมัติ ถูกกรองที่ฝั่งเซิร์ฟเวอร์ด้วยชุด
+            pattern เดียวกับที่ใช้กรองคำสั่งของ agent — ลบทั้งโฟลเดอร์, ยกสิทธิ์เป็น root,
+            force push, เขียนดิสก์ดิบ, fork bomb เจอแล้วหยุดค้างไว้ พร้อมแสดงคำสั่งเต็ม ๆ
+          </p>
+          <div class="note warn">
+            ตัวเลือกแรกคือตัวเลือกที่ปลอดภัยเสมอ และไม่มีใครตอบ = ปฏิเสธ
+          </div>
+        </div>
+        <div class="phone"><img src="{{SHOT:08-approval}}" alt="กล่องยืนยันคำสั่งอันตรายบนมือถือ"></div>
+      </div>
 
-    /* Beside the stack the detail card is always in view. Stacked, it sits
-       below six buttons — tap one and nothing visibly happens. So on a phone
-       the card follows the tap and opens where the finger already is. */
-    function placeDetail() {
-      if (archWide.matches) archHome.append(detail)
-      else $('#layers .layer[data-layer="' + layerKey + '"]').after(detail)
-    }
+      <div class="row">
+        <div class="text">
+          <div class="eyebrow">เริ่ม session</div>
+          <h3>เลือก agent เลือกโฟลเดอร์ แล้วเริ่ม</h3>
+          <p>
+            agent ที่ติดตั้งไว้จริงบนเครื่องเท่านั้นที่กดได้ — ตัวที่ยังไม่มีจะบอกตรง ๆ ว่า
+            not installed ตัวเลือกโฟลเดอร์จำที่ที่คุณเพิ่งทำงานไว้ให้ ทำเครื่องหมาย repo ที่เป็น git
+            และเตือนเมื่อคุณกำลังจะปล่อย agent ลงในโฟลเดอร์ที่กว้างเกินไป
+          </p>
+        </div>
+        <div class="pair">
+          <div class="phone"><img src="{{SHOT:05-new-session}}" alt="หน้าจอสร้าง session ใหม่ เลือก agent และโฟลเดอร์"></div>
+          <div class="phone"><img src="{{SHOT:01-login}}" alt="หน้า login ใส่ access token"></div>
+        </div>
+      </div>
 
-    archWide.addEventListener('change', placeDetail)
+    </div>
+  </div>
+</section>
 
-    function showLayer(key) {
-      const d = LAYERS[key]
-      layerKey = key
-      detail.innerHTML =
-        '<h3><span class="dot" style="background:var(--accent)"></span>' + d.title + '</h3>' +
-        '<dl class="kv">' +
-        '<dt>หน้าที่</dt><dd>' + d.role + '</dd>' +
-        '<dt>รันด้วย</dt><dd>' + d.tech + '</dd>' +
-        '<dt>ถือ state</dt><dd>' + d.holds + '</dd>' +
-        '</dl>' +
-        '<div class="files">' + d.files.map((f) => '<span class="chip">' + f + '</span>').join('') + '</div>' +
-        '<p>' + d.note + '</p>'
-      $$('#layers .layer').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.layer === key)))
-      placeDetail()
-    }
+<!-- ================= AGENT SIDE ================= -->
+<section id="agent">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">04 — ฝั่ง agent</div>
+      <h2>ให้ agent มองเห็นงานตัวเอง และเรียกหาคุณเป็น</h2>
+      <p class="lede">
+        ที่ผ่านมาคือมือถือสั่ง Mac ส่วนนี้คือทางกลับกัน — MCP server ที่มากับ Orbit
+        ทำให้ agent ที่รันอยู่ใน session เห็นภาพงานของตัวเอง และส่งเสียงถึงคนถือมือถือได้
+      </p>
+    </div>
 
-    $$('#layers .layer').forEach((b) => b.addEventListener('click', () => showLayer(b.dataset.layer)))
-    showLayer('client')
+    <div class="tools">
+      <div class="tool"><b>orbit_capture</b><p>เรนเดอร์เว็บที่รันอยู่แล้วส่งภาพกลับให้ agent เห็นเอง ไม่ใช่ path</p></div>
+      <div class="tool"><b>orbit_screen</b><p>จับหน้าจอ Mac จริง — Simulator, Xcode, แอป native ที่ headless Chrome มองไม่เห็น</p></div>
+      <div class="tool"><b>orbit_preview</b><p>เปิดแอปที่รันอยู่จริงบนมือถือ ตรงหน้าที่ agent ระบุ แตะกดได้จริง</p></div>
+      <div class="tool"><b>orbit_notify</b><p>ส่งข้อความสั้นขึ้นมือถือ — "เสร็จแล้ว" หรือ "กำลังรอคุณอยู่"</p></div>
+      <div class="tool"><b>orbit_ask</b><p>ถามคำถามขึ้นมือถือแล้วรอ จนกว่าจะมีคนกดตอบ</p></div>
+    </div>
 
-    $$('#transportSeg button').forEach((b) =>
-      b.addEventListener('click', () => {
-        $$('#transportSeg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
-        $('#wireTransport').textContent =
-          b.dataset.transport === 'ts'
-            ? 'HTTPS + WSS ผ่าน WireGuard tunnel'
-            : 'HTTP + WS ใน WiFi วงเดียวกัน (เสียง/PWA ใช้ไม่ได้)'
-      }),
-    )
+    <div class="grid">
+      <div class="card">
+        <h3>รู้ว่า agent กำลังรอคุณอยู่</h3>
+        <p>
+          กล่องคำถามของ Claude Code วาดอยู่ใน terminal เท่านั้น — จากมือถือที่คว่ำอยู่บนโต๊ะ
+          มันหน้าตาเหมือน session ที่กำลังคิด และรอได้ทั้งคืน hook ส่งจังหวะพวกนั้นมาที่ Orbit
+        </p>
+      </div>
+      <div class="card">
+        <h3>ปลุกมือถือที่หลับอยู่</h3>
+        <p>
+          iOS หยุดหน้าเว็บและตัดซ็อกเก็ตเมื่อล็อกจอ ข้อความที่ส่งตอนนั้นจึงไม่ถึงใคร
+          Orbit เก็บไว้ส่งซ้ำให้เครื่องที่ต่อเข้ามาทีหลัง และมี Web Push ปลุกตอนแอปปิดสนิท
+        </p>
+      </div>
+      <div class="card">
+        <h3>เงียบเมื่อคุณเห็นอยู่แล้ว</h3>
+        <p>
+          ทุกข้อความจาก hook ส่งแบบ quiet — เปิด Orbit ดูอยู่จะไม่เด้งอะไรเลย
+          จะแจ้งก็ต่อเมื่อคุณไม่ได้ดู
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
 
-    /* ---------- flow simulator ---------- */
-    const NODES = [
-      { id: 'phone', name: 'มือถือ', sub: 'xterm.js\nservice worker' },
-      { id: 'net', name: 'ชั้นเชื่อมต่อ', sub: 'WSS + Bearer\nTailscale' },
-      { id: 'server', name: 'Orbit server', sub: 'index.ts\n:3001' },
-      { id: 'pty', name: 'PTY', sub: 'node-pty\nzsh' },
-      { id: 'agent', name: 'Agent CLI', sub: 'claude\ncodex' },
-      { id: 'disk', name: '~/.orbit', sub: 'sessions\nscrollback' },
-    ]
+<!-- ================= SAFETY ================= -->
+<section id="safety">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">05 — ความปลอดภัย</div>
+      <h2>มันคุมคอมพิวเตอร์ส่วนตัวคุณ จึงต้องคิดเรื่องนี้ก่อน</h2>
+    </div>
 
-    const FLOWS = [
-      {
-        id: 'type',
-        label: 'พิมพ์คำสั่งจากมือถือ',
-        note: '<b>ทำไมต้องผ่าน server:</b> เบราว์เซอร์ไม่เคยแตะ PTY โดยตรง ทุกคีย์จึงมีที่เดียวที่ตรวจได้ก่อนถึง shell',
-        steps: [
-          { n: 'phone', t: 'นิ้วแตะคีย์', d: 'xterm.js จับ keystroke แล้วส่ง <code>{type:"input"}</code> ลง WebSocket เดิมที่เปิดค้างไว้ ไม่มีการ HTTP request ใหม่ต่อหนึ่งตัวอักษร' },
-          { n: 'net', t: 'ผ่าน socket ที่ยืนยันตัวตนแล้ว', d: 'handshake ผ่านคุกกี้ตั้งแต่ตอนต่อ ไม่มี token อยู่ใน URL ที่จะไปโผล่ใน log ของ proxy' },
-          { n: 'server', t: 'ตรวจก่อนปล่อย', d: 'ข้อความที่มาเป็นก้อนหลายตัวอักษร (วาง/เสียง/automation) ถูก screen กับ <code>DANGEROUS_PATTERNS</code> เจอแล้วยึดไว้และส่ง <code>{type:"approval"}</code> กลับไปถาม' },
-          { n: 'pty', t: 'เขียนลง stdin จริง', d: 'ผ่านแล้ว server เรียก <code>write()</code> ใส่ PTY ของ session นั้น — จากมุมของ zsh มันคือคนพิมพ์ธรรมดา' },
-          { n: 'agent', t: 'agent ทำงาน', d: 'claude/codex/zsh ประมวลผลแล้วพ่น stdout ออกมาตามปกติ ไม่รู้เลยว่าปลายทางคือมือถือ' },
-          { n: 'server', t: 'กระจาย output', d: '<code>onData</code> ยิง <code>{type:"output"}</code> ไปหาทุก client ที่ดู session นี้อยู่ — เปิดสองเครื่องก็เห็นตรงกัน' },
-          { n: 'disk', t: 'จดประวัติไว้', d: 'scrollback ถูกเขียนลง <code>~/.orbit/scrollback/&lt;id&gt;.txt</code> แบบหน่วงจังหวะ และ flush ทันทีตอน server ปิด' },
-          { n: 'phone', t: 'ขึ้นจอ', d: 'xterm.js เขียนลง canvas — ANSI สี, cursor, TUI ทำงานเหมือนนั่งหน้าเครื่อง' },
-        ],
-      },
-      {
-        id: 'sleep',
-        label: 'ล็อกจอแล้วกลับมา',
-        note: '<b>หัวใจของเรื่องนี้:</b> มือถือเป็นแค่จอ การหายไปของจอไม่ควรทำให้งานหาย',
-        steps: [
-          { n: 'phone', t: 'iOS แช่แข็งหน้าเว็บ', d: 'ล็อกจอหรือสลับแอป WebSocket ถูกตัด ไม่มีสัญญาณอะไรบอก server ล่วงหน้า' },
-          { n: 'pty', t: 'PTY ยังรันต่อ', d: 'ไม่มีใครฆ่ามัน — build ที่รันอยู่ก็รันต่อ agent ที่กำลังคิดก็คิดต่อ' },
-          { n: 'server', t: 'output ถูกเก็บสะสม', d: 'สิ่งที่พ่นออกมาระหว่างนั้นเข้า scrollback buffer แทนที่จะหายไปกับ socket ที่ตายแล้ว' },
-          { n: 'phone', t: 'เปิดกลับมา', d: 'เรียก <code>GET /api/auth/check</code> เพื่อรีเฟรชคุกกี้ แล้วต่อ socket ใหม่พร้อม session id ที่จำไว้ใน localStorage' },
-          { n: 'server', t: 'เทประวัติกลับ', d: 'ตอบ <code>{type:"ready", replay}</code> — จอถูกวาดใหม่ทั้งหน้าจนถึงบรรทัดล่าสุด' },
-          { n: 'phone', t: 'ถ้า session ไม่มีแล้ว', d: 'server ตอบ <code>{type:"gone"}</code> ตรง ๆ แทนที่จะเงียบ ๆ เปิด shell ใหม่ในโฮมภายใต้ id เดิม' },
-        ],
-      },
-      {
-        id: 'capture',
-        label: 'ตรวจงานด้วย capture',
-        note: '<b>ข้อควรรู้:</b> ใช้ Chrome ตัวที่คุณลงไว้เอง (<code>channel: "chrome"</code>) จึงไม่ต้องดาวน์โหลด browser เพิ่ม และ Chrome จะถูกอุ่นเครื่องค้างไว้ระหว่างการ capture',
-        steps: [
-          { n: 'phone', t: 'ใส่ URL แล้วเลือกขนาดจอ', d: 'Phone / Tablet / Desktop หรือติ๊ก Full page — URL ที่เคยสำเร็จกลายเป็นปุ่มลัด 4 อันล่าสุด' },
-          { n: 'server', t: '<code>POST /api/screenshot</code>', d: 'server สั่ง playwright-core เปิด Chrome ของระบบแบบ headless ที่ viewport ที่ขอมา' },
-          { n: 'agent', t: 'dev server ของคุณตอบ', d: 'ถ้ามันไม่ได้รัน จะได้ error กลับไปตรง ๆ ไม่ใช่ภาพหน้า "เข้าไม่ได้" ของ Chrome ที่ดูเหมือนสำเร็จ' },
-          { n: 'disk', t: 'เก็บ PNG', d: 'ลง <code>~/.orbit/screenshots/</code> เก็บ 50 อันล่าสุด พร้อมป้ายว่าเป็นภาพของอะไร' },
-          { n: 'phone', t: 'ขึ้นแกลเลอรี', d: 'ดึงผ่าน <code>GET /api/screenshots</code> วางตามสัดส่วนจริงของภาพ แตะเพื่อดูเต็มจอ' },
-          { n: 'pty', t: 'ส่งกลับให้ agent ดูต่อ', d: 'ปุ่ม ⇥ แทรก path ของภาพลง terminal — พิมพ์ต่อได้เลยว่า "ทำไมปุ่มเบี้ยว ดูจากภาพนี้"' },
-        ],
-      },
-      {
-        id: 'ask',
-        label: 'agent ถาม คุณตอบ (MCP)',
-        note: '<b>fail safe:</b> หมดเวลา 120 วินาทีแล้ว agent ถูกบอกว่าไม่มีใครตอบ พร้อมคำสั่งชัดเจนว่าห้ามตีความว่าอนุมัติ',
-        steps: [
-          { n: 'agent', t: 'agent เรียก <code>orbit_ask</code>', d: 'ผ่าน stdio JSON-RPC ไปหา <code>server/dist/mcp.js</code> ที่ลงทะเบียนไว้กับ Claude Code' },
-          { n: 'server', t: 'MCP ยิง <code>POST /api/ask</code>', d: 'ใช้ token ใน <code>~/.orbit/config.json</code> — ถ้า server ไม่ได้รัน tool จะตอบว่าเชื่อมต่อไม่ได้ ไม่ใช่ค้าง' },
-          { n: 'net', t: 'broadcast ลง WebSocket', d: 'คำถามถูกส่งหาทุกมือถือที่ต่ออยู่ และค้างไว้เพื่อส่งซ้ำให้เครื่องที่เพิ่งต่อเข้ามากลางคัน' },
-          { n: 'phone', t: 'กล่องคำถามเด้ง', d: 'ถ้าไม่มีใครต่ออยู่เลย Web Push จะปลุก service worker ให้ขึ้น notification ของระบบแม้แอปปิดสนิท' },
-          { n: 'server', t: 'คำตอบเดินทางกลับ', d: 'กดเลือก → <code>{type:"answer"}</code> → server ปลด promise ที่ค้างอยู่' },
-          { n: 'agent', t: 'agent เดินต่อ', d: 'คำตอบกลับไปเป็น tool result — agent ทำงานต่อโดยที่คุณไม่ต้องเปิดฝาโน้ตบุ๊ก' },
-        ],
-      },
-      {
-        id: 'guard',
-        label: 'สองด่านคำสั่งอันตราย',
-        note: '<b>timeout สำคัญ:</b> hook รอคำตอบได้ 180 วินาที แต่ Claude Code ตัด hook ที่ 60 วินาทีถ้าไม่ตั้งค่า — ตั้ง <code>"timeout": 190</code> ไว้ ไม่งั้นคำสั่งอันตรายจะหลุดผ่านเงียบ ๆ ตอนคุณยังไม่ทันกด',
-        steps: [
-          { n: 'phone', t: 'ด่านที่ 1 — สิ่งที่คุณส่ง', d: 'วางข้อความหรือสั่งด้วยเสียง เข้ามาเป็นก้อนหลายตัวอักษร' },
-          { n: 'server', t: 'screen แล้วยึดไว้', d: 'ตรงกับ pattern อันตราย → modal สีแดงขึ้นบนมือถือพร้อมคำสั่งเต็ม; Deny = ไม่มีอะไรถึง shell' },
-          { n: 'agent', t: 'ด่านที่ 2 — สิ่งที่ agent รันเอง', d: 'คำสั่งจาก Bash tool ของ agent ไม่เคยผ่าน PTY จึงมองไม่เห็นจากด่านแรกเลย' },
-          { n: 'server', t: 'hook <code>orbit-approve.mjs</code>', d: 'PreToolUse hook ตรวจด้วย pattern ชุดเดียวกัน แล้วส่งเรื่องมาถามบนมือถือ' },
-          { n: 'phone', t: 'คุณตัดสิน agent หยุดรอ', d: 'ปุ่มแรกคือตัวเลือกที่ปลอดภัยเสมอ (Block) — กดแล้วเหตุผลถูกส่งกลับไปหา agent' },
-          { n: 'disk', t: 'ถ้าไม่มีใครตอบ', d: 'ไม่มีมือถือต่ออยู่ = ปฏิเสธ (fail closed) · Orbit server ไม่ได้รัน = ปล่อยผ่าน (fail open) เพื่อไม่ให้ Claude Code พังตอนใช้งานปกติ' },
-        ],
-      },
-    ]
+    <div class="grid">
+      <div class="card">
+        <h3>Token ที่ไม่เคยโผล่ใน URL</h3>
+        <p>
+          access token ถูกสร้างลง <code>~/.orbit/config.json</code> และส่งเป็น Authorization
+          header เท่านั้น — ไม่เคยอยู่ใน URL ที่จะไปโผล่ใน log ของ proxy หรือประวัติเบราว์เซอร์
+          ซ็อกเก็ตกับ <code>&lt;img&gt;</code> ซึ่งพก header ไม่ได้ ใช้คุกกี้ HttpOnly
+          ที่เก็บ hash ของ token และอนุญาตเฉพาะการอ่าน
+        </p>
+      </div>
+      <div class="card">
+        <h3>สองด่าน สองแหล่งที่มา</h3>
+        <p>
+          คำสั่งที่ <b>คุณ</b> วางลงเทอร์มินัลถูกกรองที่เซิร์ฟเวอร์ ส่วนคำสั่งที่
+          <b>agent</b> รันเองผ่าน Bash tool ถูกกรองด้วย hook ตัวที่สอง ด้วย pattern ชุดเดียวกัน
+          — เพราะสองทางนี้ไม่ได้ผ่านโค้ดเส้นเดียวกัน
+        </p>
+      </div>
+      <div class="card">
+        <h3>ไม่มีอะไรโผล่สู่อินเทอร์เน็ต</h3>
+        <p>
+          Tailscale สร้างเครือข่ายส่วนตัวระหว่างอุปกรณ์ของคุณเอง ไม่ต้องเปิดพอร์ตที่เราเตอร์
+          ไม่ต้องทำ DDNS และไม่มีที่อยู่สาธารณะให้ใครสแกนเจอ
+        </p>
+      </div>
+      <div class="card">
+        <h3>ขอบเขตที่บังคับไว้ในโค้ด</h3>
+        <p>
+          session เริ่มได้เฉพาะในโฟลเดอร์ใต้ home ของคุณ การเผยแพร่พอร์ตต้องมีอะไรตอบ HTTP
+          บนพอร์ตนั้นอยู่ก่อน และ path ที่ agent ส่งมาต้องเป็น path บนโฮสต์ของเราเอง
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
 
-    const railEl = $('#flowRail')
-    const stepsEl = $('#flowSteps')
-    const noteEl = $('#flowNote')
-    const picker = $('#flowPicker')
-    let flowIdx = 0
-    let stepIdx = 0
-    let timer = null
+<!-- ================= START ================= -->
+<section id="start">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">06 — เริ่มใช้</div>
+      <h2>จากศูนย์ถึงสั่งงานจากมือถือ</h2>
+      <p class="lede">
+        ทุก path ถูกหาจากตำแหน่งของ checkout เอง ไม่มีอะไรให้แทนที่ด้วยมือ
+        และรันซ้ำได้เสมอโดยไม่เกิดของซ้อน
+      </p>
+    </div>
 
-    railEl.innerHTML = NODES.map((n, i) => {
-      const wire =
-        i === 0
-          ? ''
-          : '<div class="fwire" data-wire="' + i + '"><svg viewBox="0 0 22 12"><path d="M1 6h16m-4-4l4 4-4 4"/></svg></div>'
-      return (
-        wire +
-        '<div class="fnode" data-node="' + n.id + '"><b>' + n.name + '</b><small>' +
-        n.sub.replace('\n', '<br>') + '</small></div>'
-      )
-    }).join('')
+<pre><span class="c"># หนึ่งครั้งต่อเครื่อง</span>
+git clone &lt;repo&gt; orbit &amp;&amp; cd orbit
+make install
+make setup        <span class="c"># build + ลงทะเบียน MCP + ติดตั้ง hook</span>
 
-    picker.innerHTML = FLOWS.map(
-      (f, i) =>
-        '<button type="button" data-flow="' + i + '" aria-pressed="' + (i === 0) + '">' + f.label + '</button>',
-    ).join('')
+<span class="c"># เปิดใช้งาน</span>
+make phone        <span class="c"># :3001 + Tailscale HTTPS แล้วเปิดลิงก์บนมือถือ</span>
+make stop         <span class="c"># เลิกงาน</span></pre>
 
-    function paint() {
-      const flow = FLOWS[flowIdx]
-      const step = flow.steps[stepIdx]
-      const used = new Set(flow.steps.map((s) => s.n))
+    <div class="grid">
+      <div class="card">
+        <h3>ต้องมีอะไรบ้าง</h3>
+        <p>macOS, Node 20+, Claude Code บน PATH, Google Chrome สำหรับ capture และ Tailscale เมื่ออยากใช้จากนอกบ้าน</p>
+      </div>
+      <div class="card">
+        <h3>ครั้งแรกจะเจออะไร</h3>
+        <p>คอนโซลพิมพ์ access token ออกมา — เอาไปกรอกในหน้า login บนมือถือ ลบ <code>~/.orbit/config.json</code> เมื่ออยากเปลี่ยน token ใหม่</p>
+      </div>
+      <div class="card">
+        <h3>เอกสารต่อจากนี้</h3>
+        <p><code>docs/SETUP.md</code> ติดตั้งแบบละเอียด · <code>docs/MCP.md</code> ฝั่ง agent · <code>docs/TAILSCALE.md</code> ใช้จากนอกบ้าน · <code>docs/USER-GUIDE.md</code> คู่มือใช้งาน</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-      $$('.fnode', railEl).forEach((el) => {
-        const active = el.dataset.node === step.n
-        el.classList.toggle('on', active)
-        el.classList.toggle('dim', !used.has(el.dataset.node))
-        /* The rail is wider than a phone. Nothing lights up if the lit box is
-           off screen, so drag the rail — not the page — to it. */
-        if (active && railEl.scrollWidth > railEl.clientWidth + 4) {
-          const box = el.getBoundingClientRect()
-          const rail = railEl.getBoundingClientRect()
-          const to = railEl.scrollLeft + (box.left - rail.left) - (rail.width - box.width) / 2
-          railEl.scrollTo({ left: Math.max(0, to), behavior: reduced ? 'auto' : 'smooth' })
-        }
-      })
-
-      const order = NODES.findIndex((n) => n.id === step.n)
-      const prev = stepIdx > 0 ? NODES.findIndex((n) => n.id === flow.steps[stepIdx - 1].n) : order
-      $$('.fwire', railEl).forEach((w, i) => {
-        const idx = i + 1
-        const lo = Math.min(order, prev)
-        const hi = Math.max(order, prev)
-        w.classList.toggle('on', idx > lo && idx <= hi)
-      })
-
-      $$('.fstep', stepsEl).forEach((el, i) => {
-        el.classList.toggle('on', i === stepIdx)
-        el.classList.toggle('done', i < stepIdx)
-      })
-
-      noteEl.innerHTML = flow.note
-    }
-
-    function loadFlow(i) {
-      flowIdx = i
-      stepIdx = 0
-      const flow = FLOWS[i]
-      stepsEl.innerHTML = flow.steps
-        .map(
-          (s, n) =>
-            '<button class="fstep" type="button" data-step="' + n + '"><i>' +
-            String(n + 1).padStart(2, '0') + '</i><span><b>' + s.t + '</b><span>' + s.d + '</span></span></button>',
-        )
-        .join('')
-      $$('#flowPicker button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.flow === i)))
-      paint()
-    }
-
-    function stop() {
-      if (timer) clearInterval(timer)
-      timer = null
-      $('#flowPlay').textContent = '▶ Play'
-    }
-
-    function step(delta) {
-      const len = FLOWS[flowIdx].steps.length
-      stepIdx = (stepIdx + delta + len) % len
-      paint()
-    }
-
-    $('#flowPlay').addEventListener('click', () => {
-      if (timer) return stop()
-      $('#flowPlay').textContent = '❚❚ Pause'
-      stepIdx = -1
-      timer = setInterval(() => {
-        const len = FLOWS[flowIdx].steps.length
-        if (stepIdx + 1 >= len) {
-          stepIdx = len - 1
-          paint()
-          stop()
-          return
-        }
-        step(1)
-      }, 2300)
-      step(1)
-    })
-
-    $('#flowNext').addEventListener('click', () => { stop(); step(1) })
-    $('#flowPrev').addEventListener('click', () => { stop(); step(-1) })
-
-    stepsEl.addEventListener('click', (e) => {
-      const b = e.target.closest('.fstep')
-      if (!b) return
-      stop()
-      stepIdx = +b.dataset.step
-      paint()
-    })
-
-    picker.addEventListener('click', (e) => {
-      const b = e.target.closest('button')
-      if (!b) return
-      stop()
-      loadFlow(+b.dataset.flow)
-    })
-
-    loadFlow(0)
-
-    /* ---------- manual: screenshot follows the open step ---------- */
-    const shotImg = $('#shotImg')
-    const shotCap = $('#shotCap')
-    const shotBox = $('.shotbox')
-    const shotHome = $('.manual')
-    const SHOTS = window.__ORBIT_SHOTS__ || {}
-    const narrow = matchMedia('(max-width: 720px)')
-
-    /* Beside the steps there is room for a phone-shaped image to sit still.
-       On a phone there is not: full width, it is a whole screen of scrolling
-       between the step you tapped and the picture of it. So on narrow screens
-       the picture moves into the open step instead of living above them all. */
-    function placeShot() {
-      const open = $('#manualSteps details[open]')
-      if (narrow.matches && open) open.querySelector('.step-body').prepend(shotBox)
-      else shotHome.prepend(shotBox)
-    }
-
-    $$('#manualSteps details').forEach((d) => {
-      d.addEventListener('toggle', () => {
-        if (!d.open) return placeShot()
-        $$('#manualSteps details').forEach((o) => { if (o !== d) o.open = false })
-        const src = SHOTS[d.dataset.shot]
-        if (src) shotImg.src = src
-        shotCap.textContent = d.dataset.cap
-        placeShot()
-      })
-    })
-
-    narrow.addEventListener('change', placeShot)
-    placeShot()
-
-    /* ---------- lightbox ---------- */
-    const lb = $('#lightbox')
-    shotImg.addEventListener('click', () => {
-      $('#lightboxImg').src = shotImg.src
-      lb.classList.add('on')
-    })
-    const closeLb = () => lb.classList.remove('on')
-    $('#lightboxClose').addEventListener('click', closeLb)
-    lb.addEventListener('click', (e) => { if (e.target === lb) closeLb() })
-    addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLb() })
-
-    /* ---------- command screening demo ---------- */
-    const PATTERNS = [
-      { re: /\brm\s+(-[a-z]*[rf][a-z]*\s*)+/i, label: 'recursive/forced delete (rm -rf)' },
-      { re: /\bsudo\b/, label: 'privileged command (sudo)' },
-      { re: /\bmkfs\b|\bdiskutil\s+(erase|partition)/i, label: 'disk format' },
-      { re: /\bdd\s+[^|]*of=\/dev\//, label: 'raw disk write (dd)' },
-      { re: /\b(shutdown|reboot|halt)\b/, label: 'system power command' },
-      { re: /git\s+push\s+[^\n]*(--force|-f)\b/, label: 'git force push' },
-      { re: /:\(\)\s*\{.*\}\s*;?\s*:/, label: 'fork bomb' },
-      { re: /\bchmod\s+(-[a-z]*R[a-z]*\s+)?777\s+\//i, label: 'chmod 777 on root path' },
-      { re: />\s*\/dev\/(sd|disk)/, label: 'write to raw device' },
-      { re: /\blaunchctl\s+(unload|remove)/, label: 'disable system service' },
-    ]
-
-    const SAMPLES = [
-      'npm run build',
-      'sudo lsof -i :3001',
-      'git push --force origin main',
-      'rm -rf ~/Development/orbit/node_modules',
-      'git status',
-      ':(){ :|:& };:',
-    ]
-
-    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-    $('#cmdSamples').innerHTML = SAMPLES.map(
-      (s) => '<button class="btn btn-sm" type="button" data-cmd="' + esc(s).replace(/"/g, '&quot;') + '">' + esc(s) + '</button>',
-    ).join('')
-
-    function screen() {
-      const line = $('#cmdInput').value
-      const hit = PATTERNS.find((p) => p.re.test(line))
-      const v = $('#verdict')
-      if (!line.trim()) {
-        v.className = 'verdict'
-        v.innerHTML = '<p>พิมพ์คำสั่งแล้วกดตรวจ</p>'
-        return
-      }
-      if (hit) {
-        v.className = 'verdict held'
-        v.innerHTML =
-          '<h4><span class="dot" style="background:var(--danger)"></span>ยึดไว้ก่อน — ' + hit.label + '</h4>' +
-          '<p>คำสั่งยังไม่ถึง shell มันรออยู่ที่ server จนกว่าคุณจะตัดสินใจบนมือถือ</p>' +
-          '<div class="modal-mock">' +
-          '<div class="panel-title">คำสั่งที่ต้องอนุมัติ</div>' +
-          '<code>' + esc(line) + '</code>' +
-          '<div class="row"><span class="btn btn-sm btn-primary">Deny</span>' +
-          '<span class="btn btn-sm">Run anyway</span></div>' +
-          '</div>'
-      } else {
-        v.className = 'verdict pass'
-        v.innerHTML =
-          '<h4><span class="dot" style="background:var(--ok)"></span>ผ่านไปตามปกติ</h4>' +
-          '<p>ไม่ตรงกับ pattern ใดใน 10 ตัว — เขียนลง PTY ได้เลยโดยไม่ต้องถาม</p>'
-      }
-    }
-
-    $('#cmdRun').addEventListener('click', screen)
-    $('#cmdInput').addEventListener('input', screen)
-    $('#cmdSamples').addEventListener('click', (e) => {
-      const b = e.target.closest('button')
-      if (!b) return
-      $('#cmdInput').value = b.dataset.cmd
-      screen()
-    })
-    screen()
-
-    /* ---------- quickstart tabs ---------- */
-    const PANES = {
-      dev: [
-        {
-          title: 'สองพอร์ต พร้อม HMR',
-          code:
-            '<span class="cm"># ครั้งแรกเท่านั้น</span>\nnpm install\n\n<span class="cm"># server :3001 + web :5173</span>\nnpm run dev',
-          after:
-            'เปิด <code>http://&lt;ip-ของ-mac&gt;:5173</code> จากมือถือได้เลย — Vite bind ทุก interface ' +
-            'และ proxy <code>/ws</code> กับ <code>/api</code> ไปให้ backend เอง มือถือจึงต้องถึงแค่พอร์ต 5173',
-        },
-      ],
-      prod: [
-        {
-          title: 'พอร์ตเดียว ติดตั้งเป็นแอปได้',
-          code: 'npm run build\nnpm start -w server\n\n<span class="cm"># console จะพิมพ์:</span>\n<span class="cm"># [orbit] access token: …</span>',
-          after:
-            'เปิด <code>http://&lt;ip-ของ-mac&gt;:3001</code> แล้วใส่ token ที่ console พิมพ์ไว้ — ' +
-            'server เสิร์ฟ <code>web/dist</code> เองจึงเป็น origin เดียว ซึ่งคือสิ่งที่คุกกี้และ PWA ต้องการ',
-        },
-      ],
-      ts: [
-        {
-          title: 'HTTPS ใบจริง โดยไม่เปิดพอร์ตออกเน็ต',
-          code:
-            '<span class="cm"># ลง Tailscale ทั้งบน Mac และมือถือ แล้ว login บัญชีเดียวกัน</span>\ntailscale status\n\n<span class="cm"># เปิด MagicDNS + HTTPS ใน admin console ก่อน</span>\nnpm run remote:on      <span class="cm"># tailscale serve --bg 3001</span>\nnpm run remote:status\nnpm run remote:off     <span class="cm"># เลิกแชร์</span>',
-          after:
-            'แล้วเปิด <code>https://&lt;เครื่อง&gt;.&lt;tailnet&gt;.ts.net</code> — ได้ secure context ครบ ' +
-            'จึงใช้เสียง, service worker และ Add to Home Screen ได้ และเข้าจากนอกบ้านได้ด้วย',
-        },
-      ],
-      mcp: [
-        {
-          title: 'ให้ agent เรียก Orbit ได้เอง',
-          code:
-            'npm run build\nclaude mcp add -s user orbit -- node /Users/&lt;คุณ&gt;/Development/orbit/server/dist/mcp.js\nclaude mcp list',
-          after:
-            '<code>-s user</code> ทำให้ใช้ได้ทุกโปรเจกต์ และต้องเป็น path เต็มเพราะ agent อาจรันอยู่คนละโฟลเดอร์',
-        },
-        {
-          title: 'hook อนุมัติคำสั่งของ agent',
-          code:
-            '<span class="cm">// .claude/settings.json</span>\n{\n  <span class="st">"hooks"</span>: {\n    <span class="st">"PreToolUse"</span>: [{\n      <span class="st">"matcher"</span>: <span class="st">"Bash"</span>,\n      <span class="st">"hooks"</span>: [{\n        <span class="st">"type"</span>: <span class="st">"command"</span>,\n        <span class="st">"command"</span>: <span class="st">"node /Users/&lt;คุณ&gt;/Development/orbit/scripts/orbit-approve.mjs"</span>,\n        <span class="st">"timeout"</span>: <span class="fn">190</span>\n      }]\n    }]\n  }\n}',
-          after:
-            '<code>timeout</code> ต้องยาวกว่า 180 วินาทีที่ hook รอคำตอบ — ค่าเริ่มต้น 60 วินาทีของ Claude Code ' +
-            'จะตัด hook ทิ้งแล้วปล่อยคำสั่งผ่านเงียบ ๆ',
-        },
-      ],
-      smoke: [
-        {
-          title: 'ทดสอบกับ instance ทิ้ง ไม่แตะตัวที่รันอยู่',
-          code:
-            'HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &\nHOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs',
-          after:
-            'ครอบคลุม capture, ช่องทาง Mac→มือถือ, MCP, hook อนุมัติ และ auth — ' +
-            'ใช้ <code>HOME</code> คนละที่ ตัวที่คุณใช้งานอยู่จึงไม่ถูกแตะ',
-        },
-      ],
-    }
-
-    function renderPanes(key) {
-      $('#startPanes').innerHTML = PANES[key]
-        .map(
-          (p) =>
-            '<div class="stack" style="margin-bottom:1.1rem">' +
-            '<h3>' + p.title + '</h3>' +
-            '<div class="code"><button class="btn btn-sm copy" type="button">คัดลอก</button><pre>' + p.code + '</pre></div>' +
-            '<p class="lede" style="margin:0;font-size:.92rem">' + p.after + '</p>' +
-            '</div>',
-        )
-        .join('')
-      $$('#startTabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === key)))
-    }
-
-    $('#startTabs').addEventListener('click', (e) => {
-      const b = e.target.closest('button')
-      if (b) renderPanes(b.dataset.tab)
-    })
-    renderPanes('dev')
-
-    document.addEventListener('click', async (e) => {
-      const btn = e.target.closest('.copy')
-      if (!btn) return
-      const text = btn.parentElement.querySelector('pre').innerText
-      try {
-        await navigator.clipboard.writeText(text)
-        btn.textContent = 'คัดลอกแล้ว'
-      } catch {
-        btn.textContent = 'คัดลอกไม่ได้'
-      }
-      setTimeout(() => (btn.textContent = 'คัดลอก'), 1600)
-    })
-
-    /* ---------- api reference ---------- */
-    const API = [
-      ['GET /healthz', 'เช็คว่า server ยังอยู่ — ไม่ต้องมี token'],
-      ['GET /api/auth/check', 'ยืนยัน token และรับคุกกี้ session (สำหรับ WebSocket และ &lt;img&gt;)'],
-      ['GET /api/providers', 'รายชื่อ agent พร้อมสถานะว่าติดตั้งไว้ไหม ตรวจผ่าน login shell จริง'],
-      ['GET /api/sessions', 'ทุก session ทั้งที่รันอยู่และที่จบแล้ว'],
-      ['POST /api/sessions', 'เปิด session ใหม่ — provider, cwd (ต้องอยู่ใต้ home), name'],
-      ['PATCH /api/sessions/:id', 'เปลี่ยนชื่อ session'],
-      ['DELETE /api/sessions/:id', 'ตัวที่รันอยู่ = หยุดแต่เก็บประวัติ · ตัวที่จบแล้ว = ลบพร้อมประวัติ'],
-      ['POST /api/sessions/:id/restart', 'เริ่มใหม่ในโฟลเดอร์เดิม — <code>resume:true</code> ให้สานบทสนทนาเดิมต่อ'],
-      ['GET /api/dirs', 'ไล่ดูโฟลเดอร์ (จำกัดไว้ใต้ home) พร้อมธงว่าเป็น git repo ไหม'],
-      ['POST /api/upload', 'อัปโหลดรูปเข้า ~/.orbit/uploads/ แล้วคืน path'],
-      ['GET /api/presets', 'viewport presets ของ capture — Phone / Tablet / Desktop'],
-      ['POST /api/screenshot', 'capture URL หรือหน้าจอ Mac'],
-      ['GET /api/screenshots', 'รายการภาพในแกลเลอรี (เก็บ 50 อันล่าสุด)'],
-      ['POST /api/notify', 'ส่งข้อความขึ้นมือถือ — โหมด quiet จะเงียบถ้า Orbit เปิดอยู่'],
-      ['POST /api/ask', 'ถามคำถามแล้วบล็อกรอคำตอบจากมือถือ'],
-      ['GET /api/push/key', 'VAPID public key สำหรับสมัคร Web Push'],
-      ['POST /api/push/subscribe', 'ลงทะเบียน endpoint ของ service worker'],
-      ['POST /api/push/unsubscribe', 'ถอนการลงทะเบียน (endpoint ที่ตายแล้วถูกตัดทิ้งเอง)'],
-      ['WS → input / resize / ping', 'จากมือถือ: คีย์ที่พิมพ์, ขนาด terminal, keepalive'],
-      ['WS → approve / deny / answer', 'จากมือถือ: ตัดสินคำสั่งที่ถูกยึด และตอบคำถามของ agent'],
-      ['WS ← ready / output / exit', 'จาก server: replay ประวัติ, ข้อมูลจาก PTY, โปรเซสจบพร้อม exit code'],
-      ['WS ← approval / gone / pong', 'จาก server: ขออนุมัติ, session นี้ไม่มีแล้ว, ตอบ keepalive'],
-    ]
-
-    $('#apiBody').innerHTML = API.map(
-      (r) => '<tr><td class="mono">' + r[0] + '</td><td class="desc">' + r[1] + '</td></tr>',
-    ).join('')
-
-    const apiRows = $$('#apiBody tr')
-    const apiCount = $('#apiCount')
-
-    function filterApi() {
-      const q = $('#apiFilter').value.trim().toLowerCase()
-      let shown = 0
-      apiRows.forEach((tr) => {
-        const hit = !q || tr.textContent.toLowerCase().includes(q)
-        tr.hidden = !hit
-        if (hit) shown++
-      })
-      apiCount.textContent = shown + ' จาก ' + apiRows.length + ' รายการ'
-    }
-
-    $('#apiFilter').addEventListener('input', filterApi)
-    filterApi()
-  })()
-</script>
+<footer>
+  <div class="wrap">
+    <span>Orbit — local AI coding hub สำหรับ macOS</span>
+    <span>ภาพสร้างใหม่ด้วย <code>make shots</code> · หน้านี้สร้างด้วย <code>node docs/site/build.mjs</code></span>
+  </div>
+</footer>
+</html>
