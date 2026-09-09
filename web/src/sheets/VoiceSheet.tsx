@@ -1,15 +1,17 @@
 import { useEffect, useReducer } from 'react'
-import { Button, Sheet } from '../components/ui'
+import { Button, IconButton, IconImage, IconMic, Sheet } from '../components/ui'
 import { SPEECH_LANGS, type SpeechSession } from '../speech'
 
 interface Props {
   session: SpeechSession
+  /** Opens the picker; the uploaded path is appended to the transcript. */
+  onImage: () => void
   onInsert: (text: string) => void
   onSend: (text: string) => void
   onClose: () => void
 }
 
-export default function VoiceSheet({ session, onInsert, onSend, onClose }: Props) {
+export default function VoiceSheet({ session, onImage, onInsert, onSend, onClose }: Props) {
   const [, rerender] = useReducer((n: number) => n + 1, 0)
 
   /* The session was started by the mic tap — iOS refuses a start that is not
@@ -39,11 +41,6 @@ export default function VoiceSheet({ session, onInsert, onSend, onClose }: Props
         <div className="flex items-center gap-2 text-[13px]">
           <span className={`size-2 rounded-full ${live ? 'pulse-live bg-danger' : 'bg-faint'}`} />
           <span className={live ? 'text-fore' : 'text-mut'}>{state}</span>
-          {!live && (
-            <button className="text-[13px] font-medium text-accent" onClick={() => session.start()}>
-              · {ready ? 'Continue' : 'Start'} listening
-            </button>
-          )}
           <div className="ml-auto flex gap-1 rounded-full bg-ink p-0.5">
             {SPEECH_LANGS.map(({ code, label }) => (
               <button
@@ -65,13 +62,47 @@ export default function VoiceSheet({ session, onInsert, onSend, onClose }: Props
           value={transcript}
           onChange={(e) => session.setTranscript(e.target.value)}
         />
+        {/* The button this sheet is actually driven by, and it used to be a 13px
+            text link wedged between the status and the language pills. iOS does
+            not honour `continuous`: the recogniser ends after every pause, so
+            picking the thread back up is the most-pressed control here — far
+            more than Send — and it needs the full width and the 44px floor that
+            every other control in the app has. It is one button in both
+            directions, because stopping deliberately (rather than by trailing
+            off) had nowhere to go before. */}
+        <Button
+          variant="outline"
+          className={`w-full ${live ? '' : 'text-accent'}`}
+          disabled={preparing}
+          onClick={() => (live ? session.stop() : session.start())}
+        >
+          {live ? (
+            <>
+              <span className="pulse-live size-2 rounded-full bg-danger" />
+              Stop listening
+            </>
+          ) : (
+            <>
+              <IconMic size={17} />
+              {ready ? 'Continue listening' : 'Start listening'}
+            </>
+          )}
+        </Button>
         {error && (
           <div className="flex flex-col gap-1">
             <div className="text-sm text-danger">{error}</div>
             <div className="text-[11px] text-faint">{session.diagnostics()}</div>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* Same button, same corner of the same panel as the message sheet.
+              Dictating a sentence about a screenshot is one thought, and having
+              to back out to the pen to attach the screenshot breaks it — the
+              path lands in the transcript, which is the text this sheet is
+              showing. */}
+          <IconButton label="Upload an image and add its path" size="lg" onClick={onImage}>
+            <IconImage size={19} />
+          </IconButton>
           <Button
             variant="outline"
             className="flex-1"

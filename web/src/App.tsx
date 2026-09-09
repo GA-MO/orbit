@@ -349,6 +349,11 @@ export default function App() {
 
   const pickImage = async (file: File | null) => {
     if (!file) return
+    /* Whichever sheet asked for it: the voice sheet shows its own transcript,
+       so a path appended to the message draft behind it would be invisible
+       until that sheet was next opened. Read now rather than after the upload —
+       it is the sheet that opened the picker that should receive the path. */
+    const speech = voiceSession
     try {
       const { path } = await uploadImage(file)
       /* Into the draft, not the PTY: an uploaded path is almost always the
@@ -358,7 +363,12 @@ export default function App() {
          the field being looked at — announcing it would be telling someone
          what they are reading. Failure still speaks, because that is the case
          where nothing appears. */
-      setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${path} ` : `${path} `))
+      const append = (text: string) =>
+        text ? `${text.replace(/\s*$/, '')} ${path} ` : `${path} `
+      /* setTranscript, not a plain assignment: it makes the path the baseline a
+         restarted run appends after, so dictation carries on past it. */
+      if (speech) speech.setTranscript(append(speech.transcript))
+      else setDraft(append)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Upload failed')
     }
@@ -534,6 +544,7 @@ export default function App() {
       {voiceSession && (
         <VoiceSheet
           session={voiceSession}
+          onImage={() => fileInput.current?.click()}
           /* Into the draft, not the prompt: a recogniser mishears, and the
              message sheet is where a mishearing can be fixed before it goes. */
           onInsert={(text) => {
