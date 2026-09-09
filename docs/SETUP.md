@@ -63,7 +63,7 @@ make phone       # build + start บน :3001 + เปิด Tailscale HTTPS ใ
 ```
 
 console จะพิมพ์ `[orbit] access token: …` — เอาไปกรอกในหน้า login บนมือถือ
-token เก็บที่ `~/.orbit/config.json` (ลบไฟล์นี้ = เปลี่ยน token ใหม่)
+token เก็บที่ `~/.orbit/config.json` (อยากเปลี่ยน token ให้ลบเฉพาะ key `token` ในไฟล์ ไม่ใช่ลบทั้งไฟล์ เพราะไฟล์เดียวกันเก็บ push keypair ด้วย ลบทั้งไฟล์ = มือถือทุกเครื่องหลุดจาก push เงียบ ๆ)
 
 ถ้ายังไม่ได้ตั้ง Tailscale ให้ใช้ `make mobile` (WiFi วงเดียวกัน) ไปก่อน — แต่ voice input
 กับ Add to Home Screen ต้องการ HTTPS เพราะฉะนั้นสุดท้ายก็ต้องมี Tailscale

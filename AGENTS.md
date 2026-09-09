@@ -1,3 +1,7 @@
+<!-- This is the original brief Orbit was built from, kept as written. The
+tabs, providers and flows it names are not all what shipped: see README.md
+for what exists and docs/DESIGN-NOTES.md for why it took the shape it did. -->
+
 You are a senior macOS engineer and full-stack architect.
 
 Build a personal AI coding assistant that turns a MacBook Pro into a local AI development server.

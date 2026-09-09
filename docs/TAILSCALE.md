@@ -199,4 +199,4 @@ tail -f /tmp/orbit-server.log      # ดู access token ได้จาก log 
 | เข้าเว็บได้แต่ terminal ไม่เชื่อมต่อ | WebSocket ถูกบล็อก — ถ้าใช้ `serve` ต้องเข้าผ่าน `https://` ไม่ใช่ `http://…:3001` ปนกัน |
 | ขึ้นหน้า login ทั้งที่เคยใส่ token แล้ว | token ผูกกับ origin — `http://100.x…:3001` กับ `https://….ts.net` เป็นคนละ origin ใส่ใหม่ครั้งเดียว |
 | Mac หลับแล้วหลุด | System Settings → เสียบไฟ + ปิด "Put hard disks to sleep" หรือใช้ `caffeinate` / ตั้ง Amphetamine |
-| อยากเปลี่ยน access token | ลบ `~/.orbit/config.json` แล้ว restart server — token ใหม่จะถูกพิมพ์ใน console |
+| อยากเปลี่ยน access token | ลบเฉพาะ key `token` ใน `~/.orbit/config.json` (ไม่ใช่ทั้งไฟล์ — push keypair อยู่ในไฟล์เดียวกัน) แล้ว restart server — token ใหม่จะถูกพิมพ์ใน console |
