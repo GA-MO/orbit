@@ -3,7 +3,6 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import TerminalKeys, { type ModState } from './components/TerminalKeys'
-import TerminalScrollPads from './components/TerminalScrollPads'
 import SelectSheet from './sheets/SelectSheet'
 import PageViewer from './components/PageViewer'
 import { Button, IconButton, IconClose, Sheet } from './components/ui'
@@ -980,27 +979,6 @@ export default function Terminal({
       ? `${selectedLines} line${selectedLines === 1 ? '' : 's'}`
       : `${selection?.length ?? 0} char${selection?.length === 1 ? '' : 's'}`
 
-  const pageScroll = (direction: -1 | 1) => {
-    const term = termRef.current
-    if (!term) return
-    term.clearSelection()
-    window.getSelection()?.removeAllRanges()
-    // A TUI that repaints in place owns the screen: scrolling xterm's buffer
-    // locally would move the wrong thing, so hand it PageUp/PageDown and let it
-    // scroll its own pane. These two are the page buttons and they page — a
-    // whole screen a tap, which is the thing they are named after. The swipe
-    // wants the finger followed instead, and sends wheel notches; see
-    // `wheelReport`.
-    if (appOwnsScreen(term)) {
-      sendKey(direction < 0 ? '\x1b[5~' : '\x1b[6~')
-      return
-    }
-    // iOS Safari ignores scrollTop writes on the momentum-scrolling viewport
-    // (-webkit-overflow-scrolling: touch), so the pads did nothing there.
-    // xterm's own API moves the buffer and repaints on every platform.
-    term.scrollLines(direction * Math.max(1, Math.round(term.rows * 0.85)))
-  }
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="relative min-h-0 flex-1">
@@ -1028,12 +1006,6 @@ export default function Terminal({
             mobileRef.current ? '[&_.xterm-rows]:pointer-events-none' : ''
           }`}
         />
-        {showKeys && (
-          <TerminalScrollPads
-            onPageUp={() => pageScroll(-1)}
-            onPageDown={() => pageScroll(1)}
-          />
-        )}
         {/* xterm's own selection — a mouse drag on a desktop — has no menu and
             no shortcut behind it. A finger never gets here: it opens the panel
             instead, where the platform's own selection does all of this. */}

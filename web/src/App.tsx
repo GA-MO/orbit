@@ -337,10 +337,12 @@ export default function App() {
       const { path } = await uploadImage(file)
       /* Into the draft, not the PTY: an uploaded path is almost always the
          middle of a sentence ("look at <path> and tell me…"), and the rest of
-         that sentence is easier to write next to it than around it. The sheet
-         is still open underneath the picker, so it appears there. */
+         that sentence is easier to write next to it than around it. No toast:
+         the sheet is still open underneath the picker, so the path appears in
+         the field being looked at — announcing it would be telling someone
+         what they are reading. Failure still speaks, because that is the case
+         where nothing appears. */
       setDraft((d) => (d ? `${d.replace(/\s*$/, '')} ${path} ` : `${path} `))
-      showToast('Image uploaded — path added to the message')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Upload failed')
     }
