@@ -1,4 +1,4 @@
-.PHONY: help install dev build start stop clean \
+.PHONY: help install dev build start stop clean icons \
 	test test-smoke test-touch test-changes test-preview-url \
 	phone phone-off mobile \
 	remote-on remote-off remote-status
@@ -50,6 +50,9 @@ stop: ## Stop Orbit on :3001 and Tailscale HTTPS (443)
 		echo "  Nothing listening on :$(PORT)"; \
 	fi
 	@$(MAKE) --no-print-directory phone-off
+
+icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.svg)
+	@node scripts/icons.mjs
 
 # ── test ───────────────────────────────────────────────
 # Builds, starts an Orbit of its own (:3099, scratch HOME), runs the suites,
