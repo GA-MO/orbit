@@ -247,7 +247,19 @@ export async function state(orbitPort: number): Promise<PreviewState> {
  * a moment later is the normal case, and refusing here would just mean tapping
  * the same button again. {@link Preview.listening} carries the fact instead.
  */
-export async function start(port: number, orbitPort: number): Promise<Preview> {
+/* Publishing reads the mappings, picks the first free public port, and only
+   then tells tailscale — so two publishes in flight together (the phone's chip
+   and the agent's `orbit_preview`) both picked 8443, and the second one's
+   `serve` quietly replaced the first's. One at a time, in order. */
+let publishing: Promise<unknown> = Promise.resolve()
+
+export function start(port: number, orbitPort: number): Promise<Preview> {
+  const next = publishing.then(() => startNow(port, orbitPort))
+  publishing = next.catch(() => {})
+  return next
+}
+
+async function startNow(port: number, orbitPort: number): Promise<Preview> {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('port must be 1–65535')
   if (port === orbitPort) throw new Error('that is Orbit itself, which is already published')
 

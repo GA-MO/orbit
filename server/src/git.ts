@@ -340,6 +340,10 @@ export async function applyHunk(
      header or a file header smuggled in behind the first line. */
   for (const line of lines.slice(1)) {
     if (!/^[ +\-\\]/.test(line) && line !== '') throw new GitError('that is not a hunk')
+    /* `--- a/other` and `+++ b/other` pass the test above, and once the first
+       hunk's counts are satisfied they open a second file section — one the
+       sheet never showed. Still inside the repository, but not what was tapped. */
+    if (/^(---|\+\+\+) /.test(line)) throw new GitError('that is not a hunk')
   }
   const root = (await run(cwd, ['rev-parse', '--show-toplevel'])).trim()
   const patch = [

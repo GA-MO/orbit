@@ -11,13 +11,18 @@ const CONFIG_FILE = orbitDir('config.json')
 export function getToken(): string {
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
-    if (typeof config.token === 'string' && config.token.length >= 8) return config.token
+    if (typeof config.token === 'string' && config.token.length >= 8) {
+      // Files written before the mode below existed were world-readable.
+      fs.chmodSync(CONFIG_FILE, 0o600)
+      return config.token
+    }
   } catch {
     // fall through to generate
   }
   const token = randomBytes(12).toString('base64url')
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true })
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ token }, null, 2))
+  // The token is the whole of Orbit's security; nobody else on the Mac reads it.
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ token }, null, 2), { mode: 0o600 })
   return token
 }
 

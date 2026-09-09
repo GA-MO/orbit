@@ -115,7 +115,9 @@ const loadKeys = (): { publicKey: string; privateKey: string } => {
   }
   const keys = webpush.generateVAPIDKeys()
   fs.mkdirSync(DATA_DIR, { recursive: true })
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...config, vapid: keys }, null, 2))
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...config, vapid: keys }, null, 2), { mode: 0o600 })
+  // The file may predate the mode above; a private key next to the token deserves it either way.
+  fs.chmodSync(CONFIG_FILE, 0o600)
   return keys
 }
 
@@ -151,7 +153,7 @@ let subscriptions: Subscription[] = (() => {
 
 const persist = () => {
   fsp
-    .writeFile(SUBSCRIPTIONS_FILE, JSON.stringify(subscriptions, null, 2))
+    .writeFile(SUBSCRIPTIONS_FILE, JSON.stringify(subscriptions, null, 2), { mode: 0o600 })
     .catch((err) => console.error('[orbit] failed to persist push subscriptions:', err))
 }
 
@@ -169,6 +171,13 @@ const ipv4Agent = new https.Agent({ autoSelectFamily: false, family: 4 })
 export function subscribe(subscription: Subscription): void {
   if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
     throw new Error('malformed subscription')
+  }
+  /* The endpoint is a URL this server will POST to on every notice. Push
+     services are https, and one phone owns a handful of them at most; a list
+     that grows past that is something other than phones. */
+  if (!/^https:\/\//.test(subscription.endpoint)) throw new Error('endpoint must be https')
+  if (subscriptions.length >= 32 && !subscriptions.some((s) => s.endpoint === subscription.endpoint)) {
+    throw new Error('too many push subscriptions')
   }
   // Re-subscribing renews the same endpoint rather than piling up duplicates.
   subscriptions = [
@@ -207,9 +216,13 @@ export async function send(
   const payload = JSON.stringify({ title, body, sessionId, ...extra })
   const options = { TTL: Math.max(0, Math.round(shelf.ttlSeconds)), topic: shelf.topic }
 
+  /* A push service that accepts the connection and then says nothing would
+     otherwise hold `/api/notify` — and the MCP tool call behind it — open
+     for as long as the socket lived. */
+  const timeout = 10_000
   const deliver = async (subscription: Subscription): Promise<boolean> => {
     try {
-      await webpush.sendNotification(subscription, payload, { ...options, agent })
+      await webpush.sendNotification(subscription, payload, { ...options, agent, timeout })
       return true
     } catch (err) {
       const status = (err as { statusCode?: number }).statusCode
@@ -224,7 +237,7 @@ export async function send(
       }
       // Never got that far: retry once on IPv4 before giving up on the network.
       try {
-        await webpush.sendNotification(subscription, payload, { ...options, agent: ipv4Agent })
+        await webpush.sendNotification(subscription, payload, { ...options, agent: ipv4Agent, timeout })
         return true
       } catch (retry) {
         console.error('[orbit] push unreachable:', (retry as { code?: string }).code ?? retry)

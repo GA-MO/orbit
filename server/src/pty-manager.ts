@@ -190,8 +190,22 @@ class PtySession implements Session {
     this.proc.resize(cols, rows)
   }
 
+  /* node-pty's default is SIGHUP, which a hung agent or a child that traps it
+     can ignore — and then ✕ on the phone did nothing, visibly, forever. Give
+     it a moment to leave on its own and then insist. */
   kill() {
-    if (this.alive) this.proc.kill()
+    if (!this.alive) return
+    this.proc.kill()
+    const insist = setTimeout(() => {
+      if (this.alive) {
+        try {
+          this.proc.kill('SIGKILL')
+        } catch {
+          // already gone between the check and the signal
+        }
+      }
+    }, 3000)
+    insist.unref?.()
   }
 
   onData(cb: (data: string) => void) {
@@ -226,6 +240,8 @@ const metaOf = (s: PtySession): PersistedSession => ({
   exitCode: s.exitCode,
   conversationId: s.conversationId,
 })
+
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export class PtyManager {
   /**
@@ -485,7 +501,14 @@ export class PtyManager {
     if (!provider) return null
     if (resume && !this.list().find((s) => s.id === id)?.resumable) return null
 
-    const pinned = resume && meta.conversationId && provider.conversation ? meta.conversationId : null
+    /* The id is spliced into a shell command line (`claude --resume <id>`),
+       and for a conversation from the Mac it is a file name under
+       ~/.claude/projects. Anything that is not a plain UUID is not one Claude
+       minted, and is not handed to a shell. */
+    const pinned =
+      resume && meta.conversationId && provider.conversation && CONVERSATION_ID.test(meta.conversationId)
+        ? meta.conversationId
+        : null
     const session = this.create({
       provider,
       cwd: meta.cwd,

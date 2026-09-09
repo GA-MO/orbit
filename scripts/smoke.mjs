@@ -915,6 +915,10 @@ check(
   (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,1 +1,1 @@\ndiff --git a/kept.txt b/kept.txt\n-one\n+two' })).status === 400,
 )
 check('and something that is not a hunk at all is refused', (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: 'rm -rf /' })).status === 400)
+check(
+  '…nor a file header dressed as a removal',
+  (await gitApi('hunk', { cwd: REPO_DIR, file: SPLIT, hunk: '@@ -1,1 +1,1 @@\n-one\n+two\n--- a/kept.txt\n+++ b/kept.txt\n@@ -1,1 +1,1 @@\n-x\n+y' })).status === 400,
+)
 
 git(['checkout', '--', SPLIT])
 
@@ -999,6 +1003,36 @@ const bare = await socket(wsUrl, {})
 check('…and refuses no credential', bare.closed === 4001, `close ${bare.closed}`)
 const queryWs = await socket(`${wsUrl}?token=${TOKEN}`, {})
 check('…and refuses a query token', queryWs.closed === 4001, `close ${queryWs.closed}`)
+/* The cookie ignores the port, so a page on another port of this host — a
+   published preview, a Vite dev server — is same-site and gets it attached.
+   The Origin header is what tells those apart. */
+const crossOrigin = await socket(wsUrl, { headers: { cookie, origin: `http://127.0.0.1:${PORT + 1}` } })
+check('…and refuses the cookie from another origin', crossOrigin.closed === 4001, `close ${crossOrigin.closed}`)
+const sameOriginWs = await socket(wsUrl, { headers: { cookie, origin: `http://127.0.0.1:${PORT}` } })
+check('…but takes it from its own', sameOriginWs.ready && !sameOriginWs.closed)
+
+/* Frames that are not messages. Each of these used to throw past the switch
+   with nothing catching it, and the process — every session in it — exited. */
+const survives = await new Promise((resolve) => {
+  const ws = new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${TOKEN}` } })
+  let pong = false
+  ws.on('message', (m) => {
+    const msg = JSON.parse(m.toString())
+    if (msg.type === 'ready') {
+      for (const frame of ['null', 'garbage', '[]', '{"type":"resize"}', '{"type":"resize","cols":"x","rows":24}',
+        '{"type":"resize","cols":0,"rows":-1}', '{"type":"input","data":123}', '{"type":"approve"}', '{"type":42}']) ws.send(frame)
+      ws.send(JSON.stringify({ type: 'ping' }))
+    }
+    if (msg.type === 'pong') pong = true
+  })
+  ws.on('error', () => {})
+  setTimeout(() => {
+    ws.close()
+    resolve(pong)
+  }, 1200)
+})
+check('malformed frames are dropped and the server answers on', survives)
+check('…and it is still serving', (await fetch(`${BASE}/healthz`)).status === 200)
 
 /* Signing out. The browser is the one that acts on an expiring cookie, so what
    is provable from here is that the server sends one that says to — matching

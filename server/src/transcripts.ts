@@ -102,6 +102,8 @@ const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, LABE
 
 /* The folder and the opening prompt both sit within the first few entries, so
    the head is all that is read — some of these files are tens of megabytes. */
+const headKey = (c: { file: string; mtimeMs: number; size: number }) => `${c.file}:${c.mtimeMs}:${c.size}`
+
 async function readHead(file: string, key: string): Promise<Head> {
   const cached = heads.get(key)
   if (cached) return cached
@@ -189,6 +191,12 @@ export async function discover(hidden: ReadonlySet<string> = new Set()): Promise
   const found = await candidates()
   files.clear()
   for (const c of found) files.set(c.id, c.file)
+  /* A head is keyed on the file's identity, and a conversation that is being
+     had at the desk grows on every turn — so every scan while it was live
+     added an entry that nothing ever removed. Keep only the one per file
+     that matches what is on disk now. */
+  const current = new Set(found.map((c) => headKey(c)))
+  for (const key of heads.keys()) if (!current.has(key)) heads.delete(key)
 
   /* Answered from every transcript on the disk rather than the scan window,
      because an id that has merely fallen out of the window is not gone. */
@@ -202,7 +210,7 @@ export async function discover(hidden: ReadonlySet<string> = new Set()): Promise
       skipped++
       continue
     }
-    const head = await readHead(c.file, `${c.file}:${c.mtimeMs}:${c.size}`)
+    const head = await readHead(c.file, headKey(c))
     /* A transcript with nothing the user said is a session that was opened and
        closed. There is no history to read and nothing to call the row. */
     if (!head.cwd || !head.label) continue

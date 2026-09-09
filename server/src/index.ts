@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { PtyManager } from './pty-manager.js'
 import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
@@ -28,7 +29,7 @@ import { banner, plainBanner } from './banner.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
-const WEB_DIST = new URL('../../web/dist', import.meta.url).pathname
+const WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url))
 
 const TOKEN = getToken()
 const manager = new PtyManager()
@@ -41,6 +42,41 @@ type ClientMessage =
   | { type: 'deny'; id: string }
   | { type: 'answer'; id: string; choice: string }
   | { type: 'viewing'; sessionId: string | null }
+
+/* `JSON.parse` returns whatever the wire carried, and the cast above it used
+   to be the only thing between a frame and the switch below. A `null` frame,
+   a `resize` with no numbers, an `input` whose data is a number — each threw
+   somewhere past the switch, and with nothing catching it the process exited
+   and took every PTY session with it. So the shape is checked here, once, and
+   a frame that is not one of these is simply not a message. */
+const parseClientMessage = (raw: unknown): ClientMessage | null => {
+  let msg: any
+  try {
+    msg = JSON.parse(String(raw))
+  } catch {
+    return null
+  }
+  if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return null
+  const str = (v: unknown): v is string => typeof v === 'string'
+  const dim = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0 && (v as number) <= 1000
+  switch (msg.type) {
+    case 'input':
+      return str(msg.data) ? { type: 'input', data: msg.data } : null
+    case 'resize':
+      return dim(msg.cols) && dim(msg.rows) ? { type: 'resize', cols: msg.cols, rows: msg.rows } : null
+    case 'ping':
+      return { type: 'ping' }
+    case 'approve':
+    case 'deny':
+      return str(msg.id) ? { type: msg.type, id: msg.id } : null
+    case 'answer':
+      return str(msg.id) ? { type: 'answer', id: msg.id, choice: str(msg.choice) ? msg.choice : '' } : null
+    case 'viewing':
+      return { type: 'viewing', sessionId: str(msg.sessionId) ? msg.sessionId : null }
+    default:
+      return null
+  }
+}
 
 type ServerMessage =
   | { type: 'ready'; sessionId: string; replay: string; readOnly?: boolean }
@@ -72,8 +108,11 @@ const readBody = (req: http.IncomingMessage) =>
     req.on('data', (chunk) => {
       body += chunk
       if (body.length > BODY_LIMIT) {
+        /* Paused, not destroyed: destroying here closed the socket before the
+           413 was written, so the client saw a reset and never the reason.
+           The response handler ends the connection once the answer is out. */
+        req.pause()
         reject(new HttpError(413, `body exceeds ${BODY_LIMIT / 1024}KB limit`))
-        req.destroy()
       }
     })
     req.on('end', () => resolve(body))
@@ -130,6 +169,32 @@ const authorized = (req: http.IncomingMessage): boolean => {
   return req.method === 'GET' && hasSessionCookie(req, TOKEN)
 }
 
+/* SameSite is not same-origin. The cookie is scoped to a *site*, and a site
+   ignores the port — so a page served from another port of this same host
+   (a published preview on 8443, a Vite dev server on 5173, both of which Orbit
+   itself puts in front of the user) is same-site, and a `new WebSocket()` from
+   it arrives with the cookie attached. CORS never enters into a WebSocket
+   handshake; the `Origin` header is the only thing that says who opened it.
+
+   A browser always sends one, so a handshake without it did not come from a
+   page — and a page is the only thing this defends against; a client that
+   stole the HttpOnly cookie outright is a different problem. The proxy in
+   front keeps the browser's Host, and Vite's dev proxy does too, so the
+   origin's host and the request's host agree in every way Orbit is reached. */
+const sameOrigin = (req: http.IncomingMessage): boolean => {
+  const origin = req.headers.origin
+  if (!origin) return true
+  let host: string
+  try {
+    host = new URL(origin).host
+  } catch {
+    return false
+  }
+  const forwarded = req.headers['x-forwarded-host']
+  const candidates = [req.headers.host, Array.isArray(forwarded) ? forwarded[0] : forwarded]
+  return candidates.some((h) => !!h && h.split(',')[0].trim() === host)
+}
+
 /* ---- Slowing down a guess -------------------------------------------------
  *
  * A tailnet is not the open internet, but the token is the only thing between
@@ -158,6 +223,8 @@ const rejectSlowly = (req: http.IncomingMessage): Promise<void> => {
     for (const [k, v] of failures) if (now - v.last > FAILURE_FORGOTTEN_MS) failures.delete(k)
   }
   const over = count - FREE_ATTEMPTS
+  // Past the free tries it is worth a line in the log: this is the only place a guess is visible.
+  if (over > 0 && over % 10 === 1) console.warn(`[orbit] ${count} bad credentials from ${key}`)
   if (over <= 0) return Promise.resolve()
   return new Promise((resolve) => setTimeout(resolve, Math.min(over * 250, MAX_DELAY_MS)))
 }
@@ -322,7 +389,14 @@ async function handleAuthedApi(req: http.IncomingMessage, res: http.ServerRespon
       body: () => readJson(req),
     })
   } catch (err) {
-    if (err instanceof HttpError) return json(res, err.status, { error: err.message })
+    if (err instanceof HttpError) {
+      // A body that was refused unread is still on the wire; close behind the answer.
+      if (err.status === 413) {
+        res.setHeader('Connection', 'close')
+        res.on('finish', () => req.destroy())
+      }
+      return json(res, err.status, { error: err.message })
+    }
     throw err
   }
 }
@@ -477,8 +551,8 @@ on('POST /api/upload', async ({ req, res, url }) => {
       req.on('data', (chunk: Buffer) => {
         size += chunk.length
         if (size > uploads.LIMIT) {
-          reject(new Error('too large'))
-          req.destroy()
+          req.pause()
+          reject(new HttpError(413, `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit`))
           return
         }
         chunks.push(chunk)
@@ -486,8 +560,9 @@ on('POST /api/upload', async ({ req, res, url }) => {
       req.on('end', resolve)
       req.on('error', reject)
     })
-  } catch {
-    return json(res, 413, { error: `upload exceeds ${uploads.LIMIT / 1024 / 1024}MB limit` })
+  } catch (err) {
+    if (err instanceof HttpError) throw err
+    throw bad('upload failed')
   }
   if (size === 0) throw bad('empty upload')
   const file = await uploads.save(rawName, Buffer.concat(chunks))
@@ -870,6 +945,14 @@ on('POST /api/ask', async ({ res, body }) => {
     : undefined
   const timeoutSeconds = Math.min(Math.max(b.timeoutSeconds ?? 120, 5), 600)
   const sessionId = resolveSession(b.sessionId, b.source)
+  /* Nobody to ask. No phone holds a socket and none has asked to be pushed
+     to, so the only way this question gets answered is someone opening the
+     app by coincidence inside the timeout — and the approval hook's timeout
+     is three minutes, which is how long `rm -f build/` at the desk stalled
+     before being refused. A few seconds covers a socket mid-reconnect; the
+     rest of the wait was for nobody. The answer is the same either way. */
+  const unheard = notify.clientCount() === 0 && push.count() === 0
+  const timeoutMs = unheard ? Math.min(timeoutSeconds, 5) * 1000 : timeoutSeconds * 1000
   /* Marked as waiting for the whole time it is open. A question that nobody
      answers times out over there and leaves nothing behind otherwise — and
      "an agent gave up waiting for me" is worth finding out late. */
@@ -880,7 +963,7 @@ on('POST /api/ask', async ({ res, body }) => {
     options,
     source: b.source ?? null,
     sessionId,
-    timeoutMs: timeoutSeconds * 1000,
+    timeoutMs,
     /* A question is worth waking someone for — and unlike a notice it is still
        waiting when they arrive, so the push is a nudge rather than the content.
        It carries the question's name and a one-shot capability to answer it, so
@@ -980,7 +1063,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url ?? '/ws', 'http://localhost')
   // A browser cannot set a header here, so the cookie carries it; other clients
   // (the MCP server, scripts) send the token the normal way.
-  if (!bearer(req) && !hasSessionCookie(req, TOKEN)) {
+  if (!bearer(req) && !(hasSessionCookie(req, TOKEN) && sameOrigin(req))) {
     await rejectSlowly(req)
     ws.close(4001, 'unauthorized')
     return
@@ -1004,17 +1087,9 @@ wss.on('connection', async (ws: WebSocket, req) => {
   client.setViewing(requestedId)
   ws.on('close', client.drop)
   ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw.toString())
-      if (msg?.type === 'answer' && typeof msg.id === 'string') {
-        notify.answer(msg.id, typeof msg.choice === 'string' ? msg.choice : '')
-      }
-      if (msg?.type === 'viewing') {
-        client.setViewing(typeof msg.sessionId === 'string' ? msg.sessionId : null)
-      }
-    } catch {
-      // malformed frames are ignored here and by the session handler below
-    }
+    const msg = parseClientMessage(raw)
+    if (msg?.type === 'answer') notify.answer(msg.id, msg.choice)
+    if (msg?.type === 'viewing') client.setViewing(msg.sessionId)
   })
 
   // Ended session: replay its history read-only, no PTY behind it.
@@ -1047,11 +1122,28 @@ wss.on('connection', async (ws: WebSocket, req) => {
   }
 
   // No id at all (a bare /ws connection) still gets a shell to talk to.
-  const session = existing ?? manager.create({ cols, rows })
+  let session: ReturnType<PtyManager['create']>
+  try {
+    session = existing ?? manager.create({ cols, rows })
+  } catch (err) {
+    // A spawn that failed is this socket's problem, not the process's.
+    console.error('[orbit] could not start a shell:', err)
+    ws.close(1011, 'could not start a shell')
+    return
+  }
 
   send({ type: 'ready', sessionId: session.id, readOnly: false, replay: session.scrollback() })
 
-  const offData = session.onData((data) => send({ type: 'output', data }))
+  /* A phone on a slow link reading an agent that prints fast: `ws.send` queues
+     without limit, and the queue is this process's memory. Past a bound the
+     frame is dropped rather than held — the screen is redrawn whole by the
+     agent on the next resize anyway, and a session that fell behind by a
+     megabyte was not being read. */
+  const MAX_BUFFERED = 4 * 1024 * 1024
+  const offData = session.onData((data) => {
+    if (ws.bufferedAmount > MAX_BUFFERED) return
+    send({ type: 'output', data })
+  })
   const offExit = session.onExit((code) => {
     send({ type: 'exit', code })
     ws.close()
@@ -1069,12 +1161,8 @@ wss.on('connection', async (ws: WebSocket, req) => {
   let approvalSeq = 0
 
   ws.on('message', (raw) => {
-    let msg: ClientMessage
-    try {
-      msg = JSON.parse(raw.toString())
-    } catch {
-      return
-    }
+    const msg = parseClientMessage(raw)
+    if (!msg) return
     switch (msg.type) {
       case 'input': {
         const danger = screen(msg.data)
@@ -1161,3 +1249,15 @@ const shutdown = () => {
 
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
+
+/* Last resort. Node's default for either of these is to exit, which here
+   means every PTY session dies with its scrollback unflushed because one
+   handler threw. Logging and carrying on is the wrong answer for a corrupted
+   state, but the failures actually seen — a spawn that failed, a socket that
+   closed mid-write — are local to one request, and the sessions were fine. */
+process.on('unhandledRejection', (err) => {
+  console.error('[orbit] unhandled rejection:', err)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[orbit] uncaught exception:', err)
+})

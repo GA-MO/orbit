@@ -75,22 +75,41 @@ export interface CaptureOptions {
 // ---- Shared browser ----
 
 let browser: Browser | null = null
+/* The launch in flight, so two captures asked for at once — an agent issues
+   `orbit_capture` calls in parallel — share one Chrome rather than each
+   starting their own, with the first left running until the server exits. */
+let launching: Promise<Browser> | null = null
 let idleTimer: NodeJS.Timeout | null = null
+let inFlight = 0
 
 async function getBrowser(): Promise<Browser> {
   if (browser?.isConnected()) return browser
+  if (launching) return launching
   // System Chrome via playwright-core — no bundled-browser download needed.
-  browser = await chromium.launch({ channel: 'chrome', headless: true })
-  browser.on('disconnected', () => {
-    browser = null
-  })
-  return browser
+  launching = chromium
+    .launch({ channel: 'chrome', headless: true })
+    .then((b) => {
+      browser = b
+      b.on('disconnected', () => {
+        if (browser === b) browser = null
+      })
+      return b
+    })
+    .finally(() => {
+      launching = null
+    })
+  return launching
 }
 
+/* Started when the last capture finishes, and only then: a capture that
+   began at second 59 of the previous one's minute was otherwise killed by the
+   timer in the middle of its `goto`. */
 function touchIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer)
+  if (inFlight > 0) return
   idleTimer = setTimeout(() => {
     idleTimer = null
+    if (inFlight > 0) return
     browser?.close().catch(() => {})
     browser = null
   }, BROWSER_IDLE_MS)
@@ -99,7 +118,8 @@ function touchIdleTimer() {
 
 export async function shutdown(): Promise<void> {
   if (idleTimer) clearTimeout(idleTimer)
-  await browser?.close().catch(() => {})
+  const b = browser ?? (await launching?.catch(() => null)) ?? null
+  await b?.close().catch(() => {})
   browser = null
 }
 
@@ -114,13 +134,26 @@ const NAVIGATION_FAILURE = /net::[A-Z_]+/
 
 export async function capture(url: string, opts: CaptureOptions = {}): Promise<Screenshot> {
   const preset = PRESETS[opts.preset ?? 'phone']
-  const width = opts.width ?? preset.width
-  const height = opts.height ?? preset.height
+  /* Chrome takes any viewport it is asked for and allocates for it; a width
+     of a million at scale factor two is a way to wedge the Mac from a phone. */
+  const clamp = (v: number | undefined, fallback: number) =>
+    Number.isFinite(v) ? Math.min(Math.max(Math.round(v as number), 200), 4000) : fallback
+  const width = clamp(opts.width, preset.width)
+  const height = clamp(opts.height, preset.height)
   // Retina detail is worth it on phone-sized shots; on a desktop viewport it
   // only doubles an already large image.
   const deviceScaleFactor = width >= 1200 ? 1 : 2
 
-  const page = await (await getBrowser()).newPage({ viewport: { width, height }, deviceScaleFactor })
+  inFlight++
+  if (idleTimer) clearTimeout(idleTimer)
+  let page: Awaited<ReturnType<Browser['newPage']>>
+  try {
+    page = await (await getBrowser()).newPage({ viewport: { width, height }, deviceScaleFactor })
+  } catch (err) {
+    inFlight--
+    touchIdleTimer()
+    throw err
+  }
   try {
     try {
       await page.goto(url, { waitUntil: 'networkidle', timeout: 20_000 })
@@ -137,6 +170,7 @@ export async function capture(url: string, opts: CaptureOptions = {}): Promise<S
     return await describe(file)
   } finally {
     await page.close().catch(() => {})
+    inFlight--
     touchIdleTimer()
   }
 }
