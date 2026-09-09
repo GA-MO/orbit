@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { tokenQr } from './qr.js'
+import { qrBlock } from './qr.js'
 
 /* ------------------------------ Startup banner ------------------------------
  *
@@ -45,6 +45,8 @@ export interface BannerFacts {
   token: string
   /** The https address Orbit answers on across the tailnet, when it is published. */
   tailnetUrl?: string | null
+  /** The address with a pairing code in it — what the QR shows. Without one, the QR shows the token. */
+  pairUrl?: string | null
   /** Defaults to the version in `server/package.json`. */
   version?: string
   /** Defaults to `process.stdout.columns`, or 80 when that is unknown. */
@@ -147,7 +149,7 @@ export function banner(facts: BannerFacts): string {
      of them, so a window too narrow to hold it loses the shortcut and nothing
      else. Printing it anyway would wrap it, and a wrapped QR is not a QR — the
      rows land in the wrong places and no camera will read it. */
-  const qr = tokenQr(facts.token, INDENT + INDENT)
+  const qr = qrBlock(facts.pairUrl ?? facts.token, INDENT + INDENT)
   const qrWidth = Math.max(...qr.split('\n').map(visibleWidth))
   if (qrWidth <= columns) {
     /* The code keeps its own pinned white-on-black under NO_COLOR, which looks
@@ -156,7 +158,13 @@ export function banner(facts: BannerFacts): string {
        trade a scannable code for a preference about text. NO_COLOR asks for
        plain text; this is a picture. */
     out.push(qr, '')
-    out.push(`${INDENT}${dim("Scan it from Orbit's login screen, or type the token.")}`)
+    out.push(
+      `${INDENT}${dim(
+        facts.pairUrl
+          ? "Point the phone's camera at it — good for 10 minutes; `orbit pair` prints a fresh one."
+          : "Scan it from Orbit's login screen, or type the token.",
+      )}`,
+    )
   } else {
     out.push(`${INDENT}${dim('Widen this window to show the pairing code.')}`)
   }
@@ -166,10 +174,10 @@ export function banner(facts: BannerFacts): string {
      first thing to go when the window cannot hold it — the pieces here are all
      recoverable from the docs, unlike the token. */
   const footnotes = facts.tailnetUrl ? [`on this Mac ${localUrl}`, 'ws /ws'] : ['ws /ws']
-  footnotes.push('stop with make stop')
+  footnotes.push('Ctrl-C to stop')
   const footer = footnotes.join('  ·  ')
   const fits = footer.length + INDENT.length <= columns
-  out.push(`${INDENT}${dim(fits ? footer : 'stop with make stop')}`)
+  out.push(`${INDENT}${dim(fits ? footer : 'Ctrl-C to stop')}`)
   out.push('')
 
   return out.join('\n')

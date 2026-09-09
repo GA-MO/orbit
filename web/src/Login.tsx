@@ -1,16 +1,18 @@
 import { useCallback, useRef, useState } from 'react'
-import { checkAuth, setToken } from './api'
+import { checkAuth, pairCodeIn, pairWithCode, setToken } from './api'
 import { Button, Field, IconCapture, OrbitMark } from './components/ui'
 import QrScanner, { qrScanSupported, qrScanUnavailable } from './QrScanner'
 
 interface Props {
   onSuccess: () => void
+  /** Something the boot found out on the way here — an expired pairing code. */
+  notice?: string | null
 }
 
-export default function Login({ onSuccess }: Props) {
+export default function Login({ onSuccess, notice = null }: Props) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(notice)
   const [scanning, setScanning] = useState(false)
   // The scanner's onResult must not change between renders or its effect tears
   // the camera down and starts it again; the in-flight guard therefore lives in
@@ -45,12 +47,33 @@ export default function Login({ onSuccess }: Props) {
      scan costs one error message and leaves the field editable, which is
      cheaper than a confirmation step every single pairing has to pass. */
   const onScanned = useCallback(
-    (token: string) => {
+    (text: string) => {
       setScanning(false)
-      setValue(token)
-      void connect(token)
+      /* The same picture the camera app reads: an address with a pairing code.
+         The home-screen app has storage of its own on iOS, so it pairs here
+         with the code still on the Mac's screen. A bare token still works. */
+      const code = pairCodeIn(text)
+      if (!code) {
+        setValue(text)
+        void connect(text)
+        return
+      }
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setError(null)
+      void pairWithCode(code)
+        .then((ok) => {
+          if (ok) onSuccess()
+          else setError('That pairing code has expired — run `orbit pair` on the Mac for a fresh one')
+        })
+        .catch(() => setError('Cannot reach the Orbit server on your Mac'))
+        .finally(() => {
+          busyRef.current = false
+          setBusy(false)
+        })
     },
-    [connect],
+    [connect, onSuccess],
   )
 
   return (
@@ -60,7 +83,7 @@ export default function Login({ onSuccess }: Props) {
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold tracking-wide">Orbit</h1>
           <p className="mt-2 text-sm leading-relaxed text-mut">
-            Pair with your Mac: scan the QR code in the server console, or type the
+            Pair with your Mac: scan the QR code on its screen, or type the
             access token printed beside it
             (<code className="font-mono text-xs text-fore">[orbit] access token</code>)
           </p>

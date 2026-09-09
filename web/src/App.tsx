@@ -31,6 +31,8 @@ import {
 import {
   AuthError,
   checkAuth,
+  pairCodeIn,
+  pairWithCode,
   clearAttention,
   fetchSessions,
   restartSession,
@@ -56,6 +58,18 @@ let openedWith = (() => {
   if (id) history.replaceState(null, '', location.pathname)
   return id
 })()
+
+/* The address the phone's camera opened carries a pairing code in its
+   fragment (see server/src/pairing.ts). Taken off the address bar at once,
+   like the session above, and spent by the first boot to run: it stands in
+   for the token only until it has been exchanged for one. */
+let pairCode = (() => {
+  const code = pairCodeIn(location.href)
+  if (code) history.replaceState(null, '', location.pathname + location.search)
+  return code
+})()
+/** Why the last pairing attempt from an address failed — shown on the login screen once. */
+let pairFailure: string | null = null
 
 /** A copy of `map` without `key` — how a session's word gets marked as read. */
 const omit = <T,>(map: Record<string, T>, key: string): Record<string, T> => {
@@ -213,6 +227,13 @@ export default function App() {
 
     const boot = async () => {
       try {
+        if (pairCode) {
+          const code = pairCode
+          pairCode = null
+          if (!(await pairWithCode(code))) {
+            pairFailure = 'That pairing code has expired — run `orbit pair` on the Mac for a fresh one, or type the token.'
+          }
+        }
         if (!(await checkAuth())) {
           if (!cancelled) setLocked(true)
           return
@@ -388,7 +409,7 @@ export default function App() {
     setView('terminal')
   }
 
-  if (locked === true) return <Login onSuccess={() => setLocked(false)} />
+  if (locked === true) return <Login onSuccess={() => setLocked(false)} notice={pairFailure} />
 
   const unread = Object.values(attention)
 

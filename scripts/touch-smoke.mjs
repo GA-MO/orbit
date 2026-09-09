@@ -580,6 +580,42 @@ if (glyphRow) {
 await page.keyboard.press('Control+c')
 await page.waitForTimeout(800)
 
+/* Pairing in one scan: the address the camera opens carries a code in its
+   fragment, and a phone with nothing stored arrives paired — the code gone
+   from the address bar, the token in storage, no login screen. A stale code
+   lands on the login screen and says why. */
+{
+  const minted = (await api('/api/auth/pair-code', {})).body
+  const fresh = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const p = await fresh.newPage()
+  p.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+  await p.goto(`${BASE}/#pair=${minted.code}`)
+  const paired = await p
+    .waitForFunction((t) => localStorage.getItem('orbit.token') === t, token, { timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  check('an address with a pairing code pairs the phone by itself', paired)
+  check('…and the code is gone from the address bar', (await p.evaluate(() => location.hash)) === '')
+  await p.waitForTimeout(600)
+  check('…with no login screen in the way', (await p.getByPlaceholder('Access token').count()) === 0)
+  await p.close()
+
+  await fresh.close()
+
+  // Another phone with nothing stored, arriving on a code that has gone stale.
+  const blank = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const stale = await blank.newPage()
+  stale.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+  await stale.goto(`${BASE}/#pair=nope-not-a-code`)
+  const explained = await stale
+    .getByText('pairing code has expired')
+    .waitFor({ timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  check('a stale code lands on the login screen and says so', explained)
+  await blank.close()
+}
+
 /* The login screen probes /api before it has a token, and the run frames
    example.com, which has no page behind /a/b. Both of those 4xx are the test's
    own doing. */

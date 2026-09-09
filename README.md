@@ -85,9 +85,12 @@ orbit setup     # wire the hooks and the MCP server into Claude Code
 orbit phone     # run it, published over your tailnet as https
 ```
 
-`orbit phone` prints the address and the access token. Open the address on
-the phone, enter the token, add it to the home screen. That is the whole
-setup.
+`orbit phone` prints a QR code. Point the phone's camera at it: it opens
+Orbit already paired. Add it to the home screen, and scan the same code once
+more from the app's login screen (iOS gives a home-screen app storage of its
+own). That is the whole setup. The token is printed beside the code for
+typing, and `orbit pair` prints a fresh code when the one on screen has
+expired.
 
 **Requirements**
 

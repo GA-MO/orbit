@@ -9,9 +9,13 @@ Orbit เปลี่ยน MacBook ของคุณเป็น AI developmen
 
 ## เริ่มต้น: จับคู่กับ Mac
 
-รัน server บน Mac (`bun run build && bun run start`) แล้วเปิดจากมือถือ
-ครั้งแรกจะเจอหน้า login ใส่ access token ที่ server พิมพ์ไว้ใน console
-(`[orbit] access token: …`) ใส่ครั้งเดียว เครื่องจะจำไว้
+รัน `orbit phone` บน Mac (หรือ `make phone` จาก checkout) console จะพิมพ์ QR code
+**เอากล้องมือถือส่องได้เลย** — มันคือลิงก์เข้า Orbit พร้อมรหัสจับคู่ที่ใช้ได้ 10 นาที
+เปิดแล้วเข้าได้ทันทีโดยไม่ต้องพิมพ์อะไร ถ้า QR หมดอายุ รัน `orbit pair` จะได้อันใหม่
+
+ถ้า Add to Home Screen แล้ว แอปบนหน้าจอโฮมจะเป็นคนละที่เก็บข้อมูลกับ Safari (ข้อจำกัดของ iOS)
+เปิดครั้งแรกจะเจอหน้า login อีกรอบ — กด **Scan QR code** ส่อง QR อันเดิมบนจอ Mac ก็พอ
+หรือจะพิมพ์ access token ที่พิมพ์อยู่ข้าง ๆ (`[orbit] access token: …`) ก็ได้ ใส่ครั้งเดียว เครื่องจะจำไว้
 
 เข้าได้ 2 ทาง:
 

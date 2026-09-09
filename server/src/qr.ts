@@ -2,22 +2,16 @@
 // `module.exports`, which Node's ESM loader cannot pick apart into named exports.
 import qrcode from 'qrcode-terminal'
 
-/* --------------------------------- Token QR ---------------------------------
+/* -------------------------------- Pairing QR --------------------------------
  *
- * The code carries the bare token and nothing else — not a URL. Orbit is now
- * reached through `tailscale serve`, and a token in a query string is a token
- * written into every proxy log, referrer and history entry that address passes
- * through; auth.ts pays for a session cookie rather than let that happen, and a
- * QR encoding `https://host/?token=…` would have undone the whole arrangement
- * for the sake of one fewer tap. The scanner lives inside Orbit's own login
- * screen: it reads the token out of the camera and drops it in the field, so
- * the token never becomes part of an address at all.
- *
- * What that costs is that pointing the iOS Camera app at this does nothing —
- * there is no link for it to offer. That is the intended shape rather than a
- * gap to close later. A QR that opened Safari would in any case have signed in
- * the wrong Orbit: on iOS a home-screen app keeps storage separate from
- * Safari's, and the token is only worth anything in the one doing the asking.
+ * The code carries an address with a short-lived pairing code in its
+ * fragment (see pairing.ts) — never the token. A token in a URL is a token
+ * written into every proxy log, referrer and history entry that address
+ * passes through, which auth.ts goes to some length to avoid; a code that is
+ * spent or expired by the time it could be read back from history costs
+ * nothing. The phone's own camera app opens it, and Orbit's login screen can
+ * scan the same picture for the app added to the home screen, which on iOS
+ * keeps storage of its own.
  */
 
 /* qrcode-terminal's small mode paints light modules with the terminal's
@@ -37,12 +31,12 @@ const QUIET = 4
 
 const LIGHT = '█'
 
-/** The token as a QR block, drawn with half-blocks so one text row is two QR rows. */
-export function tokenQr(token: string, indent = '  '): string {
+/** Text as a QR block, drawn with half-blocks so one text row is two QR rows. */
+export function qrBlock(text: string, indent = '  '): string {
   let art = ''
   // The callback runs synchronously; it is qrcode-terminal's only way to
   // return the string instead of printing it itself.
-  qrcode.generate(token, { small: true }, (out) => {
+  qrcode.generate(text, { small: true }, (out) => {
     art = out
   })
 

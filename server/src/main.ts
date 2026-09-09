@@ -11,6 +11,7 @@ const usage = `orbit — a phone-side console for the coding agents on this Mac
   orbit                    run the server (ORBIT_PORT, default 3001)
   orbit phone [off]        run it published over the tailnet as https
   orbit setup [--uninstall]  wire the hooks and MCP server into Claude Code
+  orbit pair               a fresh QR to pair a phone with the running server
   orbit doctor             what this Mac has and what it is missing
   orbit mcp                the MCP server on stdio (what Claude Code runs)
   orbit hook approve|notify  the Claude Code hooks (what \`setup\` installs)
@@ -34,6 +35,9 @@ switch (command) {
     break
   case 'setup':
     exit((await import('./setup.js')).runSetup(rest))
+    break
+  case 'pair':
+    exit(await (await import('./pair.js')).runPair())
     break
   case 'doctor':
     exit(await (await import('./doctor.js')).runDoctor())

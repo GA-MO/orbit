@@ -85,6 +85,29 @@ const send = async (url: string, init: RequestInit): Promise<void> => {
   }
 }
 
+/**
+ * A pairing code — from the QR on the Mac's screen, by way of the address the
+ * camera opened or the login screen's own scanner — exchanged for the token.
+ * False means the code is not good any more; the server says nothing more
+ * specific, on purpose.
+ */
+export const pairWithCode = async (code: string): Promise<boolean> => {
+  const res = await fetch('/api/auth/pair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+  if (!res.ok) return false
+  const { token } = await res.json()
+  if (typeof token !== 'string' || !token) return false
+  setToken(token)
+  return true
+}
+
+/** The pairing code in an address the camera opened, or that the scanner read. */
+export const pairCodeIn = (text: string): string | null =>
+  text.match(/#pair=([A-Za-z0-9_-]{8,})\s*$/)?.[1] ?? null
+
 export const checkAuth = async (): Promise<boolean> => {
   try {
     await get('/api/auth/check')

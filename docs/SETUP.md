@@ -62,7 +62,8 @@ claude mcp list          # ต้องเห็น  orbit: …/.bun/bin/bun …
 make phone       # build + start บน :3001 + เปิด Tailscale HTTPS ให้
 ```
 
-console จะพิมพ์ `[orbit] access token: …` — เอาไปกรอกในหน้า login บนมือถือ
+console จะพิมพ์ QR code — เอากล้องมือถือส่อง ก็เข้า Orbit พร้อมจับคู่แล้ว (รหัสใน QR ใช้ได้
+10 นาที `orbit pair` พิมพ์อันใหม่) ข้าง ๆ กันคือ `[orbit] access token: …` สำหรับพิมพ์เอง
 token เก็บที่ `~/.orbit/config.json` (อยากเปลี่ยน token ให้ลบเฉพาะ key `token` ในไฟล์ ไม่ใช่ลบทั้งไฟล์ เพราะไฟล์เดียวกันเก็บ push keypair ด้วย ลบทั้งไฟล์ = มือถือทุกเครื่องหลุดจาก push เงียบ ๆ)
 
 ถ้ายังไม่ได้ตั้ง Tailscale ให้ใช้ `make mobile` (WiFi วงเดียวกัน) ไปก่อน — แต่ voice input

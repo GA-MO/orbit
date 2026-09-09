@@ -26,6 +26,7 @@ import * as notify from './notify.js'
 import * as attention from './attention.js'
 import * as push from './push.js'
 import { banner, plainBanner } from './banner.js'
+import * as pairing from './pairing.js'
 
 const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
@@ -303,7 +304,8 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
        phone is handled by the service worker, which has no token and must not
        be given one. It carries a capability for a single open question
        instead, and the route below checks it. */
-    const byCapability = req.method === 'POST' && url.pathname === '/api/ask/answer'
+    const byCapability =
+      req.method === 'POST' && (url.pathname === '/api/ask/answer' || url.pathname === '/api/auth/pair')
     if (!byCapability) {
       if (!authorized(req)) {
         await rejectSlowly(req)
@@ -420,6 +422,28 @@ async function handleAuthedApi(req: http.IncomingMessage, res: http.ServerRespon
 on('GET /api/auth/check', ({ req, res }) => {
   if (bearer(req)) res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
   return json(res, 200, { ok: true })
+})
+
+/* A pairing code for the token — see pairing.ts. The failure path is slowed
+   like a bad token's, since a code is shorter-lived but not longer. */
+on('POST /api/auth/pair', async ({ req, res, body }) => {
+  const b = await body<{ code?: unknown }>()
+  const code = typeof b.code === 'string' ? b.code : ''
+  if (!code || !pairing.redeem(code)) {
+    await rejectSlowly(req)
+    return json(res, 401, { error: 'that pairing code is not good any more' })
+  }
+  forgetFailures(req)
+  res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
+  return json(res, 200, { token: TOKEN })
+})
+
+/* A fresh code, for whoever already holds the token — `orbit pair` on the Mac,
+   printing a new QR after the one on screen has expired. */
+on('POST /api/auth/pair-code', async ({ res }) => {
+  const { code, expiresAt } = pairing.mint()
+  const base = await pairBase()
+  return json(res, 200, { code, expiresAt, url: pairing.pairUrl(base, code) })
 })
 
 /* Unpairing this phone, which is more than forgetting the token it typed.
@@ -1236,7 +1260,11 @@ server.listen(PORT, async () => {
       .catch(() => null),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500).unref()),
   ])
-  const facts = { port: PORT, token: TOKEN, tailnetUrl }
+  /* The QR is an address the phone's camera can open, with a pairing code
+     good for ten minutes; the token line beside it is for typing and for the
+     docs. Only when someone is watching: a log file has no camera. */
+  const pairUrl = process.stdout.isTTY ? pairing.pairUrl(await pairBase(tailnetUrl), pairing.mint().code) : null
+  const facts = { port: PORT, token: TOKEN, tailnetUrl, pairUrl }
   console.log(process.stdout.isTTY ? banner(facts) : plainBanner(facts))
 
   const known = new Set(manager.list().map((s) => s.id))
@@ -1250,6 +1278,22 @@ server.listen(PORT, async () => {
     })
     .catch((err) => console.error('[orbit] startup maintenance failed:', err))
 })
+
+/* Where a phone can reach this server, most useful first: the tailnet
+   address when it is published, else the Mac's own address on the local
+   network, else localhost — which only helps a simulator. */
+async function pairBase(tailnetUrl?: string | null): Promise<string> {
+  const published =
+    tailnetUrl === undefined
+      ? await preview
+          .state(PORT)
+          .then((s) => (s.host ? `https://${s.host}` : null))
+          .catch(() => null)
+      : tailnetUrl
+  if (published) return published
+  const lan = pairing.lanAddress()
+  return lan ? `http://${lan}:${PORT}` : `http://localhost:${PORT}`
+}
 
 const shutdown = () => {
   manager.killAll()

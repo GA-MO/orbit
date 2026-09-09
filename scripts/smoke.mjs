@@ -985,6 +985,21 @@ check(
   (await fetch(`${BASE}/api/screenshots/${shot.file}?token=${TOKEN}`)).status === 401,
 )
 
+/* Pairing in one scan: a code in the address the camera opens, exchanged
+   here for the token — never the token itself in the address. */
+const minted = await api('/api/auth/pair-code', {})
+check('the token holder can mint a pairing code', minted.status === 200 && !!minted.body.code, JSON.stringify(minted.body).slice(0, 80))
+check('…as an address with the code in its fragment, not its query', /\/#pair=[A-Za-z0-9_-]+$/.test(minted.body.url ?? ''), minted.body.url)
+check('…that nobody else can mint', (await fetch(`${BASE}/api/auth/pair-code`, { method: 'POST' })).status === 401)
+const pair = (code) =>
+  fetch(`${BASE}/api/auth/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
+const paired = await pair(minted.body.code)
+check('the code buys the token without any other credential', paired.status === 200 && (await paired.json()).token === TOKEN)
+check('…and a session cookie with it', (paired.headers.get('set-cookie') ?? '').includes('orbit_session='))
+check('the same code works again — Safari and the home-screen app both need it', (await pair(minted.body.code)).status === 200)
+check('a wrong code does not', (await pair('nope-not-a-code')).status === 401)
+check('nor an empty one', (await pair('')).status === 401)
+
 const socket = (url, opts, label) =>
   new Promise((resolve) => {
     const ws = new WebSocket(url, opts)
