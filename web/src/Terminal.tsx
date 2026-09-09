@@ -177,11 +177,9 @@ interface Props {
     meta?: { sessionId?: string | null; alreadyPushed?: boolean },
   ) => void
   onAsk: (request: AskRequest) => void
-  /* Writing a whole message, as against sending a key: the buttons live in the
-     key bar, which this component owns, but the draft and the sheets belong to
+  /* Writing a whole message, as against sending a key: the button lives in the
+     key bar, which this component owns, but the draft and the sheet belong to
      the app above it. */
-  voiceAvailable: boolean
-  onVoice: () => void
   onCompose: () => void
   draftPending: boolean
   /**
@@ -215,8 +213,6 @@ export default function Terminal({
   onNotice,
   onAsk,
   onAttention,
-  voiceAvailable,
-  onVoice,
   onCompose,
   draftPending,
   onPreview,
@@ -1104,8 +1100,6 @@ export default function Terminal({
       {showKeys && !readOnly && (
         <TerminalKeys
           keyboardOpen={keyboardOpen}
-          voiceAvailable={voiceAvailable}
-          onVoice={onVoice}
           onCompose={onCompose}
           draftPending={draftPending}
           ctrl={ctrl}

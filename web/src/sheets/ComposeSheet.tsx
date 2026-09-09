@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Button, IconButton, IconImage, Sheet } from '../components/ui'
+import { Button, IconButton, IconImage, IconMic, Sheet } from '../components/ui'
 
 interface Props {
   /** The draft lives in the parent, so closing this is not the same as losing it. */
@@ -11,6 +11,9 @@ interface Props {
   onSend: (text: string) => void
   /** Opens the picker; the uploaded path arrives back through `value`. */
   onImage: () => void
+  /** Starts dictation, which fills the same draft this is showing. */
+  onVoice: () => void
+  voiceAvailable: boolean
   onClose: () => void
 }
 
@@ -40,6 +43,8 @@ export default function ComposeSheet({
   onInsert,
   onSend,
   onImage,
+  onVoice,
+  voiceAvailable,
   onClose,
 }: Props) {
   const field = useRef<HTMLTextAreaElement>(null)
@@ -72,15 +77,19 @@ export default function ComposeSheet({
           onChange={(e) => onChange(e.target.value)}
         />
         <div className="flex items-center gap-2">
-          {/* An uploaded path is nearly always the middle of a sentence rather
-              than the whole of one, so the picker belongs in here, next to the
-              sentence, and not on a bar that writes straight to the prompt. */}
+          {/* The other two ways to fill the same draft. Both belong next to it
+              rather than out in the bar: an uploaded path is nearly always the
+              middle of a sentence rather than the whole of one, and a
+              recogniser mishears, so what it hears wants to land somewhere it
+              can be read before it goes. */}
           <IconButton label="Upload an image and add its path" size="lg" onClick={onImage}>
             <IconImage size={19} />
           </IconButton>
-          <Button variant="ghost" className="flex-1" onClick={onClose}>
-            Close
-          </Button>
+          {voiceAvailable && (
+            <IconButton label="Dictate into this message" size="lg" onClick={onVoice}>
+              <IconMic size={19} />
+            </IconButton>
+          )}
           <Button
             variant="outline"
             className="flex-1"

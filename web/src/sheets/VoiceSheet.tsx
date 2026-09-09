@@ -72,9 +72,6 @@ export default function VoiceSheet({ session, onInsert, onSend, onClose }: Props
           </div>
         )}
         <div className="flex gap-2">
-          <Button variant="ghost" className="flex-1" onClick={onClose}>
-            Cancel
-          </Button>
           <Button
             variant="outline"
             className="flex-1"

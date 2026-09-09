@@ -395,10 +395,6 @@ export default function App() {
                 onInsertPath={insertPath}
                 onToast={showToast}
                 handleRef={termHandle}
-                voiceAvailable={speechSupported()}
-                /* Started inside the tap — iOS refuses a recogniser begun a
-                   tick later, outside the gesture. */
-                onVoice={() => setVoiceSession(startSpeech())}
                 onCompose={() => setComposeOpen(true)}
                 draftPending={draft.trim().length > 0}
               />
@@ -494,6 +490,10 @@ export default function App() {
           onInsert={(text) => putText(text, false)}
           onSend={(text) => putText(text, true)}
           onImage={() => fileInput.current?.click()}
+          /* Started inside the tap — iOS refuses a recogniser begun a tick
+             later, outside the gesture. */
+          onVoice={() => setVoiceSession(startSpeech())}
+          voiceAvailable={speechSupported()}
           onClose={() => setComposeOpen(false)}
         />
       )}
