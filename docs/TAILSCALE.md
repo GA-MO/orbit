@@ -32,8 +32,8 @@ tailscale status        # เห็นรายชื่ออุปกรณ์
 ## 3. เปิด Orbit แบบ production
 
 ```sh
-npm run build
-npm start -w server     # จด access token ที่พิมพ์ใน console
+bun run build
+bun run start     # จด access token ที่พิมพ์ใน console
 ```
 
 จากมือถือ (เปิด Tailscale VPN อยู่) เข้า:
@@ -58,8 +58,8 @@ HTTP ธรรมดาใช้งานได้ แต่ **service worker �
 จากนั้นบน Mac:
 
 ```sh
-npm run remote:on         # proxy https://<เครื่อง>.<tailnet>.ts.net → localhost:3001
-npm run remote:status     # ตรวจสถานะ
+bun run remote:on         # proxy https://<เครื่อง>.<tailnet>.ts.net → localhost:3001
+bun run remote:status     # ตรวจสถานะ
 ```
 
 เปิดจากมือถือ: `https://<ชื่อเครื่อง>.<tailnet>.ts.net` (ไม่ต้องใส่พอร์ต)
@@ -70,7 +70,7 @@ request แรกอาจใช้เวลาสิบกว่าวินา
 ปิดเมื่อไม่ใช้:
 
 ```sh
-npm run remote:off
+bun run remote:off
 ```
 
 > script ทั้งสามเรียก `tailscale` จาก PATH ถ้าหาไม่เจอจะ fallback ไปที่
@@ -158,8 +158,8 @@ export default defineConfig({
 บรรทัดคำสั่งยังใช้ได้เหมือนเดิมสำหรับตอนที่ Orbit server ไม่ได้รัน:
 
 ```sh
-PREVIEW_PORT=3000 npm run preview:on    # → https://<เครื่อง>.<tailnet>.ts.net:8443
-npm run preview:off
+PREVIEW_PORT=3000 bun run preview:on    # → https://<เครื่อง>.<tailnet>.ts.net:8443
+bun run preview:off
 ```
 
 ## 5. (ตัวเลือก) ให้ Orbit server รันเองตอนเปิดเครื่อง

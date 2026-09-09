@@ -12,15 +12,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx tsc --noEmit -p server
-      - run: npx tsc --noEmit -p web
-      - run: npm run build
-      - run: npm audit --audit-level=high
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit -p server
+      - run: bunx tsc --noEmit -p web
+      - run: bun run build
+      - run: bun audit
       - run: bash scripts/test.sh idle
       - run: bash scripts/test.sh ask
       - run: bash scripts/test.sh preview-url

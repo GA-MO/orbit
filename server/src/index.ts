@@ -269,7 +269,7 @@ async function serveStatic(url: URL, res: http.ServerResponse) {
   }
   if (!stat?.isFile()) {
     res.writeHead(404, { 'Content-Type': 'text/plain' })
-    res.end('Orbit: web build not found. Run `npm run build`, or use the Vite dev server.')
+    res.end('Orbit: web build not found. Run `bun run build`, or use the Vite dev server.')
     return
   }
   res.writeHead(200, {

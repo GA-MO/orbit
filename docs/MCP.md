@@ -135,7 +135,7 @@ macOS ต้องได้รับอนุญาตก่อนถึงจ�
 
 ถ้าภาพที่ได้ไม่มีหน้าต่างแอป: System Settings → Privacy & Security → Screen & System Audio
 Recording → เปิดให้ **แอปที่รัน Orbit server** (Terminal, iTerm, VS Code — แล้วแต่ว่าคุณ
-`npm start` จากตัวไหน) แล้วรีสตาร์ทแอปนั้น
+`bun run start` จากตัวไหน) แล้วรีสตาร์ทแอปนั้น
 
 **และเมื่อมันทำงาน มันเห็นทุกอย่างบนจอ** — ตอนทดสอบครั้งแรก ภาพที่ได้มี terminal ที่มี
 access token ของ Orbit พิมพ์ค้างอยู่ติดมาด้วย ภาพนั้นเข้าไปอยู่ในบริบทของ agent และใน

@@ -12,7 +12,7 @@
  * so it is tested here rather than through HTTP — where the token would have to
  * be recovered from an encrypted push payload to test anything at all.
  *
- *   node scripts/ask-smoke.mjs
+ *   bun scripts/ask-smoke.mjs
  */
 import * as notify from '../server/dist/notify.js'
 import * as push from '../server/dist/push.js'

@@ -12,9 +12,9 @@
  * Install (in ~/.claude/settings.json):
  *
  *   "hooks": {
- *     "PreToolUse":   [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "node <repo>/scripts/orbit-notify-hook.mjs" }] }],
- *     "Notification": [{ "hooks": [{ "type": "command", "command": "node <repo>/scripts/orbit-notify-hook.mjs" }] }],
- *     "Stop":         [{ "hooks": [{ "type": "command", "command": "node <repo>/scripts/orbit-notify-hook.mjs" }] }]
+ *     "PreToolUse":   [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "bun <repo>/scripts/orbit-notify-hook.mjs" }] }],
+ *     "Notification": [{ "hooks": [{ "type": "command", "command": "bun <repo>/scripts/orbit-notify-hook.mjs" }] }],
+ *     "Stop":         [{ "hooks": [{ "type": "command", "command": "bun <repo>/scripts/orbit-notify-hook.mjs" }] }]
  *   }
  */
 import fs from 'node:fs'

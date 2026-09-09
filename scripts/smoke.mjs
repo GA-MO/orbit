@@ -11,9 +11,9 @@
  *
  * By hand, if you want the server left running to poke at:
  *
- *   npm run build
- *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &
- *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node scripts/smoke.mjs
+ *   bun run build
+ *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 bun server/dist/index.js &
+ *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 bun scripts/smoke.mjs
  *
  * Every line prints what happened; read them, do not just look for a zero exit.
  */
@@ -420,8 +420,12 @@ const stale = new WebSocket(`ws://127.0.0.1:${PORT}/ws?session=not-a-real-id`, {
 })
 const staleMsgs = []
 stale.on('message', (m) => staleMsgs.push(JSON.parse(m.toString())))
+/* Armed before anything is awaited: under Bun the socket opens, is told
+   "gone" and is closed inside three milliseconds, which is before the fetch
+   below comes back — a listener attached after that waits forever. */
+const staleClosed = new Promise((r) => stale.on('close', r))
 const countBefore = (await api('/api/sessions', null, 'GET')).body.length
-await new Promise((r) => stale.on('close', r))
+await staleClosed
 await wait(400)
 const countAfter = (await api('/api/sessions', null, 'GET')).body.length
 check('a stale session id is reported gone', staleMsgs[0]?.type === 'gone')
@@ -483,9 +487,8 @@ const CONV_HOME = path.join(HOME, 'conversation-smoke')
 fs.mkdirSync(CONV_HOME, { recursive: true })
 const conv = await new Promise((resolve) => {
   const child = spawn(
-    'node',
+    process.execPath,
     [
-      '--input-type=module',
       '-e',
       `
       const { PtyManager } = await import(${JSON.stringify(path.join(REPO, 'server/dist/pty-manager.js'))})
@@ -1075,7 +1078,7 @@ section('mcp server')
    grandchild of the PTY and inherits the id of the session it belongs to. Its
    own session, because the attention section forgets the ones it made. */
 const mcpSession = (await api('/api/sessions', { provider: 'shell', name: 'mcp' })).body
-const mcp = spawn('node', [path.join(REPO, 'server/dist/mcp.js')], {
+const mcp = spawn(process.execPath, [path.join(REPO, 'server/dist/mcp.js')], {
   env: { ...process.env, ORBIT_SESSION_ID: mcpSession.id },
 })
 let out = ''
@@ -1131,7 +1134,7 @@ check(
 section('approval hook')
 const runHook = (input, env = {}) =>
   new Promise((resolve) => {
-    const h = spawn('node', [path.join(REPO, 'scripts/orbit-approve.mjs')], {
+    const h = spawn(process.execPath, [path.join(REPO, 'scripts/orbit-approve.mjs')], {
       env: { ...process.env, ...env },
     })
     let stdout = ''

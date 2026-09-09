@@ -12,7 +12,7 @@ tool ฝั่ง agent, และการแจ้งเตือนตอน 
 | | ทำไม |
 | --- | --- |
 | macOS | Orbit รัน PTY จริงและจับหน้าจอ Mac |
-| Node 20+ | `node -v` |
+| Bun 1.4+ | `bun -v` (ติดตั้ง: `curl -fsSL https://bun.sh/install | bash`) |
 | Claude Code (`claude` บน PATH) | ตัวติดตั้งเรียก `claude mcp add` ให้ และ hook ก็เป็นของ Claude Code |
 | Google Chrome | ใช้ตอน `orbit_capture` (ผ่าน `playwright-core`, ไม่โหลด browser เพิ่ม) |
 | Tailscale (ทีหลังก็ได้) | จำเป็นตอนอยากใช้จากนอกบ้าน — [docs/TAILSCALE.md](TAILSCALE.md) |
@@ -27,7 +27,7 @@ make setup
 
 `make setup` ทำสามอย่าง แล้วบอกว่าแตะอะไรไปบ้าง:
 
-1. `npm run build` — MCP server ต้องมีตัวจริงบนดิสก์ก่อนถึงจะลงทะเบียนได้
+1. `bun run build` — MCP server ต้องมีตัวจริงบนดิสก์ก่อนถึงจะลงทะเบียนได้
 2. `claude mcp add -s user orbit` ชี้ไปที่ `server/dist/mcp.js` ของ checkout นี้
 3. เขียน hook ลง `~/.claude/settings.json`
 
@@ -47,14 +47,14 @@ make setup
 ## 2. เช็คว่าติดจริง
 
 ```sh
-claude mcp list          # ต้องเห็น  orbit: node …/server/dist/mcp.js - ✔ Connected
+claude mcp list          # ต้องเห็น  orbit: …/.bun/bin/bun …/server/dist/mcp.js - ✔ Connected
 ```
 
 หรือพิมพ์ `/mcp` ใน Claude Code
 
 **session ที่เปิดค้างอยู่ยังไม่เห็นของใหม่** — MCP server ถูก spawn ตอน session เริ่ม
 เท่านั้น ต้องเปิด session ใหม่ (ข้อนี้ใช้กับทุกครั้งที่แก้โค้ดใน `server/src/mcp.ts` ด้วย:
-`npm run build` แล้วเปิด session ใหม่)
+`bun run build` แล้วเปิด session ใหม่)
 
 ## 3. รันครั้งแรก
 
@@ -134,7 +134,7 @@ make test-setup     # เฉพาะตัวติดตั้งนี้
 ```
 
 ภาพในเอกสารก็สร้างใหม่ได้เหมือนกัน — `make shots` เดินแอปจริงบน server ชั่วคราวแล้วถ่าย
-`docs/images/*.jpg` ใหม่ทั้งชุด จากนั้น `node docs/site/build.mjs` ประกอบหน้าเว็บใหม่
+`docs/images/*.jpg` ใหม่ทั้งชุด จากนั้น `bun docs/site/build.mjs` ประกอบหน้าเว็บใหม่
 
 `make test` **ไม่เคยแตะ :3001** และไม่แตะ `~/.orbit` ของจริง — มันสร้าง HOME ชั่วคราว
 ให้ตัวเอง ถ้า run ถูก kill กลางทางแล้วเหลือขยะไว้ ใช้ `make test-clean` เก็บ

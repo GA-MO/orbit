@@ -34,7 +34,7 @@ SCRATCH="/tmp/orbit-shots-$PORT"
 
 if [ "${SKIP_BUILD:-}" != "1" ]; then
   echo "  Building …"
-  npm run build --prefix "$REPO" >/dev/null || { echo "  Build failed." >&2; exit 1; }
+  (cd "$REPO" && bun run build >/dev/null) || { echo "  Build failed." >&2; exit 1; }
 fi
 
 rm -rf "$SCRATCH"
@@ -57,7 +57,7 @@ for var in $(env | sed -n 's/^\(CLAUDE[A-Z_0-9]*\)=.*/\1/p'); do
 done
 
 env $UNSET ORBIT_HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
-  node "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
+  bun "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
 SERVER_PID=$!
 
 PASSED=0
@@ -85,7 +85,7 @@ if ! curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
   exit 1
 fi
 
-ORBIT_HOME="$SCRATCH" ORBIT_PORT="$PORT" node "$REPO/scripts/shots.mjs" "$@"
+ORBIT_HOME="$SCRATCH" ORBIT_PORT="$PORT" bun "$REPO/scripts/shots.mjs" "$@"
 status=$?
 
 if [ $status -eq 0 ]; then

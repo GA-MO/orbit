@@ -20,7 +20,7 @@ failure it prevents, what was tried first — is in
 ## Structure
 
 ```
-server/   Node.js + TypeScript — HTTP + WebSocket server, PTY session manager
+server/   Bun + TypeScript — HTTP + WebSocket server, PTY session manager (bun-pty)
 web/      React + Vite + TypeScript + Tailwind v4 — xterm.js terminal UI
 ```
 
@@ -36,10 +36,12 @@ focused flows (new session, voice) and modals only for interrupts (command appro
 
 ## Run
 
-First time on a machine:
+Orbit runs on [Bun](https://bun.sh) (1.4 or newer) — it is the runtime for the
+server, the scripts, the hooks and the tests, and the PTY underneath is
+bun-pty. Node is not used. First time on a machine:
 
 ```sh
-make install    # dependencies
+make install    # dependencies (bun install)
 make setup      # build, register the MCP server, install the Claude Code hooks
 ```
 
@@ -57,8 +59,8 @@ session starts.
 Development (two ports, HMR):
 
 ```sh
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 - Web UI: http://localhost:5173 (Vite binds all interfaces — open `http://<mac-ip>:5173` from your phone on the same network or via Tailscale)
@@ -68,11 +70,11 @@ npm run dev
 Production (single port, installable PWA):
 
 ```sh
-npm run build
-npm start -w server
+bun run build
+bun run start
 ```
 
-Then open `http://<mac-ip>:3001` from your phone. That is enough for the terminal, but voice input and Add to Home Screen need a secure context — for those, put it behind HTTPS with `npm run remote:on` (see [docs/TAILSCALE.md](docs/TAILSCALE.md)) and open `https://<machine>.<tailnet>.ts.net` instead.
+Then open `http://<mac-ip>:3001` from your phone. That is enough for the terminal, but voice input and Add to Home Screen need a secure context — for those, put it behind HTTPS with `bun run remote:on` (see [docs/TAILSCALE.md](docs/TAILSCALE.md)) and open `https://<machine>.<tailnet>.ts.net` instead.
 
 On first launch the server prints `[orbit] access token: …` — enter that on the login screen (stored in `~/.orbit/config.json`; to rotate it, remove the `token` key from that file rather than the file itself — the same file holds the push keypair, and losing that silently unsubscribes every phone).
 
@@ -89,14 +91,14 @@ make test-idle        # noticing a session went quiet (no server)
 make test-ask         # answering from a notification (no server)
 ```
 
-CI (`.github/workflows/ci.yml`) runs the typecheck, the build, `npm audit` and
+CI (`.github/workflows/ci.yml`) runs the typecheck, the build, `bun audit` and
 the suites that need neither Chrome nor the Claude CLI.
 
 Screenshots and the product page are generated, not hand-taken:
 
 ```sh
 make shots            # retake docs/images from the current UI
-node docs/site/build.mjs   # rebuild docs/site/index.html from those images
+bun docs/site/build.mjs   # rebuild docs/site/index.html from those images
 ```
 
 `scripts/test.sh` builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down again — so a run can neither be coloured by the last one nor reach the `~/.orbit` you actually use, and the server on `:3001` is never touched.

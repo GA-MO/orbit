@@ -10,14 +10,14 @@
  *   - a forgotten `"timeout": 190`      → the approval hook is cut off at 60s
  *                                         and a dangerous command slips past
  *                                         while nobody has tapped anything yet
- *   - registering before `npm run build`→ an MCP server that is not on disk
+ *   - registering before `bun run build`→ an MCP server that is not on disk
  *
  * So the paths are resolved from this file rather than typed, the timeout comes
  * with the hook it belongs to, and the build runs first.
  *
- *   node scripts/setup.mjs              # build, register, wire up hooks
- *   node scripts/setup.mjs --skip-build # when the build is already current
- *   node scripts/setup.mjs --uninstall  # take all of it back out
+ *   bun scripts/setup.mjs              # build, register, wire up hooks
+ *   bun scripts/setup.mjs --skip-build # when the build is already current
+ *   bun scripts/setup.mjs --uninstall  # take all of it back out
  *
  * Idempotent by construction: every hook this repo owns is removed from the
  * settings file before the current set is written back, so running it twice
@@ -46,7 +46,12 @@ export const OUR_SCRIPTS = [NOTIFY, APPROVE]
  * `Stop` and `Notification` take no matcher: they are not tool calls, and a
  * matcher on them matches nothing.
  */
-export const hookPlan = (repo = REPO) =>
+/* The runtime the hooks and the MCP server are launched with is this one, by
+   its full path: `bun` lives in ~/.bun/bin, which is on the login shell's PATH
+   and on nothing else's. */
+export const RUNTIME = process.execPath
+
+export const hookPlan = (repo = REPO, runtime = RUNTIME) =>
   [
     { event: 'PreToolUse', matcher: 'AskUserQuestion', script: NOTIFY },
     /* 190 rather than the default 60: the hook waits up to 180 seconds for a
@@ -54,7 +59,10 @@ export const hookPlan = (repo = REPO) =>
     { event: 'PreToolUse', matcher: 'Bash', script: APPROVE, timeout: 190 },
     { event: 'Notification', script: NOTIFY },
     { event: 'Stop', script: NOTIFY },
-  ].map((entry) => ({ ...entry, command: `node ${path.join(repo, 'scripts', entry.script)}` }))
+    /* The hooks run wherever Claude Code runs them, which is not a shell with
+       this user's PATH — so the runtime is named by its full path, the one
+       this very script is running under. */
+  ].map((entry) => ({ ...entry, command: `${runtime} ${path.join(repo, 'scripts', entry.script)}` }))
 
 const isOurs = (command) =>
   typeof command === 'string' && OUR_SCRIPTS.some((script) => command.includes(script))
@@ -179,9 +187,9 @@ const main = () => {
       say('Is Claude Code on PATH? Then run this again, or `claude mcp remove -s user orbit` by hand.')
     }
   } else {
-    const added = run('claude', ['mcp', 'add', '-s', 'user', 'orbit', '--', 'node', entry])
+    const added = run('claude', ['mcp', 'add', '-s', 'user', 'orbit', '--', RUNTIME, entry])
     if (added.ok) {
-      say(`Registered  orbit → node ${entry}`)
+      say(`Registered  orbit → ${RUNTIME} ${entry}`)
     } else {
       say('Could not register the MCP server with the `claude` CLI:')
       console.log(added.out)
@@ -199,7 +207,7 @@ const main = () => {
     say('holds the previous build.')
     say()
     say('Next:  make phone     (serve :3001 over Tailscale, open it on the phone)')
-    say('Undo:  node scripts/setup.mjs --uninstall')
+    say('Undo:  bun scripts/setup.mjs --uninstall')
   }
   say()
 }

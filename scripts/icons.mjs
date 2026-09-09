@@ -15,8 +15,8 @@
  * approach as server/src/screenshot.ts). Nothing is scaled down from a bigger
  * PNG: that is how the old favicon turned to mush.
  *
- *   node scripts/icons.mjs            # write the icons + sync the colours
- *   node scripts/icons.mjs --preview  # also write a contact sheet to inspect
+ *   bun scripts/icons.mjs            # write the icons + sync the colours
+ *   bun scripts/icons.mjs --preview  # also write a contact sheet to inspect
  */
 import fs from 'node:fs'
 import path from 'node:path'

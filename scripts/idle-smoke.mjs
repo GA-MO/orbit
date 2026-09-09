@@ -8,7 +8,7 @@
  * it to stop talking — proves the same thing far more slowly and only on a
  * machine where that agent is installed.
  *
- *   node scripts/idle-smoke.mjs
+ *   bun scripts/idle-smoke.mjs
  */
 import * as idle from '../server/dist/idle.js'
 

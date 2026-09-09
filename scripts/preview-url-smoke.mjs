@@ -13,7 +13,7 @@
  *
  *   scripts/test.sh preview-url     # or `make test-preview-url`
  *
- * By hand: npm run build -w server && node scripts/preview-url-smoke.mjs
+* By hand: bun run build && bun scripts/preview-url-smoke.mjs
  */
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

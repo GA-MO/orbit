@@ -12,7 +12,7 @@
  * against a HOME of its own — made here rather than inherited, so that running
  * this file by hand can never reach the real ~/.claude.
  *
- *   node scripts/setup-smoke.mjs
+ *   bun scripts/setup-smoke.mjs
  */
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -50,7 +50,7 @@ check(
 )
 check(
   'every script it names exists on disk',
-  commands(fresh).every((command) => fs.existsSync(command.replace(/^node /, ''))),
+  commands(fresh).every((command) => fs.existsSync(command.replace(/^\S+ /, ''))),
 )
 /* The one that fails open when it is wrong, and says nothing. */
 const bash = find(fresh, 'PreToolUse', 'Bash')[0]?.hooks?.[0]
@@ -121,7 +121,7 @@ const setup = (...args) => {
   try {
     return {
       ok: true,
-      out: execFileSync('node', [path.join(REPO, 'scripts', 'setup.mjs'), '--skip-build', ...args], {
+      out: execFileSync(process.execPath, [path.join(REPO, 'scripts', 'setup.mjs'), '--skip-build', ...args], {
         encoding: 'utf8',
         env: { ...process.env, HOME: home },
         stdio: 'pipe',

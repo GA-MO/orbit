@@ -14,7 +14,7 @@
  *     "PreToolUse": [
  *       {
  *         "matcher": "Bash",
- *         "hooks": [{ "type": "command", "command": "node <repo>/scripts/orbit-approve.mjs" }]
+ *         "hooks": [{ "type": "command", "command": "bun <repo>/scripts/orbit-approve.mjs" }]
  *       }
  *     ]
  *   }

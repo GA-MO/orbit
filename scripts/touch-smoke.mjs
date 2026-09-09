@@ -8,10 +8,10 @@
  *
  *   rm -rf /tmp/orbit-smoke && mkdir -p /tmp/orbit-smoke
  *   HOME=/tmp/orbit-smoke ORBIT_PORT=3099 node server/dist/index.js &
- *   node scripts/touch-smoke.mjs                 # Chrome
- *   ENGINE=webkit node scripts/touch-smoke.mjs   # WebKit — the engine iOS runs
+*   bun scripts/touch-smoke.mjs                 # Chrome
+ *   ENGINE=webkit bun scripts/touch-smoke.mjs   # WebKit — the engine iOS runs
  *
- * WebKit needs its browser once: `npx playwright-core install webkit`.
+ * WebKit needs its browser once: `bunx playwright-core install webkit`.
  *
  * Taps go through Playwright's touchscreen, so they are real events that carry
  * the click the browser emulates after them — which is the whole reason the tap

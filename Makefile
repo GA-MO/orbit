@@ -25,28 +25,28 @@ help: ## Show available targets
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 
-install: ## Install dependencies
-	npm install
+install: ## Install dependencies (needs Bun: https://bun.sh)
+	bun install
 
 # One command between `git clone` and a working setup. Everything it writes is
 # derived from where this checkout is, so nothing has a path to substitute by
 # hand — which is what made the old copy-this-JSON instructions fail silently.
 setup: ## Build, register the MCP server, and install the hooks (run after make install)
-	@node scripts/setup.mjs
+	@bun scripts/setup.mjs
 
 unsetup: ## Undo make setup (leaves the checkout and ~/.orbit alone)
-	@node scripts/setup.mjs --uninstall
+	@bun scripts/setup.mjs --uninstall
 
 # ── local ──────────────────────────────────────────────
 
 dev: ## Start dev servers (web :5173, api :3001)
-	npm run dev
+	bun run dev
 
 build: ## Build server + web for production
-	npm run build
+	bun run build
 
 start: build ## Build and run production on :3001 (no Tailscale)
-	npm start -w server
+	bun run start
 
 stop: ## Stop Orbit on :3001 and Tailscale HTTPS (443)
 	@PIDS=$$(lsof -tiTCP:$(PORT) -sTCP:LISTEN 2>/dev/null || true); \
@@ -65,7 +65,7 @@ shots: ## Retake docs/images from the current UI (throwaway server, real HOME)
 	@scripts/shots.sh $(filter-out $@,$(MAKECMDGOALS))
 
 icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.svg)
-	@node scripts/icons.mjs
+	@bun scripts/icons.mjs
 
 # ── test ───────────────────────────────────────────────
 # Builds, starts an Orbit of its own (first free port from 3099, scratch HOME
@@ -156,7 +156,7 @@ phone: build ## Phone access — prod :3001 + Tailscale HTTPS
 	@echo ""
 	@echo "  Enabling Tailscale HTTPS → localhost:$(PORT) …"
 	@$(TS) serve --bg $(PORT)
-	@HOST=$$($(TS) status --json 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);process.stdout.write((j.Self&&j.Self.DNSName||'').replace(/\.$$/,''))}catch{}})"); \
+	@HOST=$$($(TS) status --json 2>/dev/null | bun -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(d);process.stdout.write((j.Self&&j.Self.DNSName||'').replace(/\.$$/,''))}catch{}})"); \
 	echo ""; \
 	echo "  Open on phone (Tailscale VPN on):"; \
 	if [ -n "$$HOST" ]; then \
@@ -177,7 +177,7 @@ phone: build ## Phone access — prod :3001 + Tailscale HTTPS
 		echo ""; \
 		$(TS) serve status; \
 	else \
-		npm start -w server; \
+		bun run start; \
 	fi
 
 phone-off: ## Stop Tailscale serve (443) used by make phone
@@ -195,7 +195,7 @@ mobile: ## Phone on same WiFi — print LAN URL, then start dev
 	echo "  Voice / Home Screen need HTTPS → use: make phone"; \
 	echo "  Stop: Ctrl+C  (or make stop if production is also up)"; \
 	echo ""; \
-	npm run dev
+	bun run dev
 
 # ── remote (Tailscale) ─────────────────────────────────
 

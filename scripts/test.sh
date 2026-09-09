@@ -51,7 +51,7 @@ fi
 # ── a server of its own ────────────────────────────────────────────────────
 if [ "${SKIP_BUILD:-}" != "1" ]; then
   echo "  Building …"
-  npm run build --prefix "$REPO" >/dev/null || { echo "  Build failed." >&2; exit 1; }
+  (cd "$REPO" && bun run build >/dev/null) || { echo "  Build failed." >&2; exit 1; }
 fi
 
 rm -rf "$SCRATCH"
@@ -75,7 +75,7 @@ REAL_PATH="$(/bin/zsh -lic 'printf %s "$PATH"' 2>/dev/null)"
 export ORBIT_TAILSCALE="${ORBIT_TAILSCALE:-$REPO/scripts/fake-tailscale.mjs}"
 
 HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
-  node "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
+  bun "$REPO/server/dist/index.js" >"$LOG" 2>&1 &
 SERVER_PID=$!
 
 # Kill it however we leave — a failed suite, a Ctrl-C, or the end of the script.
@@ -118,7 +118,7 @@ failed=()
 run() {
   echo ""
   echo "── $1 ────────────────────────────────────────────"
-  node "$REPO/scripts/$2" || failed+=("$1")
+  bun "$REPO/scripts/$2" || failed+=("$1")
 }
 
 case "$SUITE" in

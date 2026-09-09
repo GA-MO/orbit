@@ -1,6 +1,32 @@
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'
-import * as pty from 'node-pty'
+/* Orbit runs on Bun, and bun-pty (WezTerm's portable-pty through bun:ffi) is
+   the PTY that actually works there. node-pty loads under Bun and spawns a
+   shell, but `resize` fails with EBADF and the shell never hears SIGWINCH —
+   so the phone's keyboard would open and Claude Code would never redraw.
+   Bun's own `Bun.Terminal` (1.4.2) resizes, but leaves the pty with no
+   foreground process group, so neither SIGWINCH nor Ctrl+C reaches the job.
+   bun-pty passes all of that, its API is node-pty's, and it embeds its own
+   library under `bun build --compile`. */
+import { spawn } from 'bun-pty'
+
+/* bun-pty ships its types, but its `main` is TypeScript source, and the
+   resolver hands back `any` for the whole module. The six calls Orbit makes
+   are spelled out here instead, which is also the list to check against
+   should the library ever be swapped. */
+interface PtyProcess {
+  readonly pid: number
+  onData(listener: (data: string) => void): unknown
+  onExit(listener: (event: { exitCode: number; signal?: number | string }) => void): unknown
+  write(data: string): void
+  resize(cols: number, rows: number): void
+  kill(signal?: string): void
+}
+const spawnPty: (
+  file: string,
+  args: string[],
+  options: { name: string; cols: number; rows: number; cwd: string; env: Record<string, string> },
+) => PtyProcess = spawn
 import type { Provider } from './providers.js'
 import { getProvider } from './providers.js'
 import * as idle from './idle.js'
@@ -88,7 +114,7 @@ class PtySession implements Session {
   /** Called once firstCommand is known, so the manager can persist it. */
   onLabel: (() => void) | null = null
 
-  private proc: pty.IPty
+  private proc: PtyProcess
   private cols: number
   private rows: number
   private buffer = ''
@@ -117,7 +143,7 @@ class PtySession implements Session {
 
     this.cols = cols
     this.rows = rows
-    this.proc = pty.spawn(file, args, {
+    this.proc = spawnPty(file, args, {
       name: 'xterm-256color',
       cols,
       rows,
@@ -190,9 +216,9 @@ class PtySession implements Session {
     this.proc.resize(cols, rows)
   }
 
-  /* node-pty's default is SIGHUP, which a hung agent or a child that traps it
-     can ignore — and then ✕ on the phone did nothing, visibly, forever. Give
-     it a moment to leave on its own and then insist. */
+  /* A first signal a hung agent or a child that traps it can ignore — and
+     then ✕ on the phone did nothing, visibly, forever. Give it a moment to
+     leave on its own and then insist. */
   kill() {
     if (!this.alive) return
     this.proc.kill()
