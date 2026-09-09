@@ -4,25 +4,13 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import TerminalKeys, { type ModState } from './components/TerminalKeys'
 import TerminalScrollPads from './components/TerminalScrollPads'
+import SelectSheet from './sheets/SelectSheet'
 import PageViewer from './components/PageViewer'
 import { Button, IconButton, IconClose, Sheet } from './components/ui'
 import { writeToClipboard } from './clipboard'
 import { canFrame, openExternal } from './local-url'
 import { linkAt, registerLinkProvider } from './terminal-links'
-import {
-  expandToLines,
-  gripPoints,
-  isBlankRow,
-  isWholeLines,
-  orderRange,
-  rangeRects,
-  rangeText,
-  snapToContent,
-  wordAt,
-  type CellRange,
-  type Metrics,
-  type Rect,
-} from './terminal-selection'
+import { isBlankRow, snapshot, type Snapshot } from './terminal-snapshot'
 import { isTouchDevice } from './touch'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'ended'
@@ -73,8 +61,76 @@ export interface PreviewRequest {
 }
 
 const RECONNECT_DELAY_MS = 1500
-/** Press-and-hold before the terminal starts selecting instead of scrolling. */
+/** Press-and-hold before the terminal offers its text for selecting.
+
+    Nothing happens at the end of it but a tick of haptic: the panel opens when
+    the finger *lifts*, and only if it never left the slop. That is what makes
+    the ambiguity go away rather than get adjudicated. A press and a scroll
+    begin identically, and every rule tried for telling them apart mid-gesture —
+    distance, speed, direction, how long the finger had been still — either
+    misread a real scroll or broke a real selection, because the two movements
+    genuinely are the same movement until the finger stops. Waiting for the lift
+    costs the selection nothing and hands the scroll every gesture that moves. */
 const LONG_PRESS_MS = 420
+/**
+ * Whether the app on the other end owns the screen.
+ *
+ * On the alternate screen xterm's buffer holds only the current frame, so there
+ * is no history for a local scroll to move; and with mouse tracking on, xterm
+ * disables its own touch scrolling outright (`coreMouseService
+ * .areMouseEventsActive` gates `handleTouchStart`/`handleTouchMove`) and
+ * forwards the touch to the app as a mouse event instead — which iOS never
+ * synthesises from a drag, so a swipe simply went nowhere.
+ *
+ * Claude Code sets both, and not at startup: the first frames are ordinary
+ * output and the modes arrive once its UI takes over. Either one alone means
+ * the scroll has to be handed to the app.
+ */
+const appOwnsScreen = (term: XTerm) =>
+  term.buffer.active.type === 'alternate' || term.modes.mouseTrackingMode !== 'none'
+
+/**
+ * One notch of the wheel the app asked for, SGR-encoded.
+ *
+ * An app that owns the screen scrolls its own pane by the wheel, one line a
+ * notch — which is what makes a swipe able to follow the finger at all.
+ * PageUp/PageDown is the same idea a whole screen at a time, and reads as a
+ * jump when a finger is what moved. Measured against `claude`: a wheel report
+ * moves its transcript exactly one line, PageDown moves it a full page.
+ *
+ * The cell under the finger goes in the report because that is what a mouse
+ * would say. Claude Code does not read it, but an app that puts a scrollable
+ * pane beside something else would.
+ */
+const wheelReport = (term: XTerm, up: boolean, clientX: number, clientY: number) => {
+  const box = term.element?.getBoundingClientRect()
+  const col = box ? Math.floor(((clientX - box.left) / box.width) * term.cols) + 1 : 1
+  const row = box ? Math.floor(((clientY - box.top) / box.height) * term.rows) + 1 : 1
+  const clamp = (n: number, max: number) => Math.min(max, Math.max(1, n))
+  return `\x1b[<${up ? 64 : 65};${clamp(col, term.cols)};${clamp(row, term.rows)}M`
+}
+
+/** Notches one touchmove may deliver. A flick that outruns this keeps the rest
+    for the next event rather than firing a screenful in one frame. */
+const MAX_NOTCHES_PER_MOVE = 12
+
+/* ---- the fling ----
+
+   Velocity is measured over the tail of the drag rather than the whole of it,
+   so a swipe that slowed to a stop before the finger left does not throw. */
+const FLING_SAMPLE_MS = 90
+/** Below this the finger was placed, not thrown. px/ms. */
+const FLING_MIN_VELOCITY = 0.35
+/** And above this it was not a thumb. Two samples a millisecond apart can read
+    as any speed at all; the glide is ~280x the velocity, so an outlier that got
+    through would throw several screens. A fast flick is about this. */
+const FLING_MAX_VELOCITY = 4
+/** Per frame at 60fps. Lower stops sooner; this lands around two thirds of a
+    second, which is about as long as a thrown list keeps moving. */
+const FLING_FRICTION = 0.94
+/** Where the glide is slow enough that another notch would be a twitch. */
+const FLING_STOP_VELOCITY = 0.04
+
 /** Finger travel that turns a press into a scroll. */
 const TOUCH_SLOP_PX = 8
 /** How long a returning phone waits for the server to answer before giving up on the socket. */
@@ -133,66 +189,6 @@ interface Props {
   handleRef?: MutableRefObject<TerminalHandle | null>
 }
 
-/**
- * A grip at one end of the selection. Its listeners are attached by hand rather
- * than through React: React registers touch handlers passively, and a passive
- * handler cannot stop the terminal scrolling away under the finger.
- */
-function SelectionGrip({
-  edge,
-  point,
-  offsetY,
-  onMove,
-}: {
-  edge: 'start' | 'end'
-  point: { x: number; y: number }
-  /** Where the cell is relative to the grip: the grips sit on the outer edges. */
-  offsetY: number
-  onMove: (x: number, y: number) => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const moveRef = useRef(onMove)
-  moveRef.current = onMove
-  const offsetRef = useRef(offsetY)
-  offsetRef.current = offsetY
-
-  useEffect(() => {
-    const node = ref.current
-    if (!node) return
-    const track = (e: TouchEvent) => {
-      const touch = e.touches[0] ?? e.changedTouches[0]
-      if (!touch) return
-      e.preventDefault()
-      e.stopPropagation()
-      moveRef.current(touch.clientX, touch.clientY + offsetRef.current)
-    }
-    const swallow = (e: TouchEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-    }
-    node.addEventListener('touchstart', swallow, { passive: false })
-    node.addEventListener('touchmove', track, { passive: false })
-    node.addEventListener('touchend', swallow, { passive: false })
-    return () => {
-      node.removeEventListener('touchstart', swallow)
-      node.removeEventListener('touchmove', track)
-      node.removeEventListener('touchend', swallow)
-    }
-  }, [])
-
-  return (
-    <div
-      ref={ref}
-      data-grip={edge}
-      className="absolute z-10 grid size-8 -translate-x-1/2 -translate-y-1/2 place-items-center"
-      style={{ left: point.x, top: point.y }}
-      aria-hidden
-    >
-      <span className="size-3.5 rounded-full border-2 border-ink bg-accent shadow-md" />
-    </div>
-  )
-}
-
 export default function Terminal({
   sessionId,
   active = true,
@@ -212,6 +208,8 @@ export default function Terminal({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
+  /** The glide's rAF handle, so a new touch — or leaving the tab — kills it. */
+  const flingFrame = useRef<number | null>(null)
   const sendRef = useRef<(msg: object) => void>(() => {})
   const refitRef = useRef<(scrollToBottom?: boolean) => void>(() => {})
   const redrawRef = useRef<() => void>(() => {})
@@ -228,16 +226,15 @@ export default function Terminal({
   const [readOnly, setReadOnly] = useState(false)
   const [ctrl, setCtrl] = useState<ModState>('off')
   const ctrlRef = useRef<ModState>('off')
-  /* Text held for copying. The terminal draws its own text, so the phone's
-     selection handles never appear over it — this is the only route out. */
+  /* A frozen copy of the buffer, open in the panel. The terminal draws its own
+     text and never stops redrawing it, so nothing selected on the terminal
+     itself could survive; this is where selecting happens instead. */
+  const [picking, setPicking] = useState<Snapshot | null>(null)
+  /* A mouse drag on a desktop still selects in xterm itself, and xterm's
+     selection has no menu, no handles and no keyboard shortcut behind it. The
+     bar is the way out of that one — the phone does not use it. */
   const [selection, setSelection] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  const [visual, setVisual] = useState<{
-    rects: Rect[]
-    grips: { start: { x: number; y: number }; end: { x: number; y: number } }
-    cellHeight: number
-    wholeLines: boolean
-  } | null>(null)
   /** A tapped link, waiting for the tap that says what to do with it. */
   const [linkPrompt, setLinkPrompt] = useState<string | null>(null)
   const [linkArmed, setLinkArmed] = useState(false)
@@ -250,44 +247,6 @@ export default function Terminal({
     const timer = setTimeout(() => setLinkArmed(true), 350)
     return () => clearTimeout(timer)
   }, [linkPrompt])
-  /** Cells held by a long press, or null when the selection is xterm's own. */
-  const heldRef = useRef<CellRange | null>(null)
-  const clearRef = useRef<() => void>(() => {})
-  const applyRangeRef = useRef<(range: CellRange | null) => void>(() => {})
-  const cellAtRef = useRef<(x: number, y: number, clamp?: boolean) => { row: number; col: number } | null>(
-    () => null,
-  )
-
-  const clearSelection = () => {
-    applyRangeRef.current(null)
-    termRef.current?.clearSelection()
-  }
-  clearRef.current = clearSelection
-
-  /** Dragging a grip moves that edge of the selection, cell by cell. */
-  const moveGrip = (edge: 'start' | 'end', x: number, y: number) => {
-    const term = termRef.current
-    const held = heldRef.current
-    const point = cellAtRef.current(x, y, true)
-    if (!term || !held || !point) return
-    // Dragging a grip into the blank space below the output stops at its end.
-    const cell = snapToContent(term, point, 0)
-    if (!cell) return
-    applyRangeRef.current(
-      orderRange(
-        edge === 'start'
-          ? { ...held, startRow: cell.row, startCol: cell.col }
-          : { ...held, endRow: cell.row, endCol: cell.col },
-      ),
-    )
-  }
-
-  const expandSelection = () => {
-    const term = termRef.current
-    const held = heldRef.current
-    if (term && held) applyRangeRef.current(expandToLines(term, held))
-  }
-
   const setCtrlMod = (next: ModState) => {
     ctrlRef.current = next
     setCtrl(next)
@@ -361,15 +320,9 @@ export default function Terminal({
     const linkSub = registerLinkProvider(term, presentLink)
     // A mouse drag on a desktop fills the same copy bar the long press does.
     const selectionSub = term.onSelectionChange(() => {
-      if (heldRef.current) return // a held selection owns the bar
       const text = term.getSelection()
       setSelection(text || null)
       if (!text) setCopied(false)
-    })
-    /* New output, or the user scrolling away, leaves the highlight pointing at
-       rows that have moved. Let it go rather than draw it in the wrong place. */
-    const scrollSub = term.onScroll(() => {
-      if (heldRef.current) clearRef.current()
     })
 
     let ws: WebSocket | null = null
@@ -681,11 +634,16 @@ export default function Terminal({
     let touchStartX = 0
     let touchStartY = 0
     let touchMoved = false
+    /* Where the last notch was sent from. One line of travel is one notch, so
+       the text keeps up with the finger rather than arriving a page at a time;
+       whatever is left over stays here for the next move. */
+    let wheelAnchorY = 0
+    /** The tail of the drag: (time, y) pairs, for the throw at the end of it. */
+    let samples: { t: number; y: number }[] = []
     let touchTarget: HTMLElement | null = null
     let pressTimer: ReturnType<typeof setTimeout> | null = null
-    let selecting = false
-    /** The word the press landed on; dragging grows the selection from it. */
-    let anchor: CellRange | null = null
+    /** The cell a completed press is holding, waiting for the finger to lift. */
+    let armed: { row: number; col: number } | null = null
 
     const touchAt = (e: Event) => {
       const te = e as TouchEvent
@@ -713,56 +671,6 @@ export default function Terminal({
       return { row: term.buffer.active.viewportY + viewRow, col }
     }
 
-    /** Cell size and where the grid sits inside the box the overlay draws into. */
-    const measure = (): Metrics | null => {
-      const screen = term.element?.querySelector('.xterm-screen') as HTMLElement | null
-      if (!screen) return null
-      const grid = screen.getBoundingClientRect()
-      const box = container.getBoundingClientRect()
-      if (!grid.width || !grid.height) return null
-      return {
-        cellWidth: grid.width / term.cols,
-        cellHeight: grid.height / term.rows,
-        top: grid.top - box.top,
-        left: grid.left - box.left,
-        viewportY: term.buffer.active.viewportY,
-      }
-    }
-
-    /* The one place a held selection changes: keeps the range, the text and the
-       shapes drawn over the rows in step. */
-    const applyRange = (range: CellRange | null) => {
-      heldRef.current = range
-      if (!range) {
-        setVisual(null)
-        setSelection(null)
-        setCopied(false)
-        return
-      }
-      const text = rangeText(term, range)
-      // Blank rows can be pointed at but not selected: a highlight with nothing
-      // in it is a selection you cannot copy and cannot explain.
-      if (!text.trim()) {
-        heldRef.current = null
-        setVisual(null)
-        setSelection(null)
-        setCopied(false)
-        return
-      }
-      const metrics = measure()
-      if (!metrics) return
-      setVisual({
-        rects: rangeRects(term, range, metrics),
-        grips: gripPoints(term, range, metrics),
-        cellHeight: metrics.cellHeight,
-        wholeLines: isWholeLines(term, range),
-      })
-      setSelection(text)
-      setCopied(false)
-    }
-    applyRangeRef.current = applyRange
-    cellAtRef.current = cellAt
-
     const cancelPress = () => {
       if (pressTimer) clearTimeout(pressTimer)
       pressTimer = null
@@ -774,7 +682,12 @@ export default function Terminal({
       touchStartX = touch.clientX
       touchStartY = touch.clientY
       touchMoved = false
-      selecting = false
+      armed = null
+      wheelAnchorY = touch.clientY
+      samples = [{ t: performance.now(), y: touch.clientY }]
+      /* A finger back on the glass stops the glide under it — every list on
+         every phone does this, and it is the only way to land on something. */
+      stopFling()
       cancelPress()
       if (!mobileRef.current) return
       const cell = cellAt(touch.clientX, touch.clientY)
@@ -784,14 +697,73 @@ export default function Terminal({
         if (touchMoved) return
         // Nothing under the finger, nothing to hold on to.
         if (isBlankRow(term, cell.row)) return
-        selecting = true
-        // The word, not the line: a path, a hash or a flag is usually the point.
-        anchor = wordAt(term, cell.row, cell.col)
-        applyRange(anchor)
+        /* Armed, not opened. The tick is the whole feedback: it says the press
+           was heard and the panel is one lift away, while leaving the finger
+           free to change its mind into a scroll. */
+        armed = cell
         navigator.vibrate?.(8)
       }, LONG_PRESS_MS)
     }
 
+    /** How fast the finger is going right now, over the tail of the drag — the
+        same measure the throw at the end uses, so "fast enough to take the
+        gesture back" and "fast enough to glide" are the same scale. */
+    const tailVelocity = () => {
+      const end = samples[samples.length - 1]
+      if (!end) return 0
+      const from = samples.find((s) => end.t - s.t <= FLING_SAMPLE_MS) ?? samples[0]
+      const dt = end.t - from.t
+      return dt > 0 ? (end.y - from.y) / dt : 0
+    }
+
+    /** One place that turns travel into notches, so the finger and the glide
+        that follows it move the pane at exactly the same rate. */
+    const notchesFrom = (y: number, clientX: number) => {
+      const lineHeight = (term.element?.clientHeight ?? 0) / term.rows
+      if (!lineHeight) return
+      const notches = Math.trunc((y - wheelAnchorY) / lineHeight)
+      if (!notches) return
+      const send = Math.min(MAX_NOTCHES_PER_MOVE, Math.abs(notches))
+      const up = notches > 0
+      sendRef.current({ type: 'input', data: wheelReport(term, up, clientX, y).repeat(send) })
+      wheelAnchorY += (up ? send : -send) * lineHeight
+    }
+
+    /**
+     * The glide after the finger leaves.
+     *
+     * There is no scrollbar to animate — the pane belongs to the program on the
+     * other end — so the throw is carried by the same notches the drag sends,
+     * emitted on a decaying velocity until they are too sparse to see. It runs
+     * on rAF so it stops dead when the tab is backgrounded rather than firing a
+     * screenful of scroll into a terminal nobody is looking at.
+     */
+    const stopFling = () => {
+      if (flingFrame.current !== null) cancelAnimationFrame(flingFrame.current)
+      flingFrame.current = null
+    }
+
+    const startFling = (velocity: number, clientX: number, fromY: number) => {
+      let v = velocity
+      let y = fromY
+      let last = performance.now()
+      const step = () => {
+        const now = performance.now()
+        // Clamped: a tab that was away for a second must not resume by firing
+        // that second's worth of friction and travel in one frame.
+        const dt = Math.min(64, now - last)
+        last = now
+        v *= Math.pow(FLING_FRICTION, dt / 16.7)
+        if (Math.abs(v) < FLING_STOP_VELOCITY || !appOwnsScreen(term)) {
+          flingFrame.current = null
+          return
+        }
+        y += v * dt
+        notchesFrom(y, clientX)
+        flingFrame.current = requestAnimationFrame(step)
+      }
+      flingFrame.current = requestAnimationFrame(step)
+    }
     const onTouchMove = (e: Event) => {
       const touch = touchAt(e)
       if (!touch) return
@@ -801,38 +773,54 @@ export default function Terminal({
       ) {
         touchMoved = true
       }
-      if (selecting && anchor) {
-        const raw = cellAt(touch.clientX, touch.clientY, true)
-        const cell = raw && snapToContent(term, raw, anchor.startRow)
-        if (cell) {
-          // Grow from whichever end of the first word the finger left behind.
-          const before =
-            cell.row < anchor.startRow ||
-            (cell.row === anchor.startRow && cell.col < anchor.startCol)
-          applyRange(
-            orderRange(
-              before
-                ? { ...anchor, startRow: cell.row, startCol: cell.col }
-                : { ...anchor, endRow: cell.row, endCol: cell.col },
-            ),
-          )
-        }
-        // Held down means selecting; the viewport must not scroll out from under it.
-        e.preventDefault()
-        return
+      const now = performance.now()
+      samples.push({ t: now, y: touch.clientY })
+      if (samples.length > 8) samples.shift()
+      if (touchMoved) {
+        cancelPress()
+        // A finger that moved was never holding anything.
+        armed = null
       }
-      if (touchMoved) cancelPress()
+      /* An app that owns the screen gets the swipe as the wheel it is already
+         listening for, a notch per line of travel — so the pane moves with the
+         finger instead of jumping. Dragging down goes back through the history,
+         the direction the paper would move. Left alone otherwise: xterm scrolls
+         its own buffer with the finger perfectly well, and doing both would
+         move it twice as far. */
+      if (!touchMoved || !appOwnsScreen(term)) return
+      e.preventDefault()
+      notchesFrom(touch.clientY, touch.clientX)
     }
 
     const onTouchEnd = (e: Event) => {
       cancelPress()
-      if (selecting) {
-        // Leave the selection up — the grips and the copy bar are what follow.
-        e.preventDefault()
-        selecting = false
-        anchor = null
+      /* Measured over the tail of the drag: a finger that swept the screen and
+         then stopped before lifting has thrown nothing. */
+      if (touchMoved && appOwnsScreen(term)) {
+        const v = tailVelocity()
+        const end = samples[samples.length - 1]
+        if (Math.abs(v) >= FLING_MIN_VELOCITY && end)
+          startFling(
+            Math.sign(v) * Math.min(FLING_MAX_VELOCITY, Math.abs(v)),
+            touchAt(e)?.clientX ?? 0,
+            end.y,
+          )
+      }
+      /* iOS cancels the touch when it decides something else owns the gesture,
+         and a panel opening out of that is a panel nobody asked for. */
+      if (e.type === 'touchcancel') {
+        armed = null
         return
       }
+      if (armed && !touchMoved) {
+        // Swallow the click the browser emulates from this touch: it would land
+        // on the panel this is about to open.
+        e.preventDefault()
+        setPicking(snapshot(term, armed))
+        armed = null
+        return
+      }
+      armed = null
       const touch = touchAt(e)
       if (!touchMoved && touch) {
         const cell = cellAt(touch.clientX, touch.clientY)
@@ -848,8 +836,9 @@ export default function Terminal({
         }
       }
       // A tap anywhere else puts the selection away rather than typing into it.
-      if (heldRef.current || term.hasSelection()) {
-        clearRef.current()
+      if (term.hasSelection()) {
+        term.clearSelection()
+        setSelection(null)
         return
       }
       // No PTY behind a read-only session — popping the keyboard would go nowhere.
@@ -900,6 +889,7 @@ export default function Terminal({
       window.visualViewport?.removeEventListener('resize', onBoxResize)
       term.textarea?.removeEventListener('focus', onTextareaFocus)
       term.textarea?.removeEventListener('blur', onTextareaBlur)
+      stopFling()
       touchTarget?.removeEventListener('touchstart', onTouchStart)
       touchTarget?.removeEventListener('touchmove', onTouchMove)
       touchTarget?.removeEventListener('touchend', onTouchEnd)
@@ -909,7 +899,6 @@ export default function Terminal({
       resizeSub.dispose()
       linkSub.dispose()
       selectionSub.dispose()
-      scrollSub.dispose()
       ws?.close()
       term.dispose()
     }
@@ -929,6 +918,12 @@ export default function Terminal({
   }, [active])
 
   const sendKey = (data: string) => sendRef.current({ type: 'input', data })
+
+  const clearSelection = () => {
+    termRef.current?.clearSelection()
+    setSelection(null)
+    setCopied(false)
+  }
 
   const copySelection = async () => {
     if (!selection) return
@@ -962,21 +957,22 @@ export default function Terminal({
   /* Count what was actually picked: whole lines are lines, a piece of one is
      characters — which is the number that tells you whether you got the path. */
   const selectionLabel =
-    !selection || visual?.wholeLines || selectedLines > 1
+    selectedLines > 1
       ? `${selectedLines} line${selectedLines === 1 ? '' : 's'}`
-      : `${selection.length} char${selection.length === 1 ? '' : 's'}`
+      : `${selection?.length ?? 0} char${selection?.length === 1 ? '' : 's'}`
 
   const pageScroll = (direction: -1 | 1) => {
     const term = termRef.current
     if (!term) return
     term.clearSelection()
     window.getSelection()?.removeAllRanges()
-    // A TUI that repaints in place owns the screen: xterm's buffer holds only
-    // the current frame, so scrolling it locally moves the wrong thing. Alt
-    // screen or mouse tracking marks such an app — hand it PageUp/PageDown and
-    // let it scroll its own pane (Claude Code moves just the message area and
-    // leaves the composer where it is).
-    if (term.buffer.active.type === 'alternate' || term.modes.mouseTrackingMode !== 'none') {
+    // A TUI that repaints in place owns the screen: scrolling xterm's buffer
+    // locally would move the wrong thing, so hand it PageUp/PageDown and let it
+    // scroll its own pane. These two are the page buttons and they page — a
+    // whole screen a tap, which is the thing they are named after. The swipe
+    // wants the finger followed instead, and sends wheel notches; see
+    // `wheelReport`.
+    if (appOwnsScreen(term)) {
       sendKey(direction < 0 ? '\x1b[5~' : '\x1b[6~')
       return
     }
@@ -996,7 +992,22 @@ export default function Terminal({
             the focused textarea. */}
         <div
           ref={containerRef}
-          className="h-full w-full overflow-clip [-webkit-touch-callout:none] [-webkit-user-select:none] [&_.xterm]:h-full [&_.xterm-viewport]:!overflow-y-auto [&_.xterm-viewport]:!bg-transparent [&_.xterm-viewport]:[-webkit-overflow-scrolling:touch]"
+          /* `pointer-events: none` on the rows is what keeps a swipe alive.
+             A touch is delivered for its whole life to the node it started on,
+             and if that node leaves the document the events keep going to it —
+             detached, so they never reach a listener up here and the gesture
+             dies mid-drag. xterm's DOM renderer replaces a row's spans on every
+             repaint, so a finger that landed on a glyph was holding a dead node
+             within one frame of the app redrawing: measured at 2 wheel notches
+             before it stopped, against 28 for the same swipe started on a blank
+             row whose empty div was never rewritten. Taking the rows out of
+             hit-testing lands the touch on `.xterm-screen`, which `open()`
+             builds once and never replaces. Nothing is lost: every gesture here
+             resolves its cell from coordinates, never from the target. Touch
+             only — a mouse wants the rows for xterm's own hover and click. */
+          className={`h-full w-full overflow-clip [-webkit-touch-callout:none] [-webkit-user-select:none] [&_.xterm]:h-full [&_.xterm-viewport]:!overflow-y-auto [&_.xterm-viewport]:!bg-transparent [&_.xterm-viewport]:[-webkit-overflow-scrolling:touch] ${
+            mobileRef.current ? '[&_.xterm-rows]:pointer-events-none' : ''
+          }`}
         />
         {showKeys && (
           <TerminalScrollPads
@@ -1004,40 +1015,13 @@ export default function Terminal({
             onPageDown={() => pageScroll(1)}
           />
         )}
-        {visual && (
-          <>
-            {visual.rects.map((rect, i) => (
-              <div
-                key={i}
-                className="pointer-events-none absolute bg-accent-strong/25 ring-1 ring-accent/40"
-                style={rect}
-              />
-            ))}
-            <SelectionGrip
-              edge="start"
-              point={visual.grips.start}
-              offsetY={visual.cellHeight / 2}
-              onMove={(x, y) => moveGrip('start', x, y)}
-            />
-            <SelectionGrip
-              edge="end"
-              point={visual.grips.end}
-              offsetY={-visual.cellHeight / 2}
-              onMove={(x, y) => moveGrip('end', x, y)}
-            />
-          </>
-        )}
-        {/* Selection has nowhere to go on a phone: no menu, no handles, no
-            keyboard shortcut. This is the way out of the terminal. */}
+        {/* xterm's own selection — a mouse drag on a desktop — has no menu and
+            no shortcut behind it. A finger never gets here: it opens the panel
+            instead, where the platform's own selection does all of this. */}
         {selection && (
           <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3">
             <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-line bg-overlay/95 py-1 pr-1 pl-3 shadow-xl backdrop-blur">
               <span className="text-xs tabular-nums text-mut">{selectionLabel}</span>
-              {visual && !visual.wholeLines && (
-                <Button variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={expandSelection}>
-                  Line
-                </Button>
-              )}
               <Button variant="ghost" className="px-3 py-1.5 text-xs" onClick={copySelection}>
                 {copied ? 'Copied' : 'Copy'}
               </Button>
@@ -1048,6 +1032,13 @@ export default function Terminal({
           </div>
         )}
       </div>
+      {picking && (
+        <SelectSheet
+          shot={picking}
+          onInsertPath={onInsertPath}
+          onClose={() => setPicking(null)}
+        />
+      )}
       {linkPrompt && (
         /* Armed late on purpose: the touch that opens this sheet is followed by
            an emulated click at the same point, which would otherwise land on the

@@ -478,9 +478,15 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
               </button>
               {/* 44px, both of them: a miss on ✕ lands on the row, and a wrong
                   action is worse than the nothing a small button usually gives.
-                  They stay live on a row whose body does not, because a shot of
-                  a dead port is still an answer and stopping one is the whole
-                  point of ✕. */}
+                  ✕ stays live on a row whose body does not — stopping a mapping
+                  the dev server has abandoned is the whole point of it — but ⧉
+                  dies with the body. It used to stay live on the theory that a
+                  shot of a dead port is still an answer; it is not one, because
+                  Chrome cannot load the page at all and the only thing that
+                  comes back is a raw net:: error with no picture under it. An
+                  app that is up but broken — a 500, an error page — still
+                  answers `listening`, so the case that theory was protecting
+                  keeps its ⧉. */}
               {p && (
                 <>
                   <IconButton
@@ -493,7 +499,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                     label={`Capture :${p.port}…`}
                     size="lg"
                     className="hover:text-accent"
-                    disabled={busy === `row:${p.port}`}
+                    disabled={busy === `row:${p.port}` || !p.listening}
                     onClick={() =>
                       ask(
                         row.project ? `${row.project} · localhost:${p.port}` : `localhost:${p.port}`,

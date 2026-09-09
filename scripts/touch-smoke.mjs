@@ -64,12 +64,28 @@ context.on('page', (p) => openedTabs.push(p.url()))
 
 // Touch dispatch for press-and-hold, plus a record of how the copy actually left.
 await page.addInitScript(() => {
+  window.__held = null
   window.__touch = (type, x, y, selector) => {
     /* A real finger keeps sending its moves to the element the touch started
        on; dispatching by hand has to be told that, or a drag off the grip
-       lands on the terminal underneath it. */
+       lands on the terminal underneath it.
+
+       `hold` is that same truth taken all the way: the node is kept even after
+       the document lets go of it, which is what the browser does and what this
+       harness spent a bug not doing. Resolving the target afresh on every move
+       quietly repaired a gesture that a real finger cannot repair. */
+    if (selector === 'hold' && type !== 'touchstart') {
+      if (!window.__held) return 'no-target'
+      const kept = window.__held
+      const state = kept.isConnected ? 'connected' : 'DETACHED'
+      window.__dispatch(kept, type, x, y)
+      return state
+    }
     const target =
-      (selector && document.querySelector(selector)) || document.elementFromPoint(x, y) || document.body
+      (selector && selector !== 'hold' && document.querySelector(selector)) ||
+      document.elementFromPoint(x, y) ||
+      document.body
+    if (selector === 'hold') window.__held = target
     /* WebKit has a Touch interface but will not let you construct one; its
        createTouch() is the way in. Chromium is the other way around. */
     let touch
@@ -98,6 +114,21 @@ await page.addInitScript(() => {
         targetTouches: list,
         changedTouches: changed,
       }),
+    )
+    return target.isConnected ? 'connected' : 'DETACHED'
+  }
+  window.__dispatch = (target, type, x, y) => {
+    let t
+    try {
+      t = new Touch({ identifier: 1, target, clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y })
+    } catch {
+      t = document.createTouch(window, target, 1, x, y, x, y)
+    }
+    const live = type === 'touchend' ? [] : [t]
+    const list = document.createTouchList ? document.createTouchList(...live) : live
+    const changed = document.createTouchList ? document.createTouchList(t) : [t]
+    target.dispatchEvent(
+      new TouchEvent(type, { bubbles: true, cancelable: true, touches: list, targetTouches: list, changedTouches: changed }),
     )
   }
 
@@ -328,57 +359,51 @@ await page.waitForTimeout(400)
 await page.keyboard.type(`clear; echo "${PATH} alpha beta"; echo two; echo three; echo four\n`)
 await page.waitForTimeout(1200)
 
-// Press and hold takes the word under the finger — and a path is one word.
+/* ── selecting ──────────────────────────────────────────────────────────────
+   The selection does not happen on the terminal any more. A press and hold
+   opens a panel holding a frozen copy of the buffer, where the platform's own
+   selection — handles, loupe, double-tap, the callout menu — does the work.
+   What is left to test is the two ends: that the press hands the panel the
+   right word, and that a press which turns into a swipe hands it nothing. */
+const PANEL = '[role="dialog"][aria-label="Select"]'
+const panelOpen = async () => (await page.locator(PANEL).count()) > 0
+const panelText = () =>
+  page.evaluate(() => document.querySelector('[role="dialog"] pre')?.textContent ?? '')
+const closePanel = async () => {
+  await page.locator(`${PANEL} [aria-label="Close"]`).click()
+  await page.waitForTimeout(400)
+}
+
 const pathSpot = await charAt('orbit/web')
 await hold(pathSpot.x, pathSpot.y)
-await page.waitForTimeout(300)
-check('press and hold selects the word under the finger', (await bar()) === `${PATH.length} chars`, await bar())
+await page.waitForTimeout(400)
+check('press and hold opens the panel', await panelOpen())
 check(
-  'the selection is visible',
-  await page.evaluate(() => !!document.querySelector('.bg-accent-strong\\/25')),
+  'with the word under the finger already picked',
+  (await bar()) === `${PATH.length} chars`,
+  await bar(),
 )
-check('both grips are up', (await page.locator('[data-grip]').count()) === 2)
+// The one thing that would silently make the whole panel useless: the app turns
+// selection off over the terminal, and the panel has to turn it back on.
+check(
+  'and the text is selectable by the platform',
+  await page.evaluate(() => {
+    const pre = document.querySelector('[role="dialog"] pre')
+    const style = pre && getComputedStyle(pre)
+    return !!style && (style.webkitUserSelect || style.userSelect) === 'text'
+  }),
+)
 
 await page.getByRole('button', { name: 'Copy' }).click()
 await page.waitForTimeout(400)
 let clipLog = await page.evaluate(() => window.__clip)
-check(
-  'the word leaves for the clipboard',
-  clipLog.some((c) => c.ok),
-  JSON.stringify(clipLog),
-)
+check('the word leaves for the clipboard', clipLog.some((c) => c.ok), JSON.stringify(clipLog))
 if (ENGINE === 'chromium') {
   const text = await page.evaluate(() => navigator.clipboard.readText().catch(() => null))
   check('a path is copied whole, not split on its slashes', text === PATH, JSON.stringify(text))
 }
-await page.waitForTimeout(1000)
-check('the bar goes away after copying', (await barCount()) === 0)
 
-// Dragging the end grip walks the selection along the line, cell by cell.
-const alpha = await charAt('alpha')
-await hold(alpha.x, alpha.y)
-await page.waitForTimeout(300)
-check('a word in the middle of a line selects on its own', (await bar()) === '5 chars', await bar())
-const GRIP = '[data-grip="end"]'
-const grip = await page.locator(GRIP).boundingBox()
-const beta = await charAt('beta')
-await touch('touchstart', grip.x + grip.width / 2, grip.y + grip.height / 2, GRIP)
-// Straight down off the end of the row: 'alpha' closes one row, 'beta' opens
-// the next, and the drag runs past the right edge on the way — which used to
-// land outside the grid and do nothing at all.
-for (let step = 1; step <= 4; step++) {
-  await touch('touchmove', grip.x + grip.width / 2, grip.y + ((beta.y - grip.y) * step) / 4, GRIP)
-  await page.waitForTimeout(70)
-}
-await touch('touchend', grip.x + grip.width / 2, beta.y, GRIP)
-await page.waitForTimeout(300)
-check(
-  'dragging a grip onto the next row extends the selection',
-  (await bar()) === '10 chars',
-  await bar(),
-)
-
-// And the bar can still take the whole line in one press.
+// A wrapped row is one line to a reader, and Line has to agree.
 await page.getByRole('button', { name: 'Line' }).click()
 await page.waitForTimeout(300)
 check('Line takes the whole logical line', (await bar()) === '1 line', await bar())
@@ -386,54 +411,64 @@ await page.getByRole('button', { name: 'Copy' }).click()
 await page.waitForTimeout(400)
 if (ENGINE === 'chromium') {
   const text = await page.evaluate(() => navigator.clipboard.readText().catch(() => null))
-  check('the whole wrapped line comes back as one line', text === `${PATH} alpha beta`, JSON.stringify(text))
+  check(
+    'the whole wrapped line comes back as one line',
+    text === `${PATH} alpha beta`,
+    JSON.stringify(text),
+  )
 }
-await page.waitForTimeout(900)
-
-// Holding and dragging down still grows the selection by lines.
-let lines = await rows()
-const two = lines.find((r) => r.text === 'two')
-const four = lines.find((r) => r.text === 'four')
-await touch('touchstart', two.x, two.y)
-await page.waitForTimeout(600)
-for (let step = 1; step <= 4; step++) {
-  await touch('touchmove', two.x, two.y + ((four.y - two.y) * step) / 4)
-  await page.waitForTimeout(80)
-}
-await touch('touchend', two.x, four.y)
-await page.waitForTimeout(300)
-check('dragging down the screen grows it line by line', (await bar()) === '3 lines', await bar())
-
-await page.getByRole('button', { name: 'Copy' }).click()
-await page.waitForTimeout(400)
-clipLog = await page.evaluate(() => window.__clip)
 check(
-  'the text leaves for the clipboard',
-  clipLog.some((c) => c.ok),
-  JSON.stringify(clipLog.slice(-1)),
+  'the panel carries the lines below it too',
+  (await panelText()).includes('three'),
 )
-if (ENGINE === 'chromium') {
-  const text = await page.evaluate(() => navigator.clipboard.readText().catch(() => null))
-  check('every dragged line is on the clipboard', text === 'two\nthree\nfour', JSON.stringify(text))
-}
-await page.waitForTimeout(1000)
+await closePanel()
+check('closing the panel comes back to the terminal', !(await panelOpen()))
 
-lines = await rows()
-await hold(lines[0].x, lines[0].y)
-await page.waitForTimeout(250)
-await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height * 0.55)
+// Blank space is not text: below the output is a field of empty rows, and a
+// panel opened onto one of them would be a panel opened onto nothing.
+await hold(screen.x + screen.width / 2, screen.y + screen.height * 0.92)
+await page.waitForTimeout(400)
+check('holding on blank space opens nothing', !(await panelOpen()))
+
+// The panel reaches past the screen, which is the other half of why it exists.
+await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height * 0.7)
 await page.waitForTimeout(300)
-check('a tap elsewhere dismisses the selection', (await barCount()) === 0)
+await page.keyboard.type('clear; seq 1 200\n')
+await page.waitForTimeout(1600)
+let lines = await rows()
+const anchorRow = lines.find((r) => r.text.trim())
+await hold(anchorRow.x, anchorRow.y)
+await page.waitForTimeout(400)
+const carried = (await panelText()).split('\n')
+check(
+  'the panel holds the scrollback, not just the screen',
+  carried.length > lines.length && carried.includes('1'),
+  `${carried.length} lines vs ${lines.length} on screen`,
+)
+await closePanel()
 
-await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height / 2)
-await page.waitForTimeout(200)
+/* The gesture this whole panel exists for. A finger that rests on text long
+   enough to arm the press and then swipes is someone who meant to scroll — and
+   because nothing is committed until the lift, they get the scroll and no
+   panel. The in-place selection could only guess at this. */
+const viewportTop = () =>
+  page.evaluate(() => document.querySelector('.xterm-viewport')?.scrollTop ?? -1)
 lines = await rows()
-await hold(lines[0].x, lines[0].y)
-await page.waitForTimeout(250)
-await page.keyboard.type('seq 1 60\n')
-await page.waitForTimeout(1300)
-check('output scrolling drops a stale selection', (await barCount()) === 0)
+const restSpot = lines.find((r) => r.text.trim()) ?? { x: screen.x + 30, y: screen.y + screen.height * 0.5 }
+const before = await viewportTop()
+await touch('touchstart', restSpot.x, restSpot.y)
+await page.waitForTimeout(600) // well past the press
+for (let step = 1; step <= 6; step++) {
+  await touch('touchmove', restSpot.x, restSpot.y + step * 40)
+  await page.waitForTimeout(40)
+}
+await touch('touchend', restSpot.x, restSpot.y + 240)
+await page.waitForTimeout(400)
+check('a press that becomes a swipe opens no panel', !(await panelOpen()))
+check('and scrolls instead', (await viewportTop()) < before, `${before} → ${await viewportTop()}`)
 
+await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height * 0.7)
+await page.waitForTimeout(300)
 await page.keyboard.type('echo still-typing-fine\n')
 await page.waitForTimeout(1000)
 lines = await rows()
@@ -442,47 +477,95 @@ check(
   lines.some((r) => r.text === 'still-typing-fine'),
 )
 
-// Blank space is not selectable: below the output is a field of empty rows, and
-// a selection dragged into it comes back as a column of nothing.
+/* ── the case the panel was built for ──────────────────────────────────────
+   Claude Code runs on the alternate screen with mouse tracking on, and that is
+   where selecting used to be impossible: xterm hands the touch to the app
+   instead of scrolling, the buffer holds only the current frame, and every
+   repaint moved whatever had been highlighted. The panel does not care — it
+   takes a copy and stops. Written to a file rather than squeezed through
+   `node -e`: the quoting breaks silently through a pty and costs an hour. */
+const ALT_APP = `${HOME}/alt-app.mjs`
+;(await import('node:fs')).writeFileSync(
+  ALT_APP,
+  [
+    'process.stdout.write("\\u001b[?1049h\\u001b[?1000h\\u001b[?1002h\\u001b[?1006h")',
+    /* Repaints, because that is the half that matters: xterm's DOM renderer
+       builds a row's spans again every time the row changes, and a finger that
+       landed on one of them is holding a node the document has dropped. An app
+       that draws once cannot show that, and this test drew once for a while. */
+    'let up = 0',
+    'const draw = () => process.stdout.write(',
+    '  "\\u001b[H\\u001b[2Kframe-line-one\\r\\n\\u001b[2Kframe-line-two\\r\\n\\u001b[2KUP=" + up)',
+    'setInterval(draw, 120)',
+    'draw()',
+    'process.stdin.setRawMode(true)',
+    'process.stdin.on("data", (b) => {',
+    '  if (b[0] === 3) { process.stdout.write("\\u001b[?1049l"); process.exit(0) }',
+    '  for (const m of b.toString("binary").matchAll(/\\u001b\\[<64;\\d+;\\d+M/g)) { void m; up++ }',
+    '  draw()',
+    '})',
+  ].join('\n'),
+)
 await page.touchscreen.tap(screen.x + screen.width / 2, screen.y + screen.height * 0.7)
 await page.waitForTimeout(300)
-await page.keyboard.type('clear; echo top-line; echo bottom-line\n')
-await page.waitForTimeout(1000)
-await hold(screen.x + screen.width / 2, screen.y + screen.height * 0.75)
-await page.waitForTimeout(400)
-check('holding on blank space selects nothing', (await barCount()) === 0)
+await page.keyboard.type(`node ${ALT_APP}\n`)
+await page.waitForTimeout(1500)
 check(
-  'and draws no highlight',
-  await page.evaluate(() => !document.querySelector('.bg-accent-strong\\/25')),
+  'the app really did take the screen',
+  await page.evaluate(() => !!document.querySelector('.xterm-screen')),
 )
-
-lines = await rows()
-const bottom = lines.find((r) => r.text === 'bottom-line')
-await touch('touchstart', bottom.x, bottom.y)
-await page.waitForTimeout(600)
-for (let step = 1; step <= 4; step++) {
-  await touch('touchmove', bottom.x, bottom.y + (screen.y + screen.height * 0.9 - bottom.y) * (step / 4))
-  await page.waitForTimeout(70)
-}
-await touch('touchend', bottom.x, screen.y + screen.height * 0.9)
-await page.waitForTimeout(300)
-// The prompt below the output is text too, so the drag stops there — not in
-// the blank rows under it, however far the finger goes.
-const dragged = await bar()
-check('dragging into the blank below stops at the last row with text', dragged === '2 lines', dragged)
-await page.getByRole('button', { name: 'Copy' }).click()
-await page.waitForTimeout(300)
-if (ENGINE === 'chromium') {
-  const text = await page.evaluate(() => navigator.clipboard.readText().catch(() => null))
-  const picked = String(text).split('\n')
+const frameRow = (await rows()).find((r) => r.text.includes('frame-line-one'))
+check('and its frame is on screen', !!frameRow, JSON.stringify((await rows()).map((r) => r.text)))
+if (frameRow) {
+  await hold(frameRow.x, frameRow.y)
+  await page.waitForTimeout(400)
+  check('a press on an app that owns the screen still opens the panel', await panelOpen())
   check(
-    'and brings back only lines that have something in them',
-    picked.length === 2 && picked.every((line) => line.trim().length > 0),
-    JSON.stringify(text),
+    'and the panel holds the frame it was showing',
+    (await panelText()).includes('frame-line-two'),
+  )
+  await closePanel()
+}
+
+/* ── the swipe that died on a glyph ────────────────────────────────────────
+   A touch belongs for its whole life to the node it started on, and when a
+   repaint takes that node out of the document the events keep going to it —
+   detached, where no listener up the tree will ever see them. Landing on a
+   glyph meant holding a span that xterm rebuilds on the next frame, so the
+   scroll stopped after a notch or two while the same swipe from a blank row
+   ran the whole way. Measured before the fix: 2 notches against 28. */
+const notchesSent = async () => {
+  const text = await page.evaluate(() => document.querySelector('.xterm-rows')?.textContent ?? '')
+  return Number(text.match(/UP=(\d+)/)?.[1] ?? -1)
+}
+const swipeFrom = async (spot) => {
+  const before = await notchesSent()
+  await touch('touchstart', spot.x, spot.y, 'hold')
+  const states = []
+  for (let i = 1; i <= 20; i++) {
+    states.push(await touch('touchmove', spot.x, spot.y + i * 18, 'hold'))
+    await page.waitForTimeout(40)
+  }
+  await touch('touchend', spot.x, spot.y + 360, 'hold')
+  await page.waitForTimeout(300)
+  return { notches: (await notchesSent()) - before, detached: states.filter((s) => s === 'DETACHED').length }
+}
+const glyphRow = (await rows()).find((r) => r.text.includes('frame-line-two'))
+if (glyphRow) {
+  const run = await swipeFrom(glyphRow)
+  check(
+    'a swipe that starts on a glyph is not dropped when the row repaints',
+    run.detached === 0,
+    `${run.detached}/20 moves went to a detached node`,
+  )
+  check(
+    'and it scrolls the whole way, not a notch or two',
+    run.notches >= 10,
+    `${run.notches} notches`,
   )
 }
-await page.waitForTimeout(900)
-
+await page.keyboard.press('Control+c')
+await page.waitForTimeout(800)
 
 /* The login screen probes /api before it has a token, and the run frames
    example.com, which has no page behind /a/b. Both of those 4xx are the test's

@@ -1,6 +1,6 @@
 import type { IDisposable, ILink, Terminal as XTerm } from '@xterm/xterm'
 import { resolveUri } from './local-url'
-import { logicalCells, logicalSpan } from './terminal-selection'
+import { logicalCells, logicalSpan } from './terminal-snapshot'
 
 /*
  * A URL printed into a terminal is just text, and xterm paints it onto a canvas
