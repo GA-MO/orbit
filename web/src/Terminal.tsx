@@ -136,15 +136,6 @@ const TOUCH_SLOP_PX = 8
 const PROBE_TIMEOUT_MS = 3000
 /** Quiet spell that marks the end of a burst of layout changes. */
 const RESIZE_SETTLE_MS = 180
-/** Quiet spell after a resize that says the agent has finished answering it. */
-const POST_RESIZE_QUIET_MS = 150
-/** How recently the agent must have written for a resize to count as landing
-    on a busy one. Covers the message that ends the moment the bar is folded —
-    the redraw it owes is just as missing as the one it never finished. */
-const BUSY_WINDOW_MS = 500
-/** How long a resize keeps waiting for that quiet before giving up on it —
-    a spinner or a running build never stops writing. */
-const POST_RESIZE_MAX_MS = 1500
 
 // iOS Safari draws a lone ำ (U+0E33) as a dotted circle with a floating mark above
 // it. xterm gives ำ a cell of its own — it is a spacing character — and the shaper
@@ -236,8 +227,6 @@ export default function Terminal({
   const refitRef = useRef<(scrollToBottom?: boolean) => void>(() => {})
   /** Redraw what is already in the buffer — no PTY, no SIGWINCH, one frame. */
   const refreshRef = useRef<() => void>(() => {})
-  /** Ask the agent to finish the screen, but only if it was drawing one. */
-  const settleOnReturnRef = useRef<() => void>(() => {})
   /* Whether this session is the one on screen — not merely the one connected.
      The terminal stays mounted behind the other two tabs, and a phone in a
      pocket holds its socket open until iOS gets round to freezing it. The
@@ -371,6 +360,18 @@ export default function Terminal({
         rows: String(term.rows),
       })
 
+      /* The handshake above *is* telling the server the size, so the size the
+         socket opens at is one the agent has already heard. Without this the
+         queue still held the resize that `fit()` raised a moment ago — xterm
+         starts at its own 80x24 and the first fit is always a change — and
+         180ms later that went out again as news, which the server answers by
+         walking the agent one row down and back. Two frames over a replay that
+         was already the screen: the jump on every switch between sessions. */
+      if (sizeTimer) clearTimeout(sizeTimer)
+      sizeTimer = null
+      pendingSize = null
+      sentSize = `${term.cols}x${term.rows}`
+
       // Held so a socket we have already replaced cannot reconnect on our behalf.
       const socket = new WebSocket(`${proto}://${location.host}/ws?${params}`)
       ws = socket
@@ -406,17 +407,12 @@ export default function Terminal({
               callbacksRef.current.onStatus('ended')
               callbacksRef.current.onSessionState?.()
             }
-            /* The size went out with the handshake and the server has already
-               asked for a redraw at it — but the handshake size is measured
-               before the key bar and the keyboard have had their say. If that
-               moves the size, `onResize` says so; if it does not, the only
-               screen still worth finishing is one an agent is mid-draw on, so
-               watch for that rather than making every switch draw twice. */
-            if (!readOnly) armWatch()
+            /* Nothing more to ask for: the replay is the screen. If the key
+               bar or the keyboard moves the size after this, `onResize` says
+               so once it stops moving. */
             break
           case 'output':
             term.write(decomposeSaraAm(msg.data))
-            noteOutput()
             break
           case 'exit':
             stopReconnect = true
@@ -501,88 +497,23 @@ export default function Terminal({
       probeTimer = null
     }
 
-    /* What is on screen is whatever frame the agent last drew, and a full-screen
-       app only draws again when its size changes. Reattaching asks for one
-       redraw, but an agent busy running a tool can let that pass and leave the
-       composer missing until something else moves — which is why toggling the
-       key bar "fixed" it. So say the size again whenever the phone comes back,
-       even when nothing about it changed: the server answers every `resize` by
-       walking the agent through one row less and back, which is what makes it
-       draw the whole screen. */
-    let repaintTimer: ReturnType<typeof setTimeout> | null = null
-    const askRedraw = () => {
-      if (disposed || readOnly || ws?.readyState !== WebSocket.OPEN) return
-      const { cols, rows } = term
-      send({ type: 'resize', cols, rows })
-      sentSize = `${cols}x${rows}`
-    }
-    /* Late enough that the layout has settled — the key bar unfolding and the
-       keyboard sliding in both change the size after the socket opens. */
-    const scheduleRedraw = (delay = 400) => {
-      if (repaintTimer) clearTimeout(repaintTimer)
-      repaintTimer = setTimeout(() => {
-        repaintTimer = null
-        askRedraw()
-      }, delay)
-    }
-    /* A size change reaches an agent that is in the middle of writing, and one
-       SIGWINCH buys exactly one redraw — which lands interleaved with the
-       output still coming, so the frame that ends up on screen is half old
-       height, half new. Nothing follows it, because as far as the agent is
-       concerned the resize was handled. So when a size goes out while output is
-       flowing, wait for the stream to fall quiet and ask once more; that second
-       ask is the same message the tab-return path used to send for free, and
-       here it is paid for only when something was actually being drawn over. */
-    let settleUntil = 0
-    let settleTimer: ReturnType<typeof setTimeout> | null = null
-    /** When the agent last wrote anything. A terminal nobody is drawing on has
-        nothing to put right, and asking anyway is the second frame that
-        stuttered — so every extra repaint below is spent only on a busy one. */
-    let lastOutputAt = 0
-    const wasBusy = () => performance.now() - lastOutputAt < BUSY_WINDOW_MS
-    const clearSettle = () => {
-      if (settleTimer) clearTimeout(settleTimer)
-      settleTimer = null
-      settleUntil = 0
-    }
-    /** Called with every size the agent is told; starts the watch for output. */
-    const armSettle = () => {
-      clearSettle()
-      if (!wasBusy()) return
-      settleUntil = performance.now() + POST_RESIZE_MAX_MS
-      /* Armed straight away, not only once more output arrives: an agent that
-         signs off the same instant the bar folds writes nothing after it, and
-         the half-drawn screen it leaves is exactly the one to put right. Any
-         output that does arrive pushes this later. */
-      settleTimer = setTimeout(fireSettle, POST_RESIZE_QUIET_MS)
-    }
-    /** Watch without asking: a repaint only if the agent turns out to be
-        drawing. Attaching is that case — the server already asked for one at
-        the handshake size, so a session sitting still has a whole screen
-        already and a second draw is only a flash across the switch. */
-    const armWatch = () => {
-      clearSettle()
-      settleUntil = performance.now() + POST_RESIZE_MAX_MS
-    }
-    function fireSettle() {
-      clearSettle()
-      askRedraw()
-    }
-    /** Called for every chunk of output; the last one before the quiet wins. */
-    const noteOutput = () => {
-      lastOutputAt = performance.now()
-      if (!settleUntil) return
-      // Still writing after all this time — take the redraw now or never.
-      if (performance.now() > settleUntil) return fireSettle()
-      if (settleTimer) clearTimeout(settleTimer)
-      settleTimer = setTimeout(fireSettle, POST_RESIZE_QUIET_MS)
-    }
-    /* Coming back to the tab is the same question asked from the other side:
-       the buffer is current, so a local refresh is the whole fix — unless the
-       agent is mid-draw, in which case what is in the buffer is half a screen
-       and only it can finish the other half. */
-    settleOnReturnRef.current = () => {
-      if (wasBusy()) scheduleRedraw(POST_RESIZE_QUIET_MS)
+    /* Nobody is asked for a redraw any more. A size that moved goes out once,
+       below, and the agent answers it with a whole frame; a size that did not
+       move is not the agent's business at all — what is on screen is what it
+       last drew, and the copy of it xterm holds is complete. Where that copy
+       has merely stopped being *painted* — the tab was hidden, or xterm was
+       resized down and up under a layout that came back to where it started —
+       the fix is local and costs one frame with nothing on the wire.
+
+       The old answer was to say a size the agent had already heard, which the
+       server turned into a walk down one row and back. It did produce a redraw.
+       It also produced two frames laid out for two heights, and that pair is
+       what jumped on every attach, every keyboard, and every trip back. The
+       one screen it truly fixed — the half-drawn frame of an agent writing as
+       the phone arrived — fixes itself with the next chunk of output, because
+       an agent mid-draw is by definition still writing. */
+    const redrawLocally = () => {
+      if (!disposed && opened) term.refresh(0, term.rows - 1)
     }
 
     /* iOS suspends a backgrounded tab, and the socket can die out on the network
@@ -596,7 +527,7 @@ export default function Terminal({
       if (ws?.readyState === WebSocket.OPEN) {
         if (probeTimer) return
         send({ type: 'ping' })
-        scheduleRedraw()
+        redrawLocally()
         probeTimer = setTimeout(() => {
           probeTimer = null
           ws?.close()
@@ -672,22 +603,12 @@ export default function Terminal({
         if (!pendingSize) return
         const next = `${pendingSize.cols}x${pendingSize.rows}`
         /* Back where it began — the keyboard came and went inside one settle
-           window — so there is no new size to tell the agent. There is still a
-           screen to put right, though: xterm was resized down and up for real,
-           and an app that owns the screen has no reflow to survive it, so its
-           last frame is laid out for a height the terminal no longer has.
-           Nothing else will redraw it, because from the agent's side nothing
-           happened. Asking for the repaint is exactly the same message; the
-           server answers a size it has already heard by walking one row down
-           and back. */
-        if (next === sentSize) return askRedraw()
+           window — so there is nothing to tell the agent, and the picture xterm
+           was resized down and up for is the only thing left to put right.
+           That is a local redraw and no more. */
+        if (next === sentSize) return redrawLocally()
         sentSize = next
         send({ type: 'resize', ...pendingSize })
-        armSettle()
-        /* A size the agent has not heard before already earns a full redraw —
-           asking for a second one would only make the screen flash twice. */
-        if (repaintTimer) clearTimeout(repaintTimer)
-        repaintTimer = null
       }, RESIZE_SETTLE_MS)
     })
 
@@ -707,9 +628,7 @@ export default function Terminal({
       }
     }
     refitRef.current = refit
-    refreshRef.current = () => {
-      if (!disposed && opened) term.refresh(0, term.rows - 1)
-    }
+    refreshRef.current = redrawLocally
 
     /* The key bar folding open, the soft keyboard sliding in, a rotation — none
        of those are one layout change, they are a burst of them, and the observer
@@ -983,14 +902,11 @@ export default function Terminal({
       termRef.current = null
       refitRef.current = () => {}
       refreshRef.current = () => {}
-      settleOnReturnRef.current = () => {}
       if (handleRef) handleRef.current = null
       cancelAnimationFrame(openFrame)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       clearProbe()
       if (sizeTimer) clearTimeout(sizeTimer)
-      if (repaintTimer) clearTimeout(repaintTimer)
-      clearSettle()
       document.removeEventListener('visibilitychange', resync)
       document.removeEventListener('visibilitychange', reportViewing)
       window.removeEventListener('pageshow', resync)
@@ -1017,13 +933,10 @@ export default function Terminal({
      Unlike the home screen, another tab never puts the socket to sleep: output
      kept arriving and xterm kept writing it, so the buffer is already current
      and the only thing that may have gone stale is the picture of it — xterm
-     stops rendering a box it cannot see. So redraw locally — asking the agent
-     for every trip back cost the walk down one row and back that a size it has
-     already heard needs, and that second frame is what stuttered. The agent is
-     asked only when it was writing as we arrived, since then half of what the
-     buffer holds is a screen it has not finished. If the layout did move while
-     we were away, the fit below changes the size and `onResize` tells the agent
-     as usual. */
+     stops rendering a box it cannot see. So the whole fix is local, and the
+     agent hears nothing about a trip between tabs. If the layout did move while
+     we were away, the fit below changes the size and `onResize` tells it as
+     usual. */
   useEffect(() => {
     activeRef.current = active
     reportViewingRef.current()
@@ -1031,7 +944,6 @@ export default function Terminal({
     requestAnimationFrame(() => {
       refitRef.current(true)
       refreshRef.current()
-      settleOnReturnRef.current()
     })
   }, [active])
 

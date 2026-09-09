@@ -10,11 +10,6 @@ import type { PersistedSession } from './store.js'
 
 const SCROLLBACK_LIMIT = 200_000 // chars kept for replay on reconnect
 const SCROLLBACK_FLUSH_MS = 2000
-/** How long a repaint holds the nudged size — see `repaint`. */
-const REPAINT_HOLD_MS = 120
-/** How recently the agent must have written for the screen a phone attaches to
-    to count as one still being drawn — see `repaintOnAttach`. */
-const DRAWING_WINDOW_MS = 500
 const DEAD_SESSIONS_KEPT = 20
 const FIRST_COMMAND_MAX = 80
 
@@ -70,11 +65,8 @@ export interface Session {
   alive: boolean
   exitCode: number | null
   write(data: string): void
+  /** Tell the PTY a size. A size it already has is not news, and is dropped. */
   resize(cols: number, rows: number): void
-  /** Set the size and make whatever owns the screen draw itself again. */
-  repaint(cols: number, rows: number): void
-  /** A repaint on attaching, asked for only where the replay is not the screen. */
-  repaintOnAttach(cols: number, rows: number): void
   kill(): void
   /** Subscribe to output; returns unsubscribe. */
   onData(cb: (data: string) => void): () => void
@@ -101,10 +93,6 @@ class PtySession implements Session {
   private rows: number
   private buffer = ''
   private typed = '' // keystrokes since the last Enter, until firstCommand is set
-  /** Pending second half of a `repaint`. */
-  private repaintTimer: ReturnType<typeof setTimeout> | null = null
-  /** When the agent last wrote — how a half-drawn screen is told from a whole one. */
-  private lastDataAt = 0
   private dataSubs = new Set<(data: string) => void>()
   private inputSubs = new Set<(data: string) => void>()
   private exitSubs = new Set<(code: number) => void>()
@@ -138,7 +126,6 @@ class PtySession implements Session {
     })
 
     this.proc.onData((data) => {
-      this.lastDataAt = Date.now()
       this.buffer += data
       if (this.buffer.length > SCROLLBACK_LIMIT) {
         /* Cutting at an exact offset lands in the middle of an escape sequence
@@ -155,8 +142,6 @@ class PtySession implements Session {
     this.proc.onExit(({ exitCode }) => {
       this.alive = false
       this.exitCode = exitCode
-      if (this.repaintTimer) clearTimeout(this.repaintTimer)
-      this.repaintTimer = null
       for (const cb of this.exitSubs) cb(exitCode)
     })
   }
@@ -187,62 +172,22 @@ class PtySession implements Session {
     }
   }
 
+  /* SIGWINCH is the only way in to a full-screen app's screen, and the kernel
+     raises it only for a size that actually changed. So a size the PTY already
+     has is dropped here rather than turned into news: the way it used to be
+     turned into news — down one row, hold, back up — bought a redraw at the
+     cost of two frames drawn at two heights, and those two frames are the jump
+     that showed on every attach, every keyboard, every trip back to the tab.
+
+     A screen the agent left half-drawn is not this layer's to finish. Either
+     more output is coming, and it finishes itself, or the phone redraws what
+     it already holds without asking anyone. */
   resize(cols: number, rows: number) {
-    if (this.alive && cols > 0 && rows > 0) {
-      this.cols = cols
-      this.rows = rows
-      this.proc.resize(cols, rows)
-    }
-  }
-
-  /* A phone that comes back is looking at the frame that was on screen when it
-     left, and its terminal may be a different size now. If it is, saying so is
-     enough. If it is not — the usual case, and the one this exists for — then
-     nothing has changed for the kernel to signal, and a full-screen app has no
-     reason to draw anything at all. So arrive at the size the client wants by
-     way of one row less. The app draws twice; the second draw is the one that
-     fits.
-
-     Both sizes have to be *observed*, though, and that is why this waits in
-     between. SIGWINCH is not queued: two of them raised in the same breath
-     reach a busy process as one, and the handler then reads the size that is
-     already back to what it was — no change, no redraw. Which is exactly the
-     case this exists for, since the agent is usually mid-tool when the phone
-     returns. Hold the shorter size long enough for the app to answer it. */
-  repaint(cols: number, rows: number) {
     if (!this.alive || cols <= 0 || rows <= 0) return
-    if (this.repaintTimer) clearTimeout(this.repaintTimer)
-    /* A size it has not seen is its own signal: the kernel raises SIGWINCH,
-       the app answers with one whole frame, and that frame already fits. The
-       detour below would only make it draw a second one at a size nobody
-       asked for — which is what every fold of the key bar and every keyboard
-       sliding in was paying for, and what made those stutter. */
-    if (cols !== this.cols || rows !== this.rows) {
-      this.resize(cols, rows)
-      return
-    }
-    this.resize(cols, Math.max(1, rows - 1))
-    this.repaintTimer = setTimeout(() => {
-      this.repaintTimer = null
-      this.resize(cols, rows)
-    }, REPAINT_HOLD_MS)
-  }
-
-  /* What a phone gets on attaching is the replay, and at the same size that is
-     the very screen the agent drew — whole, and worth nothing to draw again.
-     Walking the agent down a row and back for it is two more frames landing on
-     top of the one already there, which is the flicker every switch between
-     sessions used to open with.
-
-     Two things spoil the replay, and both are asked here. A different size:
-     the frames in it were laid out for the old one. And an agent that was
-     writing as the phone arrived: the tail of the replay is then half a frame,
-     and only the agent can finish it. */
-  repaintOnAttach(cols: number, rows: number) {
-    if (cols === this.cols && rows === this.rows) {
-      if (Date.now() - this.lastDataAt > DRAWING_WINDOW_MS) return
-    }
-    this.repaint(cols, rows)
+    if (cols === this.cols && rows === this.rows) return
+    this.cols = cols
+    this.rows = rows
+    this.proc.resize(cols, rows)
   }
 
   kill() {

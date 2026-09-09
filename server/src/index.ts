@@ -1057,13 +1057,12 @@ wss.on('connection', async (ws: WebSocket, req) => {
     ws.close()
   })
 
-  /* Replay only reproduces frames the agent drew for the size it had then, so a
-     phone that reattaches at a different size — or onto a screen the agent was
-     halfway through — sees a mangled composer. Ask for the whole screen again
-     in those two cases, now that the stream above is carrying it; the redraw
-     lands after the replay. A session created just now is already drawing at
-     this size, and one sitting still at it has already sent its whole screen. */
-  if (existing) session.repaintOnAttach(cols, rows)
+  /* The replay above is the screen, drawn by the agent for the size it had —
+     so at that same size there is nothing to ask for, and asking anyway was the
+     jump that opened every switch between sessions. A phone arriving at a
+     different size is the one case the replay cannot cover, and `resize` drops
+     everything else. */
+  if (existing) session.resize(cols, rows)
 
   // Dangerous chunks (paste/voice/automation) are held until the user approves.
   const pendingApprovals = new Map<string, string>()
@@ -1100,12 +1099,10 @@ wss.on('connection', async (ws: WebSocket, req) => {
         pendingApprovals.delete(msg.id)
         break
       case 'resize':
-        /* Through `repaint`, so the agent's last word on the subject is a whole
-           frame drawn for the size it now has. Resizing plainly leaves it free
-           to patch the screen incrementally from a frame that no longer matches,
-           which is what tears the composer. The phone only sends this once the
-           layout has settled, so the extra draw costs nothing. */
-        session.repaint(msg.cols, msg.rows)
+        /* Only a size that moved, and only once the phone's layout has settled:
+           the size the agent hears is then the size the screen has, and the one
+           SIGWINCH it raises is answered with one whole frame. */
+        session.resize(msg.cols, msg.rows)
         break
       case 'ping':
         send({ type: 'pong' })
