@@ -225,6 +225,12 @@ export default function Terminal({
   const flingFrame = useRef<number | null>(null)
   const sendRef = useRef<(msg: object) => void>(() => {})
   const refitRef = useRef<(scrollToBottom?: boolean) => void>(() => {})
+  /* The grid the terminal was last fitted to. Switching sessions throws xterm
+     away and builds another one, and a fresh one is 80x24 until the fit — so
+     the switch used to show one frame at a size the phone never has, and the
+     fit that followed was a size change like any other. The box has not moved,
+     so the size it had is the size the next one wants: start there. */
+  const gridRef = useRef<{ cols: number; rows: number } | null>(null)
   /** Redraw what is already in the buffer — no PTY, no SIGWINCH, one frame. */
   const refreshRef = useRef<() => void>(() => {})
   /* Whether this session is the one on screen — not merely the one connected.
@@ -297,6 +303,7 @@ export default function Terminal({
     if (!container) return
 
     const term = new XTerm({
+      ...(gridRef.current ?? {}),
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "SF Mono", monospace',
@@ -596,6 +603,7 @@ export default function Terminal({
        used to jump the queue here, being one step and done; it no longer
        changes height at all. */
     const resizeSub = term.onResize((size) => {
+      gridRef.current = size
       pendingSize = size
       if (sizeTimer) clearTimeout(sizeTimer)
       sizeTimer = setTimeout(() => {

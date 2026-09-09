@@ -565,6 +565,70 @@ check('one conversation is offered once', conv.offeredOnce)
 check('＋ leaves the session it was opened from where it was', conv.plusKeepsOld)
 check('…and starts a conversation of its own', conv.plusIsNew)
 check('a shell has no conversation to name', conv.shellUnnamed)
+// ------------------------------------------------------- attaching quietly
+
+/* Three rounds were spent making the terminal stop jumping, and each one ended
+   at the same mechanism: telling the PTY a size it already had, so the server
+   could walk it down one row and back and buy a SIGWINCH out of it. That does
+   redraw the screen — as two frames at two heights, which is the jump itself.
+   Nothing forces a redraw now, and this is the guard on that: only a size that
+   really moved may reach the process.
+
+   The shell says when it hears one. A WINCH trap fires between commands, which
+   is exactly the state a session sits in while a phone attaches to it — and the
+   marker is split so the echo of the command that sets the trap cannot be
+   mistaken for the trap firing. */
+section('attaching quietly (a size the PTY already has is not news)')
+const winch = (await api('/api/sessions', { provider: 'shell', cwd: HOME, name: 'winch' })).body
+started.push(winch.id)
+
+const attach = (cols, rows) => {
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${PORT}/ws?session=${winch.id}&cols=${cols}&rows=${rows}`,
+    { headers: { Authorization: `Bearer ${TOKEN}` } },
+  )
+  const out = { text: '', ws, ready: new Promise((r) => ws.on('message', function first(m) {
+    if (JSON.parse(m.toString()).type === 'ready') { ws.off('message', first); r() }
+  })) }
+  ws.on('message', (m) => {
+    const msg = JSON.parse(m.toString())
+    if (msg.type === 'output') out.text += msg.data
+  })
+  ws.on('error', () => {})
+  return out
+}
+
+const held = attach(90, 30)
+await held.ready
+held.ws.send(JSON.stringify({ type: 'input', data: `trap 'echo W""INCH-HIT' WINCH\r` }))
+await wait(600)
+const heard = () => held.text.includes('WINCH-HIT')
+check('the shell is armed to say when it is resized', !heard(), held.text.slice(-40))
+
+const sameSize = attach(90, 30)
+await sameSize.ready
+await wait(600)
+check('attaching at the size the replay was drawn for disturbs nothing', !heard())
+sameSize.ws.close()
+
+/* And the case the replay genuinely cannot cover: a phone arriving at another
+   size is looking at frames laid out for the old one, so it must be told. */
+const otherSize = attach(100, 34)
+await otherSize.ready
+await wait(600)
+check('…while attaching at a different size does tell the process', heard(), held.text.slice(-40))
+otherSize.ws.close()
+
+held.text = ''
+held.ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 34 }))
+await wait(600)
+check('a resize to the size it is already at is dropped', !heard())
+held.ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 36 }))
+await wait(600)
+check('…and one that moves goes through', heard(), held.text.slice(-40))
+held.ws.close()
+await wait(200)
+
 // Forget every session this section made, whichever branches it took.
 for (const id of started) await api(`/api/sessions/${id}`, null, 'DELETE')
 
