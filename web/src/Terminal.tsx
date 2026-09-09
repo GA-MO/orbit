@@ -182,6 +182,8 @@ interface Props {
      key bar, which this component owns, but the draft and the sheet belong to
      the app above it. */
   onCompose: () => void
+  onVoice: () => void
+  voiceAvailable: boolean
   draftPending: boolean
   /**
    * A session's standing state changed with nothing to say about it — one went
@@ -215,6 +217,8 @@ export default function Terminal({
   onAsk,
   onAttention,
   onCompose,
+  onVoice,
+  voiceAvailable,
   draftPending,
   onPreview,
   onInsertPath,
@@ -1109,6 +1113,8 @@ export default function Terminal({
         <TerminalKeys
           keyboardOpen={keyboardOpen}
           onCompose={onCompose}
+          onVoice={onVoice}
+          voiceAvailable={voiceAvailable}
           draftPending={draftPending}
           ctrl={ctrl}
           onCtrlChange={setCtrlMod}

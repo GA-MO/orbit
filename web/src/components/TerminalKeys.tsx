@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { IconButton, IconEdit } from './ui'
+import { IconButton, IconEdit, IconMic } from './ui'
 
 /**
  * Modifier state. `once` fires for the next key then clears (the common case);
@@ -13,12 +13,13 @@ export const cycleMod = (m: ModState): ModState =>
 
 interface Props {
   keyboardOpen: boolean
-  /* Writing a whole message, as against sending a key. It sits in this bar
-     rather than the header because everything else a thumb reaches for
-     mid-conversation is already down here, and the header is across the screen
-     from it. Dictation is not here: it fills the same draft, so it belongs
-     inside the sheet that shows the draft. */
+  /* The three ways a whole message gets in, as against a key at a time. They
+     sit in this bar rather than the header because everything else a thumb
+     reaches for mid-conversation is already down here, and the header is
+     across the screen from it. */
   onCompose: () => void
+  onVoice: () => void
+  voiceAvailable: boolean
   /** Something written and not yet sent, so the pen can say so. */
   draftPending: boolean
   /** Ctrl lives in the parent: it also rewrites what the soft keyboard types. */
@@ -222,6 +223,8 @@ function Key({
 export default function TerminalKeys({
   keyboardOpen,
   onCompose,
+  onVoice,
+  voiceAvailable,
   draftPending,
   ctrl,
   onCtrlChange,
@@ -262,27 +265,49 @@ export default function TerminalKeys({
 
   const arrowOf = (key: KeyDef) => keyOf(key, ARROW_W)
 
-  /* Two permanent slots, because they answer two different questions. The pen
-     is how a whole message gets written; the keyboard is how the prompt gets
-     typed at directly. Tapping the terminal raises the keyboard too, but that
-     is an unmarked gesture, and it is no help at all in the other direction —
-     nothing else on screen blurs the textarea. A toggle says both halves out
-     loud in one slot, and the row has the width for it: the fixed keys in this
-     row come to 44 + 44 + 40 + 40 with the arrow cluster at 128, which clears
-     a 375pt screen with room over. */
+  /* Three permanent slots, because they answer three different questions: how
+     a whole message gets written, how it gets spoken, and how the prompt gets
+     typed at directly.
+
+     They used to share one slot and hide behind each other — voice a layer
+     down inside the message sheet, the keyboard button only there once a
+     keyboard was up. Tapping the terminal does raise the keyboard, but that is
+     an unmarked gesture and no help at all in the other direction: nothing
+     else on screen blurs the textarea.
+
+     The width is there for all three at `md`, which is drawn at 36px and
+     tapped at 44 — `hit-xy` grows the hit box by half a gap on each side, so
+     the targets meet without overlapping. Fixed width in this row is then
+     3 x 36 + 2 x 40 for the glyph keys and 128 for the arrow cluster, which
+     clears a 375pt screen with room over. At `lg` it does not. */
   const toggleKeyboard = () => {
     if (keyboardOpen) onBlur()
     else onFocus()
   }
 
+  const writeButton = (
+    <IconButton
+      label={draftPending ? 'Message (unsent draft)' : 'Write a message'}
+      className={draftPending ? 'text-accent' : ''}
+      onClick={onCompose}
+    >
+      <IconEdit size={19} />
+    </IconButton>
+  )
+
+  const voiceButton = voiceAvailable && (
+    <IconButton label="Dictate a message" onClick={onVoice}>
+      <IconMic size={19} />
+    </IconButton>
+  )
+
   const keyboardButton = (
     <IconButton
       label={keyboardOpen ? 'Hide keyboard' : 'Show keyboard'}
-      size="lg"
       className={keyboardOpen ? 'bg-accent/15 text-accent' : ''}
-      /* Touch first, and swallowed: a tap that reaches the document as a click
-         has already moved focus off the textarea, which closes the keyboard
-         before the toggle can decide to open it. */
+      /* Handled on touch and swallowed there: a tap that also arrives as a
+         click has already blurred the textarea on the way, which closes the
+         keyboard before the toggle gets to decide to open it. */
       onTouchEnd={(e) => {
         e.preventDefault()
         toggleKeyboard()
@@ -290,17 +315,6 @@ export default function TerminalKeys({
       onClick={toggleKeyboard}
     >
       <KeyboardIcon size={20} />
-    </IconButton>
-  )
-
-  const writeButton = (
-    <IconButton
-      label={draftPending ? 'Message (unsent draft)' : 'Write a message'}
-      size="lg"
-      className={draftPending ? 'text-accent' : ''}
-      onClick={onCompose}
-    >
-      <IconEdit size={19} />
     </IconButton>
   )
 
@@ -332,6 +346,7 @@ export default function TerminalKeys({
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-1">
             {writeButton}
+            {voiceButton}
             {keyboardButton}
             {ROW_LOWER.map((key) => keyOf(key))}
           </div>
