@@ -19,7 +19,7 @@ export default function AskModal({ request, onAnswer }: Props) {
       <div className="pop-in lift flex w-full max-w-md flex-col gap-3.5 rounded-2xl border border-accent/40 bg-surface p-5">
         <div className="flex items-baseline justify-between gap-3">
           <span className="font-display shrink-0 text-[15px] font-semibold whitespace-nowrap text-accent">
-            Your Mac is asking
+            Your desktop is asking
           </span>
           {request.source && (
             <span

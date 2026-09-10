@@ -217,7 +217,7 @@ function DiffSheet({
           </pre>
           {diff?.truncated && (
             <div className="border-t border-line bg-raised px-4 py-3 text-xs text-mut">
-              Truncated — this file is too large to read on a phone. Open it on the Mac.
+              Truncated — this file is too large to read on a phone. Open it on the desktop.
             </div>
           )}
         </div>

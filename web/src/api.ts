@@ -141,10 +141,10 @@ export const retirePushSubscription = async (pushEndpoint: string | null): Promi
 
 export const unpairPhone = async (pushEndpoint: string | null): Promise<void> => {
   await retirePushSubscription(pushEndpoint)
-  forgetTheMac()
+  forgetTheDesktop()
 }
 
-const forgetTheMac = () => {
+const forgetTheDesktop = () => {
   for (const key of KEYS_THAT_NAME_THE_MAC) localStorage.removeItem(key)
 }
 

@@ -57,7 +57,7 @@ const stopRow = (e: MouseEvent, then: () => void) => {
 
 function sessionAge(s: SessionInfo) {
   const endedAgo = s.endedAt ? timeAgo(s.endedAt) : '?'
-  if (s.external) return `on the Mac · ${endedAgo}`
+  if (s.external) return `on the desktop · ${endedAgo}`
   if (s.alive) return timeAgo(s.createdAt)
   return `ended ${endedAgo}`
 }
@@ -239,7 +239,7 @@ function MacGroupHeader({
       className={`${arrive(MAC_HEADER_KEY).className} flex w-full items-center justify-between px-3.5 pt-3 pb-1 text-xs font-semibold tracking-widest text-faint uppercase`}
       onClick={onToggle}
     >
-      <span>From the Mac ({count})</span>
+      <span>From the desktop ({count})</span>
       <span className={`transition-transform ${open ? '' : '-rotate-90'}`}>
         <IconChevronDown size={14} />
       </span>
@@ -267,14 +267,14 @@ function UnpairSheet({
       <div className="flex flex-col gap-3.5 px-5 pt-2 pb-5">
         {tokenIsTheKey ? (
           <p className="text-[13px] leading-relaxed text-mut">
-            Un-pairing stops this phone reaching your Mac and stops it notifying you. Your
+            Un-pairing stops this phone reaching your desktop and stops it notifying you. Your
             sessions keep running over there. To use Orbit here again you will need the access
             token from the server console, or its QR code.
           </p>
         ) : (
           <p className="text-[13px] leading-relaxed text-mut">
             Orbit notifies this phone when a session is waiting on you. Stopping that leaves
-            everything else alone — you reach your Mac over your tailnet and it knows you by
+            everything else alone — you reach your desktop over your tailnet and it knows you by
             your Tailscale login, so there is nothing here to unpair. To close this phone out
             entirely, remove it from your tailnet.
           </p>
@@ -359,7 +359,7 @@ export default function SessionsView({
     refreshHidden()
   }
 
-  const toggleMac = () => {
+  const toggleDesktop = () => {
     const next = !macOpen
     setMacOpen(next)
     if (next) refreshHidden()
@@ -372,7 +372,7 @@ export default function SessionsView({
     } catch {
       setUnpairing(false)
       setPhoneOpen(false)
-      onToast('Could not reach your Mac — still paired')
+      onToast('Could not reach your desktop — still paired')
     }
   }
 
@@ -384,7 +384,7 @@ export default function SessionsView({
       onToast('This phone will stop notifying you')
     } catch {
       setPhoneOpen(false)
-      onToast('Could not reach your Mac — notifications unchanged')
+      onToast('Could not reach your desktop — notifications unchanged')
     } finally {
       setUnpairing(false)
     }
@@ -406,15 +406,15 @@ export default function SessionsView({
 
   const alive = sessions.filter((s) => s.alive)
   const ended = sessions.filter((s) => !s.alive && !s.external)
-  const fromMac = sessions.filter((s) => !s.alive && s.external)
+  const fromDesktop = sessions.filter((s) => !s.alive && s.external)
   const waiting = sessions.filter((s) => attention[s.id]?.kind === 'waiting').length
 
   const arrive = useArrival([
     ...alive.map((s) => rowKey('a', s.id)),
     ...(ended.length > 0 ? [ENDED_HEADER_KEY] : []),
     ...ended.map((s) => rowKey('e', s.id)),
-    ...(fromMac.length > 0 ? [MAC_HEADER_KEY] : []),
-    ...(macOpen ? fromMac.map((s) => rowKey('m', s.id)) : []),
+    ...(fromDesktop.length > 0 ? [MAC_HEADER_KEY] : []),
+    ...(macOpen ? fromDesktop.map((s) => rowKey('m', s.id)) : []),
   ])
 
   const row = (s: SessionInfo, group: Group) => (
@@ -437,7 +437,7 @@ export default function SessionsView({
     />
   )
 
-  const nothingToShow = alive.length === 0 && ended.length === 0 && fromMac.length === 0
+  const nothingToShow = alive.length === 0 && ended.length === 0 && fromDesktop.length === 0
 
   return (
     <div className="flex h-full flex-col">
@@ -471,15 +471,15 @@ export default function SessionsView({
         )}
         {ended.map((s) => row(s, 'e'))}
 
-        {fromMac.length > 0 && (
+        {fromDesktop.length > 0 && (
           <MacGroupHeader
             arrive={arrive}
-            count={fromMac.length}
+            count={fromDesktop.length}
             open={macOpen}
-            onToggle={toggleMac}
+            onToggle={toggleDesktop}
           />
         )}
-        {macOpen && fromMac.map((s) => row(s, 'm'))}
+        {macOpen && fromDesktop.map((s) => row(s, 'm'))}
         {macOpen && hiddenCount > 0 && (
           <button
             onClick={unhide}

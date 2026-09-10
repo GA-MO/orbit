@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { enableNotices, noticePermission } from '../notice'
 import { Button } from './ui'
 
-const GRANTED_MESSAGE = 'Notifications on — your Mac can reach you now'
+const GRANTED_MESSAGE = 'Notifications on — your desktop can reach you now'
 const DENIED_MESSAGE = 'Notifications blocked — turn them on in Settings'
 
 export default function NoticeOptIn({ onToast }: { onToast: (message: string) => void }) {
@@ -23,7 +23,7 @@ export default function NoticeOptIn({ onToast }: { onToast: (message: string) =>
   return (
     <div className="mx-4 mb-3 flex items-center gap-3 rounded-(--radius-card) border border-line-subtle bg-surface px-3.5 py-3">
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium">Notify me when the Mac needs me</div>
+        <div className="text-[13px] font-medium">Notify me when the desktop needs me</div>
         <p className="mt-0.5 text-xs text-mut">
           An agent finishing, or asking something, reaches you with the phone locked
         </p>

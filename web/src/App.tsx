@@ -53,7 +53,7 @@ const TOAST_MS = 3000
 const NOTICE_MS = 3000
 const BOOT_RETRY_MS = 2000
 const PAIR_CODE_EXPIRED =
-  'That pairing code has expired — run `orbit pair` on the Mac for a fresh one, or type the token.'
+  'That pairing code has expired — run `orbit pair` on the desktop for a fresh one, or type the token.'
 const TRAILING_SPACE = /\s*$/
 
 const previewRouteKey = (port: number | string) => `orbit.previewRoute.${port}`
@@ -418,7 +418,7 @@ export default function App() {
     setCurrentId(null)
     setCurrent(null)
     bootAgain()
-    showToast('That session is no longer on your Mac')
+    showToast('That session is no longer on your desktop')
   }, [showToast])
 
   const unpair = useCallback(async () => {
@@ -549,7 +549,7 @@ export default function App() {
               </div>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-mut">
-                Connecting to your Mac…
+                Connecting to your desktop…
               </div>
             )}
           </TerminalView>

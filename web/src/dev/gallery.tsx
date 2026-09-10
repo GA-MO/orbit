@@ -363,7 +363,7 @@ function Gallery() {
         <Screen label="hint + action">
           <EmptyState
             title="Nothing is running"
-            hint="Start a session on the Mac, or from here, and it will appear in this list within a few seconds."
+            hint="Start a session on the desktop, or from here, and it will appear in this list within a few seconds."
           >
             <Button>
               <IconPlus size={16} />
@@ -374,7 +374,7 @@ function Gallery() {
         <Screen label="long hint">
           <EmptyState
             title="No published ports"
-            hint="A dev server on the Mac can be published to the tailnet over https, which is the only way an installed web app is allowed to frame it. Nothing is listening right now."
+            hint="A dev server on the desktop can be published to the tailnet over https, which is the only way an installed web app is allowed to frame it. Nothing is listening right now."
           />
         </Screen>
       </Section>
@@ -407,7 +407,7 @@ function Gallery() {
 
       <Section
         title="AskModal"
-        note="The state that is hardest to reach for real: something on the Mac is blocked until this is answered, so there is no dismiss and every path answers. Two options read as a decision and sit reversed so the emphasised one is under the thumb; more than two stack."
+        note="The state that is hardest to reach for real: something on the desktop is blocked until this is answered, so there is no dismiss and every path answers. Two options read as a decision and sit reversed so the emphasised one is under the thumb; more than two stack."
       >
         <Screen label="two options" height={420}>
           <AskModal request={ASK_TWO} onAnswer={noop} />

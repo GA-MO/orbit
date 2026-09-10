@@ -8,10 +8,10 @@ interface Props {
   notice?: string | null
 }
 
-const SERVER_UNREACHABLE = 'Cannot reach the Orbit server on your Mac'
+const SERVER_UNREACHABLE = 'Cannot reach the Orbit server on your desktop'
 const TOKEN_REJECTED = 'That token doesn’t match — check the server console'
 const PAIR_CODE_EXPIRED =
-  'That pairing code has expired — run `orbit pair` on the Mac for a fresh one'
+  'That pairing code has expired — run `orbit pair` on the desktop for a fresh one'
 
 export default function Login({ onSuccess, notice = null }: Props) {
   const [value, setValue] = useState('')
@@ -85,7 +85,7 @@ export default function Login({ onSuccess, notice = null }: Props) {
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold tracking-wide">Orbit</h1>
           <p className="mt-2 text-sm leading-relaxed text-mut">
-            Your Mac is asking for its access token. Scan the QR code on its screen, or type
+            Your desktop is asking for its access token. Scan the QR code on its screen, or type
             the token printed beside it
             (<code className="font-mono text-xs text-fore">[orbit] access token</code>).
             Orbit asks for this when it was started with{' '}

@@ -422,7 +422,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
           <p className="px-1 text-[11px] text-faint">{cannotPublishReason}</p>
         )}
         {previews?.available && rows.length === 0 && (
-          <p className="px-1 text-[11px] text-faint">Nothing is serving a web page on this Mac.</p>
+          <p className="px-1 text-[11px] text-faint">Nothing is serving a web page on this machine.</p>
         )}
 
         <div
@@ -472,8 +472,8 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
           </div>
         )}
         {shots.map((s) => {
-          const subjectName = s.label ?? 'Mac screen'
-          const isMacScreen = s.kind === 'screen'
+          const subjectName = s.label ?? 'Screen'
+          const isScreenCapture = s.kind === 'screen'
           return (
             <figure
               key={s.file}
@@ -482,7 +482,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
             >
               <img
                 src={screenshotUrl(s.file)}
-                alt={`${isMacScreen ? 'Mac screen' : 'App'} capture from ${timeAgo(s.createdAt)} ago`}
+                alt={`${isScreenCapture ? 'Screen' : 'App'} capture from ${timeAgo(s.createdAt)} ago`}
                 loading="lazy"
                 style={{ aspectRatio: tileRatio(s) }}
                 className={`w-full cursor-zoom-in bg-ink object-top ${
@@ -496,7 +496,7 @@ export default function CapturesView({ active, onInsertPath, onToast }: Props) {
                   s.width ? ` · ${s.width}×${s.height}` : ''
                 }`}
               >
-                {isMacScreen && <IconDisplay size={12} className="shrink-0" />}
+                {isScreenCapture && <IconDisplay size={12} className="shrink-0" />}
                 <span className="truncate font-mono">{subjectName}</span>
               </div>
               <figcaption className="flex items-center px-1.5 py-0.5">
