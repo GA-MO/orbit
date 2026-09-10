@@ -24,6 +24,8 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+      - name: how the server is spawned
+        run: bun scripts/windows-server-capture-probe.ts
       - name: smoke
         run: bun scripts/test.ts smoke
       - name: setup
