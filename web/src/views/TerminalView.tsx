@@ -60,27 +60,19 @@ function SessionTitle({ session }: { session: SessionInfo | null }) {
 function SessionSubtitle({
   session,
   status,
-  ended,
 }: {
   session: SessionInfo | null
   status: ConnectionStatus
-  ended: boolean
 }) {
   return (
-    <div className="flex items-center gap-1.5 text-[11px] text-faint">
+    <div className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-faint">
       {session && (
         <>
           <span className="truncate font-mono">{basename(session.cwd)}</span>
-          <span>·</span>
+          <span className="shrink-0">·</span>
         </>
       )}
-      <span className={STATUS_COLOR[status]}>{STATUS_LABEL[status]}</span>
-      {ended && (
-        <>
-          <span>·</span>
-          <span>read-only</span>
-        </>
-      )}
+      <span className={`shrink-0 ${STATUS_COLOR[status]}`}>{STATUS_LABEL[status]}</span>
     </div>
   )
 }
@@ -150,7 +142,7 @@ export default function TerminalView({
         <OrbitMark size={26} idle={status !== 'connected'} />
         <div className="min-w-0 flex-1">
           <SessionTitle session={session} />
-          <SessionSubtitle session={session} status={status} ended={ended} />
+          <SessionSubtitle session={session} status={status} />
         </div>
         {ended ? (
           <EndedSessionActions
