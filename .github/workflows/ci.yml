@@ -26,6 +26,21 @@ jobs:
       - run: bunx tsc --noEmit -p web
       - run: bun run build
       - run: bun audit
+      # PowerShell reports a syntax error in install.ps1 as a two-line
+      # ParserError on the caller's stderr, which the install suite then
+      # truncates. Parsing the file on its own says which line and why.
+      - name: install.ps1 must parse
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $problems = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path install.ps1), [ref]$null, [ref]$problems) | Out-Null
+          if ($problems) {
+            $problems | ForEach-Object { Write-Host "line $($_.Extent.StartLineNumber): $($_.Message)" }
+            exit 1
+          }
+          Write-Host 'install.ps1 parses'
       - run: bun scripts/test.ts idle
       - run: bun scripts/test.ts ask
       - run: bun scripts/test.ts preview-url

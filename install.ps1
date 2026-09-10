@@ -45,10 +45,10 @@ $work = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandom
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
   $binary = Join-Path $work $asset
-  $checksumFile = Join-Path $work "$asset.sha256"
+  $checksumFile = Join-Path $work "${asset}.sha256"
 
   try { Get-Asset $asset $binary } catch { Fail "could not download $asset from $repo $tag" }
-  try { Get-Asset "$asset.sha256" $checksumFile } catch {
+  try { Get-Asset "${asset}.sha256" $checksumFile } catch {
     Fail "release $tag carries no checksum for $asset — not installing it"
   }
 
