@@ -151,7 +151,7 @@ check('capture carries a label', labelled.body.label?.includes('healthz'), label
 const relabelled = await api('/api/screenshot', { url: BASE, label: 'localhost:3000' })
 check(
   'a capture can be filed under something other than where it was fetched',
-  relabelled.body.label === 'localhost:3000',
+  relabelled.body.label === 'localhost_3000',
   relabelled.body.file,
 )
 const traversingLabel = await api('/api/screenshot', { url: BASE, label: '../../etc/passwd' })

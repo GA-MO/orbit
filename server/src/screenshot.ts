@@ -21,9 +21,9 @@ const DESKTOP_WIDTH_PX = 1200
 const RETINA_SCALE = 2
 const PLAIN_SCALE = 1
 const LABEL_MAX = 40
-const UNSAFE_LABEL_CHARS = /[^\w.:]/g
+const UNSAFE_LABEL_CHARS = /[^\w.]/g
 const PNG_EXTENSION = /\.png$/
-const SAFE_FILE_NAME = /^[\w.:-]+\.png$/
+const SAFE_FILE_NAME = /^[\w.-]+\.png$/
 const NAVIGATION_FAILURE = /net::[A-Z_]+/
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47])
