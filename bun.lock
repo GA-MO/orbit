@@ -14,7 +14,7 @@
     },
     "server": {
       "name": "@orbit/server",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "dependencies": {
         "bun-pty": "^0.4.10",
         "playwright-core": "^1.62.1",
