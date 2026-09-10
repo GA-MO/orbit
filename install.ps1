@@ -15,6 +15,18 @@ if ([Environment]::Is64BitOperatingSystem -eq $false) {
   Fail 'Orbit needs a 64-bit Windows.'
 }
 
+function Get-Sha256($file) {
+  $digest = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($file)
+  try { ([BitConverter]::ToString($digest.ComputeHash($stream)) -replace '-', '') }
+  finally { $stream.Dispose(); $digest.Dispose() }
+}
+
+function Clear-DownloadBlock($file) {
+  $zone = "${file}:Zone.Identifier"
+  if (Test-Path -LiteralPath $zone) { Remove-Item -LiteralPath $zone -Force -ErrorAction SilentlyContinue }
+}
+
 function Get-GitHubJson($path) {
   $headers = @{ 'User-Agent' = 'orbit-install' }
   if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
@@ -53,7 +65,7 @@ try {
   }
 
   $published = ((Get-Content $checksumFile -Raw).Trim() -split '\s+')[0]
-  $actual = (Get-FileHash -Algorithm SHA256 -Path $binary).Hash
+  $actual = Get-Sha256 $binary
   if ($published.ToLower() -ne $actual.ToLower()) {
     Fail 'checksum of the download does not match the one the release published - not installing it'
   }
@@ -70,7 +82,7 @@ try {
     throw
   }
   Remove-Item $replaced -Force -ErrorAction SilentlyContinue
-  Unblock-File -Path $installed -ErrorAction SilentlyContinue
+  Clear-DownloadBlock $installed
 
   $installedVersion = (& $installed version 2>$null | Out-String).Trim()
   if (-not $installedVersion) { Fail "$installed did not start" }
