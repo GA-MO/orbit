@@ -26,7 +26,6 @@ const STATUS_COLOR: Record<ConnectionStatus, string> = {
   ended: 'text-faint',
 }
 
-
 interface Props {
   session: SessionInfo | null
   status: ConnectionStatus
