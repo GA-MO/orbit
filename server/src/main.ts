@@ -1,5 +1,7 @@
 const [command, ...rest] = process.argv.slice(2)
 
+const TAGLINE = 'a phone-side console for the coding agents on this Mac'
+
 const COMMANDS: Array<[invocation: string, blurb: string]> = [
   ['orbit [--lan]', 'run the server (ORBIT_PORT, default 7788; --lan opens it to the Wi-Fi)'],
   ['orbit start [--lan]', 'run it published over the tailnet as https, for the phone'],
@@ -20,13 +22,11 @@ const usage = async (): Promise<string> => {
   const lines = COMMANDS.map(
     ([invocation, blurb]) => `  ${ui.ink(ui.HORIZON, invocation.padEnd(invocationWidth))}   ${ui.dim(blurb)}`,
   )
-  return [
-    ...ui.headingLines('help'),
-    `  ${ui.dim('a phone-side console for the coding agents on this Mac')}`,
-    '',
-    ...lines,
-    '',
-  ].join('\n')
+  const wide = (ui.columns() ?? 0) >= ui.BLOCK_WORDMARK_WIDTH + 4
+  const head = wide
+    ? ['', ...ui.blockWordmark().map((line) => `  ${line}`), '', `  ${ui.dim(TAGLINE)}`, ui.ruleLine(), '']
+    : [...ui.headingLines('help'), `  ${ui.dim(TAGLINE)}`, '']
+  return [...head, ...lines, ''].join('\n')
 }
 
 const plainUsage = (): string =>

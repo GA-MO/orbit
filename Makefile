@@ -1,4 +1,4 @@
-.PHONY: help install setup unsetup doctor dev build start stop clean icons shots dist \
+.PHONY: help install setup unsetup doctor dev build start stop clean icons wordmark shots dist \
 	test test-smoke test-touch test-changes test-preview-url test-idle test-ask test-setup test-install test-clean \
 	mobile \
 	remote-on remote-off remote-status
@@ -62,6 +62,9 @@ shots: ## Retake docs/images from the current UI (throwaway server, real HOME)
 
 icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.svg)
 	@bun scripts/icons.mjs
+
+wordmark: ## Redraw docs/images/wordmark.svg from the letterforms the terminal uses
+	@bun run --cwd server build >/dev/null && bun scripts/wordmark.mjs
 
 # ── test ───────────────────────────────────────────────
 # Builds, starts an Orbit of its own (first free port from 3099, scratch HOME

@@ -26,9 +26,53 @@ bar_rule='═══════════════════════�
 say() { printf '  %s\n' "$*"; }
 rule() { printf '  %s%s%s\n' "$accent" "$bar_rule" "$off"; }
 
+pixels=(
+  "1111011100111001110111"
+  "1001010010100100100010"
+  "1001011100111000100010"
+  "1001010100100100100010"
+  "1111010010111001110010"
+)
+
+column_colour() {
+  local at=$1 width=$2
+  printf '\033[38;2;%d;%d;%dm' \
+    $(( 56 + (178 - 56) * at / (width - 1) )) \
+    $(( 214 + (132 - 214) * at / (width - 1) )) \
+    $(( 238 + (252 - 238) * at / (width - 1) ))
+}
+
+pixel_wordmark() {
+  local width=${#pixels[0]} band top bottom at lit under glyph line
+  for band in 0 1 2; do
+    top="${pixels[$((band * 2))]}"
+    bottom="${pixels[$((band * 2 + 1))]:-}"
+    line=''
+    for (( at = 0; at < width; at++ )); do
+      lit="${top:$at:1}"
+      under="${bottom:$at:1}"
+      if [ "$lit" = 1 ] && [ "$under" = 1 ]; then glyph='██'
+      elif [ "$lit" = 1 ]; then glyph='▀▀'
+      elif [ "$under" = 1 ]; then glyph='▄▄'
+      else glyph='  '
+      fi
+      if [ -n "$accent" ]; then line+="$(column_colour "$at" "$width")$glyph$off"
+      else line+="$glyph"
+      fi
+    done
+    printf '  %s\n' "$line"
+  done
+}
+
 heading() {
-  printf '\n  %s%s%s  %s%sO R B I T%s   %s▸ install%s\n' \
-    "$accent" "$orb" "$off" "$strong" "$accent" "$off" "$violet" "$off"
+  printf '\n'
+  if [ "$(tput cols 2>/dev/null || echo 80)" -ge 48 ]; then
+    pixel_wordmark
+    printf '\n  %s%s%s %sinstall%s\n' "$accent" "$orb" "$off" "$violet" "$off"
+  else
+    printf '  %s%s%s  %s%sO R B I T%s   %s▸ install%s\n' \
+      "$accent" "$orb" "$off" "$strong" "$accent" "$off" "$violet" "$off"
+  fi
   rule
   printf '\n'
 }

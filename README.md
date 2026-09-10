@@ -2,7 +2,9 @@
   <img src="web/public/icon.svg" width="88" alt="Orbit">
 </p>
 
-<h1 align="center">Orbit</h1>
+<h1 align="center">
+  <img src="docs/images/wordmark.svg" width="268" alt="Orbit">
+</h1>
 
 <p align="center">
   Your MacBook as a personal AI dev server — driven from your phone.<br>

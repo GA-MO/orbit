@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 112" width="384" height="112" role="img" aria-label="Orbit">
+  <defs>
+    <linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="16" y1="0" x2="368" y2="0">
+      <stop offset="0" stop-color="rgb(56,214,238)"/>
+      <stop offset="1" stop-color="rgb(178,132,252)"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#ramp)">
+    <rect x="16" y="16" width="13" height="13"/>
+    <rect x="32" y="16" width="13" height="13"/>
+    <rect x="48" y="16" width="13" height="13"/>
+    <rect x="64" y="16" width="13" height="13"/>
+    <rect x="96" y="16" width="13" height="13"/>
+    <rect x="112" y="16" width="13" height="13"/>
+    <rect x="128" y="16" width="13" height="13"/>
+    <rect x="176" y="16" width="13" height="13"/>
+    <rect x="192" y="16" width="13" height="13"/>
+    <rect x="208" y="16" width="13" height="13"/>
+    <rect x="256" y="16" width="13" height="13"/>
+    <rect x="272" y="16" width="13" height="13"/>
+    <rect x="288" y="16" width="13" height="13"/>
+    <rect x="320" y="16" width="13" height="13"/>
+    <rect x="336" y="16" width="13" height="13"/>
+    <rect x="352" y="16" width="13" height="13"/>
+    <rect x="16" y="32" width="13" height="13"/>
+    <rect x="64" y="32" width="13" height="13"/>
+    <rect x="96" y="32" width="13" height="13"/>
+    <rect x="144" y="32" width="13" height="13"/>
+    <rect x="176" y="32" width="13" height="13"/>
+    <rect x="224" y="32" width="13" height="13"/>
+    <rect x="272" y="32" width="13" height="13"/>
+    <rect x="336" y="32" width="13" height="13"/>
+    <rect x="16" y="48" width="13" height="13"/>
+    <rect x="64" y="48" width="13" height="13"/>
+    <rect x="96" y="48" width="13" height="13"/>
+    <rect x="112" y="48" width="13" height="13"/>
+    <rect x="128" y="48" width="13" height="13"/>
+    <rect x="176" y="48" width="13" height="13"/>
+    <rect x="192" y="48" width="13" height="13"/>
+    <rect x="208" y="48" width="13" height="13"/>
+    <rect x="272" y="48" width="13" height="13"/>
+    <rect x="336" y="48" width="13" height="13"/>
+    <rect x="16" y="64" width="13" height="13"/>
+    <rect x="64" y="64" width="13" height="13"/>
+    <rect x="96" y="64" width="13" height="13"/>
+    <rect x="128" y="64" width="13" height="13"/>
+    <rect x="176" y="64" width="13" height="13"/>
+    <rect x="224" y="64" width="13" height="13"/>
+    <rect x="272" y="64" width="13" height="13"/>
+    <rect x="336" y="64" width="13" height="13"/>
+    <rect x="16" y="80" width="13" height="13"/>
+    <rect x="32" y="80" width="13" height="13"/>
+    <rect x="48" y="80" width="13" height="13"/>
+    <rect x="64" y="80" width="13" height="13"/>
+    <rect x="96" y="80" width="13" height="13"/>
+    <rect x="144" y="80" width="13" height="13"/>
+    <rect x="176" y="80" width="13" height="13"/>
+    <rect x="192" y="80" width="13" height="13"/>
+    <rect x="208" y="80" width="13" height="13"/>
+    <rect x="256" y="80" width="13" height="13"/>
+    <rect x="272" y="80" width="13" height="13"/>
+    <rect x="288" y="80" width="13" height="13"/>
+    <rect x="336" y="80" width="13" height="13"/>
+  </g>
+</svg>

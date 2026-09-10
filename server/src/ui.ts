@@ -112,7 +112,7 @@ const POINTER = '▸'
 
 const wordmark = (): string => gradient([...'ORBIT'].join(' '))
 
-const LETTERFORMS: string[][] = [
+export const LETTERFORMS: string[][] = [
   ['1111', '1001', '1001', '1001', '1111'],
   ['1110', '1001', '1110', '1010', '1001'],
   ['1110', '1001', '1110', '1001', '1110'],
@@ -124,7 +124,7 @@ const LETTER_GAP = 1
 const LIT = '1'
 const HALF_ROWS = 3
 
-const stitchLetters = (): string[] => {
+export const stitchLetters = (): string[] => {
   const rows: string[] = []
   for (let row = 0; row < LETTERFORMS[0].length; row += 1) {
     rows.push(LETTERFORMS.map((letter) => letter[row]).join('0'.repeat(LETTER_GAP)))
