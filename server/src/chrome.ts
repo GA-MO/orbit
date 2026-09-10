@@ -23,6 +23,8 @@ const LAUNCH_ARGS = [
   '--no-default-browser-check',
   '--disable-background-networking',
   '--disable-extensions',
+  '--use-mock-keychain',
+  '--password-store=basic',
   '--hide-scrollbars',
   '--mute-audio',
   'about:blank',
