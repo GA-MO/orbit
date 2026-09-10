@@ -582,12 +582,80 @@ to exactly what it was before: a banner that opens the question in the app.
 
 ## Authentication and pairing
 
+### The tailnet already knows who you are
+
+Reaching Orbit over `tailscale serve` proves something before the first byte
+of the app is parsed: the address is tailnet-only, so it answered a device on
+the owner's own tailnet and nobody else. Orbit asked for a token on top of
+that anyway, and the token was a sixteen-character string somebody had to read
+off one screen with the characters hidden and type into another. Every phone
+paid that cost once per origin, forever, to re-prove a fact the network had
+already established.
+
+So the phone walks in. `tailscale serve` puts a verified
+`Tailscale-User-Login` on everything it proxies, and a request whose login is
+the Mac's own is served with no token at all — reads, writes, the WebSocket,
+and the cookie the socket needs. A different login is refused. There is
+nothing to pair, nothing to type, and nothing that expires; the QR code, the
+pairing code and the ten-minute window all stop being part of the normal path.
+
+A Mac whose own login cannot be read fails closed and asks for the token, which
+is the same shape as the case below.
+
+On the phone this has to be invisible, not merely brief. The app renders
+nothing until the server has answered, so no login field flashes past on the
+way in — a field that appears and vanishes reads as a bug, and asking someone
+to ignore it is worse than the token was. The field appears only when the
+server actually asks for a token, and then it says why it is asking, shows
+what is being typed rather than hiding it behind dots, and does not
+autocapitalise: nobody memorises a token, so hiding it protects nothing and
+costs every attempt.
+
+### Trusting that header costs the wi-fi door
+
+The header is only worth something under a condition Orbit did not previously
+meet. Tailscale strips `Tailscale-User-Login` from anything a caller sent and
+re-adds what its own network says — but its documentation is explicit that
+this is worth nothing unless the program behind the proxy listens on localhost
+alone. Otherwise anyone who can reach the port directly writes the header
+themselves and is whoever they say they are.
+
+Orbit had listened on every interface since its first commit. So it now binds
+`127.0.0.1`, and `tailscale serve` is the way in from another device.
+`ORBIT_LAN=1`, or `orbit start --lan`, opens the wi-fi door again for a Mac
+with no Tailscale — and in that mode the header is ignored entirely and the
+token is the only credential. The one thing that cannot be true is trusting
+the header while the back door is open, so the flag that opens the door is the
+same flag that stops the header being read.
+
+This is a real cost, and it is the trade the design makes deliberately: a Mac
+without Tailscale is a flag away from working, and a Mac with Tailscale never
+sees a login screen again.
+
+### The header is refused when the Origin belongs to elsewhere
+
+`serve` stamps the login header on *every* request it proxies, including one
+that a page published on 8443 makes back to Orbit's origin. Without a check,
+the header would be a cross-site write primitive for anything served on the
+tailnet — a preview of the app under development could act as you.
+
+So the header only counts when the request's `Origin` is a host it was
+addressed to, and a request with no `Origin` at all (a `curl`, an MCP call) is
+not a browser page and passes. This is the same reasoning as the socket's
+Origin check below, and it is why the cookie authorises reads while the login
+authorises writes: the login is re-checked against the proxy on every request,
+where the cookie is a bearer credential the browser attaches on its own.
+
 ### A bearer token for everything; a hashed cookie where a header cannot go
 
+The token has not gone away; it has stopped being something a person types. It
+is what the MCP server, the hooks and `orbit pair` use over loopback, and it is
+the only credential under `--lan`.
+
 An access token is generated to `~/.orbit/config.json` and printed in the
-server console. It is required for all `/api/*` and WebSocket traffic as
-`Authorization: Bearer`; the phone has a login screen, and an invalid or
-expired token drops back to it.
+server console. It is accepted for all `/api/*` and WebSocket traffic as
+`Authorization: Bearer`; the login screen still exists for the paths that need
+it, and an invalid or expired token drops back to it.
 
 A WebSocket handshake and an `<img src>` cannot carry that header, so those
 two authenticate with an `HttpOnly; SameSite=Strict` cookie minted by
@@ -598,6 +666,9 @@ Nothing puts the token in a URL, where it would end up in proxy logs and
 history.
 
 ### The pairing QR carries a code, never the token
+
+Pairing is now the `--lan` path only, and the QR is kept as it was rather than
+relaxed for a phone that no longer sees it.
 
 The QR printed by `orbit start` and `orbit pair` encodes
 `https://<host>/#pair=<code>`: a pairing code that lives ten minutes and
@@ -653,8 +724,8 @@ first.
 ### Production is one port
 
 In production the server serves the built web app itself, so production is a
-single port: `bun run build && bun run start`, then open
-`http://<mac-ip>:7788` (or the tailnet https address `orbit start` publishes).
+single port: `bun run build && bun run start`, then open the tailnet https
+address `orbit start` publishes (or, with `--lan`, `http://<mac-ip>:7788`).
 
 ### An installable PWA
 

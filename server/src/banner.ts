@@ -66,8 +66,8 @@ export function plainBanner(facts: BannerFacts): string {
   const version = facts.version ?? packageVersion()
   const lines = [
     `[orbit] v${version} listening on http://localhost:${facts.port} (ws: /ws)`,
-    `[orbit] access token: ${facts.token}`,
   ]
+  if (aCredentialIsWanted(facts)) lines.push(`[orbit] access token: ${facts.token}`)
   if (facts.tailnetUrl) lines.push(`[orbit] tailnet: ${facts.tailnetUrl}`)
   const wifiUrl = wifiUrlFor(facts)
   if (wifiUrl) lines.push(`[orbit] same wi-fi: ${wifiUrl}`)
@@ -76,12 +76,19 @@ export function plainBanner(facts: BannerFacts): string {
 
 type Row = [label: string, value: string]
 
+const aCredentialIsWanted = (facts: BannerFacts): boolean => LAN_OPEN || !facts.tailnetUrl
+
 const addressRows = (facts: BannerFacts, localUrl: string, wifiUrl: string | null): Row[] => {
   const rows: Row[] = [facts.tailnetUrl ? ['Phone', facts.tailnetUrl] : ['Browser', `${localUrl}/`]]
   if (wifiUrl) rows.push(['Same wi-fi', `${wifiUrl}/`])
-  rows.push(['Token', facts.token])
+  if (aCredentialIsWanted(facts)) rows.push(['Token', facts.token])
   return rows
 }
+
+const WALK_IN_INSTRUCTIONS = [
+  'Open that address on your phone, with Tailscale on — it lets you straight in.',
+  'Share → Add to Home Screen, and it stays one tap away.',
+]
 
 const pairingInstructions = (hasPairUrl: boolean): string[] =>
   hasPairUrl
@@ -126,13 +133,17 @@ export function banner(facts: BannerFacts): string {
   }
   if (!stacked) out.push('')
 
-  const qr = qrBlock(facts.pairUrl ?? facts.token, INDENT + INDENT)
-  const qrWidth = Math.max(...qr.split('\n').map(visibleWidth))
-  if (qrWidth <= columns) {
-    out.push(qr, '')
-    out.push(...pairingInstructions(Boolean(facts.pairUrl)).map(dimLine))
+  if (aCredentialIsWanted(facts)) {
+    const qr = qrBlock(facts.pairUrl ?? facts.token, INDENT + INDENT)
+    const qrWidth = Math.max(...qr.split('\n').map(visibleWidth))
+    if (qrWidth <= columns) {
+      out.push(qr, '')
+      out.push(...pairingInstructions(Boolean(facts.pairUrl)).map(dimLine))
+    } else {
+      out.push(dimLine('Widen this window to show the pairing code.'))
+    }
   } else {
-    out.push(dimLine('Widen this window to show the pairing code.'))
+    out.push(...WALK_IN_INSTRUCTIONS.map(dimLine))
   }
 
   out.push(dimLine(footnoteLine(facts, localUrl, columns)))

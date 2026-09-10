@@ -312,6 +312,7 @@
     <span class="brand"><span class="mark"></span>Orbit</span>
     <nav>
       <a href="#what">What it is</a>
+      <a href="#access">Getting in</a>
       <a href="#path">The path</a>
       <a href="#tour">Tour</a>
       <a href="#agent">Agent side</a>
@@ -329,11 +330,12 @@
       <h1>The agent runs on your MacBook<br><span class="dim">You drive it from your pocket</span></h1>
       <p class="hero-sub">
         Orbit turns your MacBook into a personal AI development server — a real terminal attached to
-        zsh on your own machine, opened in your phone's browser. Not a chat wrapper, not a cloud IDE,
-        and code never leaves the machine.
+        zsh on your own machine, opened in your phone's browser. Your phone opens the address on your
+        own tailnet and is simply in: nothing to type, nothing to scan, nothing that expires.
+        Not a chat wrapper, not a cloud IDE, and code never leaves the machine.
       </p>
       <div class="cta">
-        <a class="btn solid" href="#start">Install in 2 commands</a>
+        <a class="btn solid" href="#start">Install in 3 commands</a>
         <a class="btn" href="#tour">See the real thing</a>
       </div>
       <div class="chips">
@@ -408,15 +410,64 @@
   </div>
 </section>
 
+<!-- ================= ACCESS ================= -->
+<section id="access">
+  <div class="wrap">
+    <div class="head">
+      <div class="eyebrow">02 — Getting in</div>
+      <h2>Open the address on your phone. That is the whole of it.</h2>
+      <p class="lede">
+        There is no pairing step on the normal path — no token to type, no code to scan, nothing
+        that quietly expires while you are away from the desk. The server listens on
+        <code>127.0.0.1</code> alone, and <code>tailscale serve</code> is the way in from another device.
+      </p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="k">01</div>
+        <h3>Your tailnet is the credential</h3>
+        <p>
+          Reaching the address at all means being one of the owner's own devices. Tailscale puts a verified
+          <code>Tailscale-User-Login</code> header on every request it proxies, so the phone arrives already named.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">02</div>
+        <h3>Only the Mac's own login is admitted</h3>
+        <p>
+          The header says which of the owner's logins it is, and Orbit lets in exactly one: the login that owns
+          the machine it is running on. Another person on the same tailnet is still a stranger.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">03</div>
+        <h3>It holds because the wi-fi door is shut</h3>
+        <p>
+          Tailscale's guarantee about that header is void if the program can be reached directly — anyone who
+          could route to the port would simply set it themselves. Binding to localhost leaves the proxy as the
+          only way in, which is what makes the header worth anything.
+        </p>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>The escape hatch:</b> <code>orbit start --lan</code> (or <code>ORBIT_LAN=1</code>) opens the wi-fi door
+      for a Mac with no Tailscale. In that mode the access token is the only credential, and the header counts
+      for nothing at all — because in that mode anyone who can reach the port could have written it.
+    </div>
+  </div>
+</section>
+
 <!-- ================= PATH ================= -->
 <section id="path">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">02 — The path of one keystroke</div>
+      <div class="eyebrow">03 — The path of one keystroke</div>
       <h2>From your finger to zsh, through five layers</h2>
       <p class="lede">
         There is no cloud on this path. Each character you type travels through Tailscale's WireGuard tunnel
-        into Node on your own machine, then down to a real PTY.
+        into Bun on your own machine, then down to a real PTY.
       </p>
     </div>
 
@@ -424,7 +475,7 @@
       <div class="hop"><b>Phone</b><span>xterm.js in Safari, or the PWA on your home screen</span></div>
       <div class="hop"><b>tailnet</b><span>HTTPS 443 via <em>tailscale serve</em>, without touching the router</span></div>
       <div class="hop"><b>Orbit</b><span>Bun on <em>:7788</em> — auth, WebSocket, REST</span></div>
-      <div class="hop"><b>node-pty</b><span>A real terminal, sized to match the phone's screen</span></div>
+      <div class="hop"><b>bun-pty</b><span>A real terminal, sized to match the phone's screen</span></div>
       <div class="hop"><b>zsh + agent</b><span>Your own PATH, in your own folder</span></div>
     </div>
 
@@ -439,7 +490,7 @@
 <section id="tour">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">03 — The tour</div>
+      <div class="eyebrow">04 — The tour</div>
       <h2>Everything that used to mean walking to the machine now sits in your hand</h2>
       <p class="lede">
         Every image is captured from a running Orbit, not a mockup. A script walks the app screen by screen
@@ -552,7 +603,7 @@
         </div>
         <div class="pair">
           <div class="phone"><img src="{{SHOT:05-new-session}}" alt="The new session screen, choosing an agent and a folder"></div>
-          <div class="phone"><img src="{{SHOT:01-login}}" alt="The login page, entering an access token"></div>
+          <div class="phone"><img src="{{SHOT:01-login}}" alt="The login page, where a token is entered on the wi-fi path"></div>
         </div>
       </div>
 
@@ -564,7 +615,7 @@
 <section id="agent">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">04 — The agent side</div>
+      <div class="eyebrow">05 — The agent side</div>
       <h2>Let the agent see its own work, and reach you</h2>
       <p class="lede">
         So far it has been the phone driving the Mac. This is the other direction. The MCP server that ships with Orbit
@@ -610,18 +661,27 @@
 <section id="safety">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">05 — Security</div>
+      <div class="eyebrow">06 — Security</div>
       <h2>It controls your personal computer, so this comes first</h2>
     </div>
 
     <div class="grid">
       <div class="card">
+        <h3>Localhost only, so the tailnet is the door</h3>
+        <p>
+          The server binds <code>127.0.0.1</code>, which leaves <code>tailscale serve</code> as the only way in from
+          another device — and that is exactly the condition under which the verified
+          <code>Tailscale-User-Login</code> header means anything. Open the wi-fi door with
+          <code>--lan</code> and the header is ignored outright; the token becomes the only credential.
+        </p>
+      </div>
+      <div class="card">
         <h3>A token that never appears in a URL</h3>
         <p>
-          The access token is generated into <code>~/.orbit/config.json</code> and sent only as an Authorization
-          header. It is never in a URL that would end up in a proxy log or browser history.
-          The socket and <code>&lt;img&gt;</code>, which cannot carry a header, use an HttpOnly cookie
-          that holds a hash of the token and permits reads only.
+          Where a token is still used — the wi-fi path, and <code>orbit pair</code> — it is generated into
+          <code>~/.orbit/config.json</code> and sent only as an Authorization header, never in a URL that
+          would end up in a proxy log or browser history. The socket and <code>&lt;img&gt;</code>, which cannot
+          carry a header, use an HttpOnly cookie that holds a hash of the token and permits reads only.
         </p>
       </div>
       <div class="card">
@@ -654,7 +714,7 @@
 <section id="start">
   <div class="wrap">
     <div class="head">
-      <div class="eyebrow">06 — Get started</div>
+      <div class="eyebrow">07 — Get started</div>
       <h2>From zero to driving it from your phone</h2>
       <p class="lede">
         One executable from a GitHub release, checksum verified before it installs.
@@ -664,21 +724,24 @@
 
 <pre><span class="c"># Once per machine — one file, no runtime to install</span>
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
-orbit doctor      <span class="c"># what this Mac has, and what it is missing</span>
 orbit setup       <span class="c"># register the MCP server + install the Claude Code hooks</span>
+orbit start       <span class="c"># run on :7788 + Tailscale HTTPS, then open the address on your phone</span>
 
-<span class="c"># Turn it on</span>
-orbit phone       <span class="c"># run + Tailscale HTTPS, then open the link on your phone</span>
-orbit phone off   <span class="c"># close the front door</span></pre>
+<span class="c"># The rest of the surface</span>
+orbit stop        <span class="c"># the server, and the tailnet front door with it</span>
+orbit doctor      <span class="c"># what this Mac has, and what it is missing</span>
+orbit update      <span class="c"># replace this executable with the latest release</span>
+orbit pair        <span class="c"># a QR + token, for the wi-fi path</span>
+orbit start --lan <span class="c"># no Tailscale? open the wi-fi door instead</span></pre>
 
     <div class="grid">
       <div class="card">
         <h3>What you need</h3>
-        <p>macOS (Apple silicon or Intel), Claude Code on PATH, Google Chrome for captures, and Tailscale when you want to use it away from home. No Node or Bun required.</p>
+        <p>macOS (Apple silicon or Intel), Claude Code on PATH, Google Chrome for captures, and Tailscale on the Mac and the phone, which is what makes opening the address enough. One executable — nothing else to install.</p>
       </div>
       <div class="card">
         <h3>What happens on first run</h3>
-        <p>The console prints an access token. Enter it on the login page on your phone. Remove the <code>token</code> key in <code>~/.orbit/config.json</code> when you want a new one.</p>
+        <p><code>orbit start</code> prints the tailnet address. Open it on a phone on your own tailnet and you are in — no token, no pairing. On the <code>--lan</code> path it prints a token instead; remove the <code>token</code> key in <code>~/.orbit/config.json</code> when you want a new one.</p>
       </div>
       <div class="card">
         <h3>Where to go next</h3>

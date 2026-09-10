@@ -6,7 +6,7 @@ Orbit turns your MacBook into a personal AI development server: you drive Claude
 
 ## Contents
 
-- [Getting started: pair with your Mac](#getting-started-pair-with-your-mac)
+- [Getting started: open it on your phone](#getting-started-open-it-on-your-phone)
 - [The Terminal tab](#the-terminal-tab)
 - [The Changes tab](#the-changes-tab)
 - [The Sessions tab](#the-sessions-tab)
@@ -21,7 +21,7 @@ Orbit turns your MacBook into a personal AI development server: you drive Claude
 - [Install as an app (PWA)](#install-as-an-app-pwa)
 - [Everyday flows](#everyday-flows)
 
-## Getting started: pair with your Mac
+## Getting started: open it on your phone
 
 Orbit is a single executable. Install it on the Mac:
 
@@ -29,22 +29,45 @@ Orbit is a single executable. Install it on the Mac:
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
 ```
 
-Then run `orbit start` (from a source checkout, `make start`). The console prints a QR code. **Point your phone's camera at it** — the code is a link into Orbit that carries a pairing code valid for 10 minutes. The page opens already paired; there is nothing to type. If the code has expired, `orbit pair` prints a fresh one.
+Then run `orbit start` (from a source checkout, `make start`). It prints an
+address, `https://<machine>.<tailnet>.ts.net`. **Open it on your phone**, with
+the Tailscale VPN on. You are in — no pairing, no code to scan, nothing to
+type, nothing that expires.
 
-If Tailscale is not set up yet, `orbit start` says so in a line and runs the server anyway, printing the Mac's LAN address for a phone on the same Wi-Fi. That gets you the terminal; voice input and Add to Home Screen need real https, so see [TAILSCALE.md](TAILSCALE.md) when you want those.
+Tailscale is what makes that safe: the server listens on the Mac itself only,
+so the tailnet is the way in, and Tailscale tells Orbit which account is
+calling. If it is your Mac's own account, you are let in. Anyone else is not.
 
-### The home-screen app pairs once more
+### Adding it to the Home Screen just works
 
-If you add Orbit to your Home Screen, the home-screen app gets storage of its own, separate from Safari (an iOS limitation). On its first launch you will see the login screen again. Tap **Scan QR code** and scan the same code on the Mac's screen, or type the access token printed beside the QR (`[orbit] access token: …`). This is a one-time step; the app remembers it.
+The home-screen app gets storage of its own, separate from Safari (an iOS
+limitation), but there is no longer anything stored to carry over. Add it and
+open it; it walks in the same way.
+
+### If you have no Tailscale
+
+`orbit start` says so in a line, runs the server anyway, and tells you to
+re-run it as `orbit start --lan`. That opens the Mac's Wi-Fi address so a phone
+on the same network can reach it — and on that path Orbit cannot tell who is
+calling, so it asks for the access token instead. Scan the QR code the Mac
+prints, or type the token beside it (`[orbit] access token: …`); `orbit pair`
+prints a fresh code when the one on screen has expired.
+
+That gets you the terminal. Voice input and Add to Home Screen need real https,
+so see [TAILSCALE.md](TAILSCALE.md) when you want those.
 
 ### Two ways in
 
 | Route | URL | Limits |
 |---|---|---|
-| **HTTPS over Tailscale** (recommended) | `https://<machine>.<tailnet>.ts.net` | Every feature works, and it works away from home. One-time setup in [TAILSCALE.md](TAILSCALE.md). |
-| Plain LAN | `http://<mac-ip>:7788` | Phone and Mac must be on the same Wi-Fi, and **voice input and Add to Home Screen do not work**. |
+| **HTTPS over Tailscale** (recommended) | `https://<machine>.<tailnet>.ts.net` | Every feature works, it works away from home, and there is nothing to sign in with. One-time setup in [TAILSCALE.md](TAILSCALE.md). |
+| Wi-Fi, with `orbit start --lan` | `http://<mac-ip>:7788` | Phone and Mac must be on the same Wi-Fi, the access token is asked for, and **voice input and Add to Home Screen do not work**. |
 
 Voice does not work over plain HTTP because the browser only grants the microphone and registers service workers on a secure context (HTTPS). This is a browser rule, not an Orbit limitation.
+
+The login screen below belongs to the `--lan` route. On the Tailscale route it
+never appears — nothing is drawn until the server has answered, so no field
+flashes past on the way in.
 
 <img src="images/01-login.jpg" width="390" alt="The login screen, with the access token field">
 
@@ -196,7 +219,7 @@ Choose the Claude Code card and a project folder, and you get the real Claude Co
 
 Tap the microphone 🎤 in the bottom key bar (the same row as the pencil ✎ and the keyboard ⌨️ buttons), speak, and the transcript appears as you go. **You can edit the text before sending it.**
 
-> ⚠️ Requires **HTTPS**. Opened as `http://<mac-ip>:7788`, the browser refuses to grant the microphone. See [TAILSCALE.md](TAILSCALE.md).
+> ⚠️ Requires **HTTPS**. Opened as `http://<mac-ip>:7788` (the `--lan` route), the browser refuses to grant the microphone. See [TAILSCALE.md](TAILSCALE.md).
 
 - **Continue listening** — the full-width button under the transcript. iOS stops listening at every pause; tap this to keep speaking, and the text so far is kept. While listening, the same button reads **Stop listening**.
 - **The image button 📷** — upload a picture and its path is appended to the transcript, without going back to the pencil.
@@ -500,10 +523,12 @@ Open Orbit over https (see [TAILSCALE.md](TAILSCALE.md)), then in Safari use
 the share sheet → **Add to Home Screen**. You get an Orbit icon on the home
 screen that opens full screen, with no browser chrome.
 
-The installed app has **storage of its own**, separate from Safari's, so it
-starts signed out. Pair it once: on its login screen, scan the QR code that
-`orbit start` printed (or `orbit pair` for a fresh one). That is the whole
-setup, and it is the app that push notifications and voice input need.
+The installed app has **storage of its own**, separate from Safari's, but over
+Tailscale there is nothing to sign in with, so it simply opens. (On the
+`orbit start --lan` route it starts signed out and asks for the token once: on
+its login screen, scan the QR code that `orbit start --lan` printed, or `orbit
+pair` for a fresh one.) It is the app that push notifications and voice input
+need.
 
 ## Everyday flows
 
