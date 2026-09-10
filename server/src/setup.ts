@@ -19,6 +19,11 @@ const OUR_MARKS = [' hook approve', ' hook notify', 'orbit-approve.mjs', 'orbit-
 const APPROVE_HOOK_TIMEOUT_S = 190
 
 const MCP_SERVER_NAME = 'orbit'
+const CODEX_NOTIFY_KEY = 'notify'
+const FIRST_TABLE_HEADER = /^\s*\[/
+const TOP_LEVEL_NOTIFY = /^\s*notify\s*=/
+const OUR_NOTIFY_ARGV = '"hook","notify"'
+const WHITESPACE_OUTSIDE_NOTHING = /\s+/g
 const MCP_SCOPE_ARGS = ['-s', 'user']
 const NOT_REGISTERED = /not found|no .*server/i
 
@@ -91,9 +96,47 @@ export const withOrbit = (
   return next
 }
 
+export const codexNotifyLine = (start = launcher()): string =>
+  `${CODEX_NOTIFY_KEY} = ${JSON.stringify([...launcherArgv(), 'hook', 'notify'])}`
+
+const splitAtFirstTable = (toml: string): [before: string[], after: string[]] => {
+  const lines = toml.split('\n')
+  const firstTable = lines.findIndex((line) => FIRST_TABLE_HEADER.test(line))
+  return firstTable === -1 ? [lines, []] : [lines.slice(0, firstTable), lines.slice(firstTable)]
+}
+
+const joinBack = (before: string[], after: string[]): string => {
+  const body = [...before, ...after].join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '')
+  return body.trim() ? `${body.trimEnd()}\n` : ''
+}
+
+const withLineAfterTheLastKey = (lines: string[], line: string): string[] => {
+  let afterLastKey = lines.length
+  while (afterLastKey > 0 && !lines[afterLastKey - 1].trim()) afterLastKey--
+  return [...lines.slice(0, afterLastKey), line, ...lines.slice(afterLastKey)]
+}
+
+const isOurNotify = (line: string): boolean =>
+  TOP_LEVEL_NOTIFY.test(line) && line.replace(WHITESPACE_OUTSIDE_NOTHING, '').includes(OUR_NOTIFY_ARGV)
+
+export const withoutOrbitNotify = (toml: string): string => {
+  const [before, after] = splitAtFirstTable(toml)
+  return joinBack(before.filter((line) => !isOurNotify(line)), after)
+}
+
+export const withOrbitNotify = (toml: string, start = launcher()): string => {
+  const cleared = withoutOrbitNotify(toml)
+  const [before, after] = splitAtFirstTable(cleared)
+  const theirs = before.some((line) => TOP_LEVEL_NOTIFY.test(line))
+  if (theirs) return cleared
+  return joinBack(withLineAfterTheLastKey(before, codexNotifyLine(start)), after)
+}
+
 const say = (line = '') => console.log(line ? `  ${line}` : '')
 
 export const settingsPath = () => path.join(os.homedir(), '.claude', 'settings.json')
+
+export const codexConfigPath = () => path.join(os.homedir(), '.codex', 'config.toml')
 
 const readJson = (file: string): Json => {
   try {
@@ -149,6 +192,43 @@ function updateHooks(uninstall: boolean, start: string, options: SetupOptions): 
   return true
 }
 
+const readTextOrEmpty = (file: string): string => {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+function updateCodexNotify(uninstall: boolean, start: string): void {
+  const configFile = codexConfigPath()
+  const codexHasRun = fs.existsSync(path.dirname(configFile))
+  if (!codexHasRun) {
+    if (!uninstall) say('Skipped    Codex CLI — no ~/.codex yet, so run it once and set up again')
+    return
+  }
+
+  const before = readTextOrEmpty(configFile)
+  const after = uninstall ? withoutOrbitNotify(before) : withOrbitNotify(before, start)
+
+  if (after === before) {
+    const theirsWon = !uninstall && !after.includes(codexNotifyLine(start))
+    say(
+      theirsWon
+        ? `Left alone  a notify of your own in ${configFile}`
+        : `Codex already as it should be — ${configFile}`,
+    )
+    return
+  }
+
+  if (before) {
+    fs.copyFileSync(configFile, `${configFile}.orbit.bak`)
+    say(`Backed up  ${configFile}.orbit.bak`)
+  }
+  fs.writeFileSync(configFile, after)
+  say(`${uninstall ? 'Removed notify from' : 'Wrote notify to'}  ${configFile}`)
+}
+
 function unregisterMcp(removed: RunResult): void {
   if (removed.ok || NOT_REGISTERED.test(removed.out)) {
     say('Unregistered  orbit (MCP)')
@@ -197,6 +277,7 @@ export function runSetup(args: string[]): number {
   say()
 
   if (!updateHooks(uninstall, start, options)) return 1
+  updateCodexNotify(uninstall, start)
 
   const removed = run('claude', ['mcp', 'remove', ...MCP_SCOPE_ARGS, MCP_SERVER_NAME])
   if (uninstall) {

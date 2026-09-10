@@ -435,6 +435,24 @@ All of it is sent `quiet`, so the server drops it while the session is on
 screen; a toast repeating what is already visible is noise. Nothing blocks:
 the hook fires a request and exits.
 
+### The same hook, for Codex
+
+Codex CLI has no hook events, but it has one better thing: `notify` in
+`~/.codex/config.toml` names a program it runs after every completed turn,
+handed a JSON payload whose `last-assistant-message` is what `idle.ts` spends
+ten seconds guessing at from the frame. `orbit setup` points that at the same
+`orbit hook notify`, which reads either shape.
+
+So a Codex session reports what the agent said, when it stopped saying it,
+and the ten-second guess never has to run — `attention.raiseIdle` stands down
+whenever the agent has already spoken, which was true before any of this and
+needed no change.
+
+The signal is one line of config for all of Codex, not something Orbit can
+set per session. What separates a session on the phone from one at the desk
+is `ORBIT_SESSION` in the environment, which Codex passes to the notifier
+along with everything else — the same test the Claude hook already made.
+
 ### Approval for what the agent runs itself
 
 Terminal screening (below) only ever sees what *you* typed — a command from
@@ -798,10 +816,14 @@ alternatives — keyed by the function or constant it belongs to.
 ### Hooks, setup and launch (hooks.ts, setup.ts, launcher.ts, home.ts)
 
 - `readStdin` in both hooks resolves after `APPROVE_STDIN_LIMIT_MS` = 5000 / `NOTIFY_STDIN_LIMIT_MS` = 3000 regardless of EOF, so a hook never hangs Claude Code if stdin is not closed.
-- `describeStop` fires only when `ORBIT_SESSION === '1'`: at a desk a turn ending is not news, and the variable is inherited from the PTY the agent was launched in.
+- `describeStop` fires only when `ORBIT_SESSION === '1'`: at a desk a turn ending is not news, and the variable is inherited from the PTY the agent was launched in. `describeCodexTurn` makes the same test for the same reason, and it matters more there: Claude's hooks are per-settings-file, Codex's `notify` is one line for every Codex on the machine.
+- `runNotifyHook` reads `lastArgument()` before stdin, because Codex passes its payload as argv and leaves stdin open — the other order cost every Codex notice the full `NOTIFY_STDIN_LIMIT_MS` waiting for an EOF that never came. Claude passes nothing in argv, so the fallback never fires for it.
+- `isTheTitleCodexGivesTheThread`: Codex runs the notifier twice per turn. The second is an internal turn on a thread of its own that names the conversation, and its whole reply is the schema it was asked for, `{"title":"…"}`. There is no flag in the payload marking it internal — the thread id differs from the session's, but a hook process has no memory of what the session's was — so the reply's shape is the signal. An answer that is JSON with any other shape is still news.
 - `APPROVE_OPTIONS` puts `Block` first because the phone emphasises the first option; exit 0 with empty stdout means "allow" and lets Claude Code's own permission flow continue.
 - `APPROVE_HOOK_TIMEOUT_S` = 190 in settings because the hook itself waits `APPROVE_TIMEOUT_SECONDS` = 180; Claude Code's default 60 would cut the hook off and let the command run while nobody had tapped.
 - `OUR_MARKS` includes the old script names (`orbit-approve.mjs`, `orbit-notify-hook.mjs`) so `setup` removes hooks installed by the pre-Bun scripts too. `Stop` and `Notification` hooks carry no matcher: a matcher on a non-tool event matches nothing.
+- `withOrbitNotify` edits `~/.codex/config.toml` by line rather than parsing TOML: one top-level scalar does not justify a parser, and a parser that rewrites the file would reformat everything the user wrote. Top-level keys must precede the first `[table]`, which is why the edit only ever looks above it — a `notify` inside `[mcp_servers.x]` is somebody else's key, not ours. A `notify` of the user's own is left where it is and Orbit says so: overwriting the line that tells their machine what to do is not a thing setup gets to decide.
+- `updateCodexNotify` skips a machine with no `~/.codex` rather than creating one. A directory that appears because a tool for something else ran is a puzzle to whoever finds it.
 - `setup` refuses to overwrite a settings file it cannot parse, and backs up to `settings.json.orbit.bak` once. The MCP server is removed before `add` because `claude mcp add` on an existing name errors; on uninstall, an unrecognised failure of `remove` is reported rather than claimed as done.
 - `launcher.ts` spells out `bun` and `server/dist/main.js` as absolute paths: hooks and the MCP server run under Claude Code, not a shell with this user's PATH, and `~/.bun/bin` is on nobody else's.
 - `home.ts`: `ORBIT_HOME` relocates `~/.orbit` without moving `HOME`, because a scratch `HOME` also relocates shell rc files and agent credentials, leaving `claude` logged out. Read at call time, not import time, so modules loaded before the variable is set still land in the right place.
