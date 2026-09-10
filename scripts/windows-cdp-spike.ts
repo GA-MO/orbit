@@ -8,7 +8,6 @@ const CDP_PIPE_READ_FD = 4
 const CDP_PIPE_WRITE_FD = 3
 const MESSAGE_DELIMITER = '\0'
 const ANSWER_TIMEOUT_MS = 15_000
-const PORT_FILE_POLL_MS = 100
 
 const BASE_ARGS = [
   '--headless=new',
