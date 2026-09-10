@@ -11,7 +11,7 @@ const say = ui.say
 const sayPublished = (url: string) => {
   say()
   say('Open on phone (Tailscale VPN on):')
-  say(`  ${ui.ink(ui.HORIZON, url)}`)
+  say(`  ${ui.ink(ui.ACCENT, url)}`)
   say()
   ui.hint('Works in the browser or the Home Screen app.')
   ui.hint('Stop it, and the front door:  orbit stop')
@@ -21,7 +21,7 @@ const sayWifiDoor = () => {
   const wifi = lanUrl(PORT)
   if (wifi) {
     ui.hint('Until then, on a phone on the same Wi-Fi:')
-    say(`  ${ui.ink(ui.HORIZON, `${wifi}/`)}`)
+    say(`  ${ui.ink(ui.ACCENT, `${wifi}/`)}`)
     return
   }
   ui.hint(`This Mac has no Wi-Fi address to offer a phone — http://localhost:${PORT} works on the Mac itself.`)

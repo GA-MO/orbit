@@ -20,7 +20,7 @@ const invocationWidth = Math.max(...COMMANDS.map(([invocation]) => invocation.le
 const usage = async (): Promise<string> => {
   const ui = await import('./ui.js')
   const lines = COMMANDS.map(
-    ([invocation, blurb]) => `  ${ui.ink(ui.HORIZON, invocation.padEnd(invocationWidth))}   ${ui.dim(blurb)}`,
+    ([invocation, blurb]) => `  ${ui.ink(ui.ACCENT, invocation.padEnd(invocationWidth))}   ${ui.dim(blurb)}`,
   )
   const wide = (ui.columns() ?? 0) >= ui.BLOCK_WORDMARK_WIDTH + 4
   const head = wide

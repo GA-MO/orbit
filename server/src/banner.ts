@@ -97,7 +97,7 @@ const footnoteLine = (facts: BannerFacts, localUrl: string, columns: number): st
 const wordmarkFits = (columns: number): boolean => ui.BLOCK_WORDMARK_WIDTH + INDENT.length * 2 <= columns
 
 const blockHeadingLines = (where: string, version: string): string[] => {
-  const strap = `${ui.gradient(ui.ORB)} ${ui.ink(ui.NEBULA, where)}`
+  const strap = `${ui.gradient(ui.ORB)} ${ui.ink(ui.GLOW, where)}`
   const stamp = ui.dim(version)
   const gap = ui.BLOCK_WORDMARK_WIDTH - ui.visibleWidth(strap) - ui.visibleWidth(stamp)
   return [
@@ -125,7 +125,7 @@ export function banner(facts: BannerFacts): string {
   const labelWidth = Math.max(...rows.map(([label]) => label.length))
   const stacked = columns < WIDE
   for (const [label, value] of rows) {
-    const painted = ui.ink(ui.HORIZON, value)
+    const painted = ui.ink(ui.ACCENT, value)
     if (stacked) {
       out.push(dimLine(label), `${INDENT}${painted}`, '')
     } else {

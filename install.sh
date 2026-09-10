@@ -34,12 +34,19 @@ pixels=(
   "1111010010111001110010"
 )
 
+pearl=(188 192 202 254 234 225 192 206 242)
+
 column_colour() {
-  local at=$1 width=$2
-  printf '\033[38;2;%d;%d;%dm' \
-    $(( 56 + (178 - 56) * at / (width - 1) )) \
-    $(( 214 + (132 - 214) * at / (width - 1) )) \
-    $(( 238 + (252 - 238) * at / (width - 1) ))
+  local at=$1 width=$2 half=$(( ($2 - 1) / 2 )) from to reach span channel
+  if [ "$at" -le "$half" ]; then from=0; to=3; reach=$at; span=$half
+  else from=3; to=6; reach=$(( at - half )); span=$(( width - 1 - half ))
+  fi
+  printf '\033[38;2;'
+  for channel in 0 1 2; do
+    [ "$channel" != 0 ] && printf ';'
+    printf '%d' $(( pearl[from + channel] + (pearl[to + channel] - pearl[from + channel]) * reach / span ))
+  done
+  printf 'm'
 }
 
 pixel_wordmark() {

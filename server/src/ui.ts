@@ -16,18 +16,24 @@ const CLEAR_BELOW = `${ESC}0J`
 
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g
 
-export const HORIZON: Rgb = { r: 56, g: 214, b: 238 }
-export const NEBULA: Rgb = { r: 178, g: 132, b: 252 }
-export const SIGNAL: Rgb = { r: 74, g: 222, b: 128 }
-export const ALERT: Rgb = { r: 248, g: 113, b: 113 }
-export const EMBER: Rgb = { r: 251, g: 191, b: 36 }
+export const ACCENT: Rgb = { r: 228, g: 230, b: 233 }
+export const GLOW: Rgb = { r: 200, g: 203, b: 208 }
+export const ADDED: Rgb = { r: 94, g: 196, b: 137 }
+export const DANGER: Rgb = { r: 232, g: 99, b: 107 }
+export const LIVE: Rgb = { r: 240, g: 180, b: 92 }
+
+export const PEARL: Rgb[] = [
+  { r: 188, g: 192, b: 202 },
+  { r: 254, g: 234, b: 225 },
+  { r: 192, g: 206, b: 242 },
+]
 
 const BASIC_ANCHORS: Array<[Rgb, string]> = [
-  [HORIZON, `${ESC}36m`],
-  [NEBULA, `${ESC}35m`],
-  [SIGNAL, `${ESC}32m`],
-  [ALERT, `${ESC}31m`],
-  [EMBER, `${ESC}33m`],
+  [ACCENT, `${ESC}97m`],
+  [GLOW, `${ESC}37m`],
+  [ADDED, `${ESC}32m`],
+  [DANGER, `${ESC}31m`],
+  [LIVE, `${ESC}33m`],
 ]
 
 const TRUECOLOR_TERMS = /truecolor|24bit/i
@@ -69,12 +75,18 @@ const blend = (from: Rgb, to: Rgb, ratio: number): Rgb => ({
   b: Math.round(from.b + (to.b - from.b) * ratio),
 })
 
-export const gradient = (text: string, from: Rgb = HORIZON, to: Rgb = NEBULA): string => {
+export const alongRamp = (ratio: number, stops: Rgb[] = PEARL): Rgb => {
+  const reach = Math.min(Math.max(ratio, 0), 1) * (stops.length - 1)
+  const first = Math.min(Math.floor(reach), stops.length - 2)
+  return blend(stops[first], stops[first + 1], reach - first)
+}
+
+export const gradient = (text: string, stops: Rgb[] = PEARL): string => {
   if (!coloured()) return text
-  if (!trueColoured()) return ink(from, text)
+  if (!trueColoured()) return ink(stops[0], text)
   const glyphs = [...text]
   const last = Math.max(glyphs.length - 1, 1)
-  return glyphs.map((glyph, at) => ink(blend(from, to, at / last), glyph)).join('')
+  return glyphs.map((glyph, at) => ink(alongRamp(at / last, stops), glyph)).join('')
 }
 
 export const fit = (text: string, width: number): string => {
@@ -147,7 +159,7 @@ export const blockWordmark = (): string[] => {
     let line = ''
     for (let column = 0; column < width; column += 1) {
       const glyph = halfBlock(top[column] === LIT, bottom[column] === LIT)
-      line += ink(blend(HORIZON, NEBULA, column / (width - 1)), glyph.repeat(2))
+      line += ink(alongRamp(column / (width - 1)), glyph.repeat(2))
     }
     painted.push(line)
   }
@@ -155,7 +167,7 @@ export const blockWordmark = (): string[] => {
 }
 
 export const headingLines = (command: string, version = packageVersion()): string[] => {
-  const title = `${gradient(ORB)}  ${bold(wordmark())}   ${ink(NEBULA, `${POINTER} ${command}`)}`
+  const title = `${gradient(ORB)}  ${bold(wordmark())}   ${ink(GLOW, `${POINTER} ${command}`)}`
   const stamp = dim(version)
   const gap = ruleWidth() - visibleWidth(title) - visibleWidth(stamp)
   return ['', gap > 1 ? `${INDENT}${title}${' '.repeat(gap)}${stamp}` : `${INDENT}${title}`, ruleLine(), '']
@@ -175,7 +187,7 @@ export const closing = (line: string, hints: string[] = []): void => {
 
 export const hint = (line: string): void => say(dim(line))
 
-export const alarm = (line: string): void => say(`${ink(ALERT, '✘')} ${line}`)
+export const alarm = (line: string): void => say(`${ink(DANGER, '✘')} ${line}`)
 
 export type ChannelState = 'waiting' | 'running' | 'passed' | 'failed' | 'skipped'
 
@@ -202,13 +214,13 @@ const FIX_ARROW = '└→'
 const glyphFor = (state: ChannelState, frame: number): string => {
   switch (state) {
     case 'passed':
-      return ink(SIGNAL, '✔')
+      return ink(ADDED, '✔')
     case 'failed':
-      return ink(ALERT, '✘')
+      return ink(DANGER, '✘')
     case 'skipped':
       return dim('–')
     case 'running':
-      return interactive() ? ink(HORIZON, SPINNER[frame % SPINNER.length]) : dim('·')
+      return interactive() ? ink(LIVE, SPINNER[frame % SPINNER.length]) : dim('·')
     default:
       return dim('·')
   }
@@ -244,7 +256,7 @@ export class Board {
 
   private line(channel: Channel, index: number): string {
     const label = channel.state === 'waiting' ? dim(channel.label.padEnd(this.labelWidth)) : channel.label.padEnd(this.labelWidth)
-    const detail = channel.state === 'failed' ? ink(ALERT, channel.detail ?? '') : dim(channel.detail ?? '')
+    const detail = channel.state === 'failed' ? ink(DANGER, channel.detail ?? '') : dim(channel.detail ?? '')
     const head = `${INDENT}${this.counter(index)}${' '.repeat(COUNTER_GAP)}${glyphFor(channel.state, this.frame)}${' '.repeat(LABEL_GAP)}${label}`
     if (!channel.detail) return head
     return fit(`${head}${' '.repeat(LABEL_GAP)}${detail}`, columns() - 1)

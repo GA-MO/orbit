@@ -24,7 +24,7 @@ const requestPairCode = (token: string): Promise<Response> =>
 
 const sayPairingSteps = (url: string, token: string) => {
   ui.heading('pair')
-  say(ui.ink(ui.HORIZON, url))
+  say(ui.ink(ui.ACCENT, url))
   say()
   console.log(qrBlock(url, QR_INDENT))
   say()
