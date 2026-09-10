@@ -39,7 +39,7 @@ export default function Login({ onSuccess, notice = null }: Props) {
       if (!trimmed || !beginAttempt()) return
       setToken(trimmed)
       try {
-        if (await checkAuth()) onSuccess()
+        if ((await checkAuth()).admitted) onSuccess()
         else setError(TOKEN_REJECTED)
       } catch {
         setError(SERVER_UNREACHABLE)

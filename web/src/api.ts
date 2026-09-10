@@ -46,6 +46,7 @@ const KEYS_THAT_NAME_THE_MAC = [TOKEN_KEY, SESSION_KEY, RECENTS_KEY]
 const PAIR_CODE_IN_FRAGMENT = /#pair=([A-Za-z0-9_-]{8,})\s*$/
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY) ?? ''
+export const forgetToken = () => localStorage.removeItem(TOKEN_KEY)
 export const setToken = (token: string) => localStorage.setItem(TOKEN_KEY, token)
 export const hasToken = () => getToken() !== ''
 
@@ -101,21 +102,32 @@ export const pairWithCode = async (code: string): Promise<boolean> => {
 export const pairCodeIn = (text: string): string | null =>
   text.match(PAIR_CODE_IN_FRAGMENT)?.[1] ?? null
 
-export const checkAuth = async (): Promise<boolean> => {
+export interface Recognition {
+  admitted: boolean
+  walkedIn: boolean
+}
+
+const TURNED_AWAY: Recognition = { admitted: false, walkedIn: false }
+
+const recognitionIn = (body: { walkedIn?: unknown }): Recognition => ({
+  admitted: true,
+  walkedIn: body.walkedIn === true,
+})
+
+export const checkAuth = async (): Promise<Recognition> => {
   try {
-    await get('/api/auth/check')
-    return true
+    return recognitionIn(await get<{ walkedIn?: unknown }>('/api/auth/check'))
   } catch (e) {
-    if (e instanceof AuthError) return false
+    if (e instanceof AuthError) return TURNED_AWAY
     throw e
   }
 }
 
-export const checkAuthWithoutToken = async (): Promise<boolean> => {
+export const checkAuthWithoutToken = async (): Promise<Recognition> => {
   const res = await fetch('/api/auth/check')
-  if (res.status === 401) return false
+  if (res.status === 401) return TURNED_AWAY
   if (!res.ok) throw new Error(`/api/auth/check: ${res.status}`)
-  return true
+  return recognitionIn(await res.json().catch(() => ({})))
 }
 
 export const retirePushSubscription = async (pushEndpoint: string | null): Promise<void> => {

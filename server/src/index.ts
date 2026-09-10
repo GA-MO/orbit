@@ -406,8 +406,9 @@ const renewSessionCookie = (req: http.IncomingMessage, res: http.ServerResponse)
   res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
 
 on('GET /api/auth/check', async ({ req, res }) => {
-  if (hasBearerToken(req) || (await recognisedByTailscale(req))) renewSessionCookie(req, res)
-  return json(res, 200, { ok: true })
+  const walkedIn = await recognisedByTailscale(req)
+  if (hasBearerToken(req) || walkedIn) renewSessionCookie(req, res)
+  return json(res, 200, { ok: true, walkedIn })
 })
 
 on('POST /api/auth/pair', async ({ req, res, body }) => {

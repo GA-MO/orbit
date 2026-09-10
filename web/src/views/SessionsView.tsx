@@ -45,7 +45,7 @@ interface Props {
   onSelect: (id: string) => void
   onNew: () => void
   onUnpair: () => Promise<void>
-  holdsToken: boolean
+  tokenIsTheKey: boolean
   onStopNotifications: () => Promise<void>
   onToast: (message: string) => void
 }
@@ -248,13 +248,13 @@ function MacGroupHeader({
 }
 
 function UnpairSheet({
-  holdsToken,
+  tokenIsTheKey,
   unpairing,
   onUnpair,
   onStopNotifications,
   onClose,
 }: {
-  holdsToken: boolean
+  tokenIsTheKey: boolean
   unpairing: boolean
   onUnpair: () => void
   onStopNotifications: () => void
@@ -263,7 +263,7 @@ function UnpairSheet({
   return (
     <Sheet title="This phone" onClose={() => !unpairing && onClose()}>
       <div className="flex flex-col gap-3.5 px-5 pt-2 pb-5">
-        {holdsToken ? (
+        {tokenIsTheKey ? (
           <p className="text-[13px] leading-relaxed text-mut">
             Un-pairing stops this phone reaching your Mac and stops it notifying you. Your
             sessions keep running over there. To use Orbit here again you will need the access
@@ -280,9 +280,9 @@ function UnpairSheet({
         )}
         <div className="flex flex-row-reverse gap-2">
           <Button className="flex-1" disabled={unpairing} onClick={onClose}>
-            {holdsToken ? 'Stay paired' : 'Close'}
+            {tokenIsTheKey ? 'Stay paired' : 'Close'}
           </Button>
-          {holdsToken ? (
+          {tokenIsTheKey ? (
             <Button variant="danger" className="flex-1" disabled={unpairing} onClick={onUnpair}>
               {unpairing ? 'Unpairing…' : 'Unpair'}
             </Button>
@@ -318,7 +318,7 @@ export default function SessionsView({
   onSelect,
   onNew,
   onUnpair,
-  holdsToken,
+  tokenIsTheKey,
   onStopNotifications,
   onToast,
 }: Props) {
@@ -498,7 +498,7 @@ export default function SessionsView({
 
       {phoneOpen && (
         <UnpairSheet
-          holdsToken={holdsToken}
+          tokenIsTheKey={tokenIsTheKey}
           unpairing={unpairing}
           onUnpair={unpair}
           onStopNotifications={stopNotifications}
