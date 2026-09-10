@@ -382,7 +382,10 @@ check('…and the usage text names --lan', help.includes('--lan'), lastLines(hel
 
 section('which doors are open, and who gets through them')
 
-const fakeStatus = JSON.parse(execFileSync(process.execPath, [FAKE_TAILSCALE, 'status', '--json'], { encoding: 'utf8' }))
+const FAKE_TAILSCALE_SCRIPT = path.join(REPO, 'scripts/fake-tailscale.mjs')
+const fakeStatus = JSON.parse(
+  execFileSync(process.execPath, [FAKE_TAILSCALE_SCRIPT, 'status', '--json'], { encoding: 'utf8' }),
+)
 const OWNER_LOGIN = fakeStatus.User[fakeStatus.Self.UserID].LoginName
 const STRANGER_LOGIN = 'someone-else@example.com'
 const LOGIN_HEADER = 'Tailscale-User-Login'
