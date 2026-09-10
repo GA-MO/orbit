@@ -13,11 +13,12 @@ const COMMANDS: Array<[invocation: string, blurb: string]> = [
   ['orbit version', 'which build this is'],
 ]
 
+const invocationWidth = Math.max(...COMMANDS.map(([invocation]) => invocation.length))
+
 const usage = async (): Promise<string> => {
   const ui = await import('./ui.js')
-  const width = Math.max(...COMMANDS.map(([invocation]) => invocation.length))
   const lines = COMMANDS.map(
-    ([invocation, blurb]) => `  ${ui.ink(ui.HORIZON, invocation.padEnd(width))}   ${ui.dim(blurb)}`,
+    ([invocation, blurb]) => `  ${ui.ink(ui.HORIZON, invocation.padEnd(invocationWidth))}   ${ui.dim(blurb)}`,
   )
   return [
     ...ui.headingLines('help'),
@@ -29,7 +30,7 @@ const usage = async (): Promise<string> => {
 }
 
 const plainUsage = (): string =>
-  COMMANDS.map(([invocation, blurb]) => `  ${invocation}   ${blurb}`).join('\n')
+  COMMANDS.map(([invocation, blurb]) => `  ${invocation.padEnd(invocationWidth)}   ${blurb}`).join('\n')
 
 const exit = (code: number) => {
   if (code >= 0) process.exit(code)

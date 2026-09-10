@@ -67,7 +67,8 @@ export async function runStart(): Promise<number> {
   }
 
   const pids = listeningPids(PORT)
-  if (pids.length) panel.pass('server', `Port ${PORT} already in use (PID ${pids.join(', ')}) — the address above points at it.`)
+  const alreadyThere = `Port ${PORT} already in use (PID ${pids.join(', ')})`
+  if (pids.length) panel.pass('server', published ? `${alreadyThere} — the address above points at it.` : `${alreadyThere}.`)
   else panel.pass('server', `about to listen on :${PORT}`)
   panel.close()
 
