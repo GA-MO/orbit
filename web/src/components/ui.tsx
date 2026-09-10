@@ -126,6 +126,12 @@ export const IconPhone = icon(
     <path d="M10.5 18.5h3" />
   </>,
 );
+export const IconBell = icon(
+  <>
+    <path d="M6.5 15.5V10a5.5 5.5 0 0 1 11 0v5.5L19 18H5l1.5-2.5Z" />
+    <path d="M10 18.5a2 2 0 0 0 4 0" />
+  </>,
+);
 export const IconSearch = icon(
   <>
     <circle cx="11" cy="11" r="6.5" />

@@ -17,6 +17,7 @@ import {
   IconChevronDown,
   IconClose,
   IconEdit,
+  IconBell,
   IconPhone,
   IconPlus,
   IconTrash,
@@ -247,6 +248,8 @@ function MacGroupHeader({
   )
 }
 
+const sheetName = (tokenIsTheKey: boolean) => (tokenIsTheKey ? 'This phone' : 'Notifications')
+
 function UnpairSheet({
   tokenIsTheKey,
   unpairing,
@@ -261,7 +264,7 @@ function UnpairSheet({
   onClose: () => void
 }) {
   return (
-    <Sheet title="This phone" onClose={() => !unpairing && onClose()}>
+    <Sheet title={sheetName(tokenIsTheKey)} onClose={() => !unpairing && onClose()}>
       <div className="flex flex-col gap-3.5 px-5 pt-2 pb-5">
         {tokenIsTheKey ? (
           <p className="text-[13px] leading-relaxed text-mut">
@@ -271,11 +274,10 @@ function UnpairSheet({
           </p>
         ) : (
           <p className="text-[13px] leading-relaxed text-mut">
-            This phone holds no token — it reaches your Mac over your tailnet, and your Mac
-            recognises you by your Tailscale login. Un-pairing here would change nothing: the
-            next tap would let you straight back in. To close this phone out, remove it from
-            your tailnet, or stop Orbit sharing on the Mac. You can still stop the
-            notifications it sends here.
+            Orbit notifies this phone when a session is waiting on you. Stopping that leaves
+            everything else alone — you reach your Mac over your tailnet and it knows you by
+            your Tailscale login, so there is nothing here to unpair. To close this phone out
+            entirely, remove it from your tailnet.
           </p>
         )}
         <div className="flex flex-row-reverse gap-2">
@@ -448,8 +450,8 @@ export default function SessionsView({
           {waiting > 0 && <span className="text-accent">{waiting} waiting · </span>}
           {alive.length} live{ended.length > 0 ? ` · ${ended.length} ended` : ''}
         </span>
-        <IconButton label="This phone" onClick={() => setPhoneOpen(true)}>
-          <IconPhone size={18} />
+        <IconButton label={sheetName(tokenIsTheKey)} onClick={() => setPhoneOpen(true)}>
+          {tokenIsTheKey ? <IconPhone size={18} /> : <IconBell size={18} />}
         </IconButton>
       </header>
 
