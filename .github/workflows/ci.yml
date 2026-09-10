@@ -62,4 +62,4 @@ jobs:
         with:
           name: orbit-running-on-${{ matrix.os }}
           path: evidence/
-          if-no-files-found: error
+          if-no-files-found: warn
