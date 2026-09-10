@@ -14,6 +14,7 @@ Orbit is not a shared service. Each person runs their own Orbit on their own Mac
 - [What gets installed](#what-gets-installed)
 - [Where Orbit keeps its data](#where-orbit-keeps-its-data)
 - [Command reference](#command-reference)
+- [Without the approval hook](#without-the-approval-hook)
 - [Uninstall](#uninstall)
 - [Troubleshooting](#troubleshooting)
 - [Testing](#testing)
@@ -212,6 +213,19 @@ Everything lives in `~/.orbit`. Set `ORBIT_HOME` to move that directory without 
 | `make test-clean` | Reap a server or scratch `HOME` that a killed run left behind. |
 | `make shots` | Regenerate `docs/images/*.jpg` by walking the real app on a throwaway server. |
 | `make clean` | Remove build output. |
+
+## Without the approval hook
+
+The Bash hook stops the agent and waits for a tap on the phone. On a Mac
+where Claude Code runs in auto mode that is an interruption rather than a
+safeguard. Install only the notify hooks instead:
+
+```sh
+orbit setup --no-approval
+```
+
+Running `orbit setup` again without the flag adds the approval hook back;
+`orbit doctor` says which of the two is installed.
 
 ## Uninstall
 

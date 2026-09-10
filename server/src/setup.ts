@@ -25,12 +25,23 @@ const NOT_REGISTERED = /not found|no .*server/i
 export const isOurs = (command: unknown): boolean =>
   typeof command === 'string' && OUR_MARKS.some((mark) => command.includes(mark))
 
-export const hookPlan = (start = launcher()): HookEntry[] => [
-  { event: 'PreToolUse', matcher: 'AskUserQuestion', command: `${start} hook notify` },
-  { event: 'PreToolUse', matcher: 'Bash', command: `${start} hook approve`, timeout: APPROVE_HOOK_TIMEOUT_S },
-  { event: 'Notification', command: `${start} hook notify` },
-  { event: 'Stop', command: `${start} hook notify` },
-]
+export interface SetupOptions {
+  approval: boolean
+}
+
+export const DEFAULT_OPTIONS: SetupOptions = { approval: true }
+
+export const hookPlan = (start = launcher(), options: SetupOptions = DEFAULT_OPTIONS): HookEntry[] => {
+  const notify: HookEntry[] = [
+    { event: 'PreToolUse', matcher: 'AskUserQuestion', command: `${start} hook notify` },
+    { event: 'Notification', command: `${start} hook notify` },
+    { event: 'Stop', command: `${start} hook notify` },
+  ]
+  const approve: HookEntry[] = options.approval
+    ? [{ event: 'PreToolUse', matcher: 'Bash', command: `${start} hook approve`, timeout: APPROVE_HOOK_TIMEOUT_S }]
+    : []
+  return [notify[0], ...approve, notify[1], notify[2]]
+}
 
 const isPlainObject = (value: unknown): value is Json =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -67,10 +78,14 @@ const toSettingsGroup = ({ matcher, command, timeout }: HookEntry): Json => {
   return matcher ? { matcher, hooks: [entry] } : { hooks: [entry] }
 }
 
-export const withOrbit = (settings: Json | null | undefined, start = launcher()): Json => {
+export const withOrbit = (
+  settings: Json | null | undefined,
+  start = launcher(),
+  options: SetupOptions = DEFAULT_OPTIONS,
+): Json => {
   const next = withoutOrbit(settings)
   const hooks: Json = (next.hooks ??= {})
-  for (const planned of hookPlan(start)) {
+  for (const planned of hookPlan(start, options)) {
     ;(hooks[planned.event] ??= []).push(toSettingsGroup(planned))
   }
   return next
@@ -115,7 +130,7 @@ function writeSettings(settingsFile: string, after: Json, uninstall: boolean): v
   say(`${uninstall ? 'Removed hooks from' : 'Wrote hooks to'}  ${settingsFile}`)
 }
 
-function updateHooks(uninstall: boolean, start: string): boolean {
+function updateHooks(uninstall: boolean, start: string, options: SetupOptions): boolean {
   const settingsFile = settingsPath()
   let before: Json
   try {
@@ -124,7 +139,7 @@ function updateHooks(uninstall: boolean, start: string): boolean {
     say((err as Error).message)
     return false
   }
-  const after = uninstall ? withoutOrbit(before) : withOrbit(before, start)
+  const after = uninstall ? withoutOrbit(before) : withOrbit(before, start, options)
 
   if (sameJson(before, after)) {
     say(`Hooks already as they should be — ${settingsFile}`)
@@ -173,13 +188,15 @@ function sayClosing(uninstall: boolean, start: string): void {
 
 export function runSetup(args: string[]): number {
   const uninstall = args.includes('--uninstall')
+  const options: SetupOptions = { approval: !args.includes('--no-approval') }
   const start = launcher()
 
   say()
   say(uninstall ? 'Removing Orbit from Claude Code …' : `Setting up Orbit (${start}) …`)
+  if (!uninstall && !options.approval) say('Without the approval hook: the agent runs commands without asking the phone.')
   say()
 
-  if (!updateHooks(uninstall, start)) return 1
+  if (!updateHooks(uninstall, start, options)) return 1
 
   const removed = run('claude', ['mcp', 'remove', ...MCP_SCOPE_ARGS, MCP_SERVER_NAME])
   if (uninstall) {

@@ -86,6 +86,10 @@ const legacy = withOrbit({
 })
 check('the old scripts\' hooks are taken over, not doubled', hookGroups(legacy, 'PreToolUse', 'Bash').length === 1)
 check('…leaving one hook per event, not two', hookCommands(repaired).length === hookPlan().length)
+const withoutApproval = withOrbit({}, START, { approval: false })
+check('--no-approval leaves the Bash hook out', !hookCommands(withoutApproval).some((c) => c.endsWith(' hook approve')))
+check('…and keeps the three notify hooks', hookCommands(withoutApproval).length === 3)
+check('…and a later run with approval adds it without doubling', hookCommands(withOrbit(withoutApproval, START)).length === hookPlan().length)
 
 section('taking it back out')
 

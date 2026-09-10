@@ -42,3 +42,26 @@ hand-rolled command.
   to first.
 - **Tailscale serve on 443** — `make phone` set it up to proxy :3001. It is
   meant to be there; it is not a leftover.
+
+## No comments in the source
+
+The code carries no comments — not `//`, not `/* */`, not JSDoc — and that
+is deliberate, not neglect. Directive comments that change behaviour
+(`// eslint-disable-next-line`, `// @ts-expect-error`) are the only
+exception.
+
+If a piece of code needs explaining, change the code: name the constant,
+extract the function, rename the variable until it says what it holds. If
+the explanation is a *why* that no name can carry — an iOS or WebKit
+quirk, a constant chosen for a reason, an alternative that was tried and
+rejected — it goes in `docs/DESIGN-NOTES.md` under "Implementation
+notes", keyed by the function or constant it belongs to. Never in the
+source.
+
+## The approval hook is optional
+
+`orbit setup` installs a `PreToolUse` hook that routes an agent's
+dangerous commands (`rm -rf`, `sudo`, force-push, …) to the phone and
+waits for a tap. On a machine where Claude Code runs in auto mode that is
+an interruption, not a safeguard: `orbit setup --no-approval` installs
+only the notify hooks. `orbit doctor` says which of the two is installed.

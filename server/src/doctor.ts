@@ -115,13 +115,18 @@ const looksLikeOurHook = (command: string): boolean => OUR_HOOK_COMMAND.test(com
 
 const checkHooks = (start: string): Line => {
   const commands = installedHookCommands(readSettings())
-  const wanted = hookPlan(start).map((h) => h.command)
+  const wanted = hookPlan(start, { approval: false }).map((h) => h.command)
   const hooksOk = wanted.every((c) => commands.includes(c))
   const hooksStale = !hooksOk && commands.some(looksLikeOurHook)
+  const approval = commands.includes(`${start} hook approve`)
   return {
     ok: hooksOk,
     what: 'Claude Code hooks',
-    detail: hooksOk ? `installed, pointing at ${start}` : hooksStale ? 'installed, but pointing somewhere else' : 'not installed',
+    detail: hooksOk
+      ? `installed, pointing at ${start}${approval ? '' : ' (without the approval hook)'}`
+      : hooksStale
+        ? 'installed, but pointing somewhere else'
+        : 'not installed',
     fix: hooksOk ? undefined : `run \`${start} setup\``,
   }
 }
