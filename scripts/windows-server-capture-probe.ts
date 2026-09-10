@@ -61,6 +61,50 @@ async function probe(shape: StdioShape, port: number): Promise<string> {
   }
 }
 
+async function launchInProcess(from: string, env: Record<string, string> = {}): Promise<string> {
+  const restore: Record<string, string | undefined> = {}
+  for (const [key, value] of Object.entries(env)) {
+    restore[key] = process.env[key]
+    process.env[key] = value
+  }
+  try {
+    const { launch } = await import(from)
+    const browser = await launch()
+    try {
+      const page = await browser.newPage({ width: 400, height: 300, deviceScaleFactor: 1 })
+      const shot = await page.screenshot({ fullPage: false })
+      await page.close()
+      return `captured ${shot.length} bytes`
+    } finally {
+      await browser.close()
+    }
+  } finally {
+    for (const [key, value] of Object.entries(restore)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+const inProcess = async (what: string, from: string, env?: Record<string, string>) => {
+  try {
+    console.log(`  ok    ${what} — ${await launchInProcess(from, env)}`)
+    return true
+  } catch (err) {
+    console.log(`  FAIL  ${what} — ${(err as Error).message}`)
+    return false
+  }
+}
+
+const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-probe-home-'))
+
+await inProcess('launch() from the TypeScript source', '../server/src/chrome.js')
+await inProcess('launch() from the compiled dist', '../server/dist/chrome.js')
+await inProcess('launch() with HOME and USERPROFILE moved', '../server/src/chrome.js', {
+  HOME: scratchHome,
+  USERPROFILE: scratchHome,
+})
+
 const SHAPES: StdioShape[] = ['inherit', 'pipe', 'ignore']
 let firstPort = 3110
 let anyWorked = false
