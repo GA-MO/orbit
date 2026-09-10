@@ -40,7 +40,7 @@ If you add Orbit to your Home Screen, the home-screen app gets storage of its ow
 | Route | URL | Limits |
 |---|---|---|
 | **HTTPS over Tailscale** (recommended) | `https://<machine>.<tailnet>.ts.net` | Every feature works, and it works away from home. One-time setup in [TAILSCALE.md](TAILSCALE.md). |
-| Plain LAN | `http://<mac-ip>:3001` | Phone and Mac must be on the same Wi-Fi, and **voice input and Add to Home Screen do not work**. |
+| Plain LAN | `http://<mac-ip>:7788` | Phone and Mac must be on the same Wi-Fi, and **voice input and Add to Home Screen do not work**. |
 
 Voice does not work over plain HTTP because the browser only grants the microphone and registers service workers on a secure context (HTTPS). This is a browser rule, not an Orbit limitation.
 
@@ -194,7 +194,7 @@ Choose the Claude Code card and a project folder, and you get the real Claude Co
 
 Tap the microphone 🎤 in the bottom key bar (the same row as the pencil ✎ and the keyboard ⌨️ buttons), speak, and the transcript appears as you go. **You can edit the text before sending it.**
 
-> ⚠️ Requires **HTTPS**. Opened as `http://<mac-ip>:3001`, the browser refuses to grant the microphone. See [TAILSCALE.md](TAILSCALE.md).
+> ⚠️ Requires **HTTPS**. Opened as `http://<mac-ip>:7788`, the browser refuses to grant the microphone. See [TAILSCALE.md](TAILSCALE.md).
 
 - **Continue listening** — the full-width button under the transcript. iOS stops listening at every pause; tap this to keep speaking, and the text so far is kept. While listening, the same button reads **Stop listening**.
 - **The image button 📷** — upload a picture and its path is appended to the transcript, without going back to the pencil.
@@ -279,7 +279,7 @@ secure context of its own: service workers, the microphone, the camera.
 Each shared port gets an https port of its own on the tailnet, starting at
 `8443` and counting up (`https://<mac>.<tailnet>.ts.net:8443`). It is
 tailnet-only; nothing is exposed to the public internet. It does not touch
-Orbit's own `tailscale serve` mapping (443 → 3001) — different ports, switched
+Orbit's own `tailscale serve` mapping (443 → 7788) — different ports, switched
 on and off independently. **Stop sharing :5173** on the row takes it down
 again.
 

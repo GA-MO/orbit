@@ -7,7 +7,7 @@
 
 # Resolve Tailscale CLI (app install does not put it on PATH)
 TS := $(shell command -v tailscale 2>/dev/null || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale)
-PORT := 3001
+PORT := 7788
 # Match server KEEP for screenshots / uploads
 CACHE_KEEP := 50
 ORBIT_HOME := $(HOME)/.orbit
@@ -42,19 +42,19 @@ doctor: ## What this Mac has and what it is missing (Claude Code, Chrome, Tailsc
 
 # ── local ──────────────────────────────────────────────
 
-dev: ## Start dev servers (web :5173, api :3001)
+dev: ## Start dev servers (web :5173, api :7788)
 	bun run dev
 
 build: ## Build server + web for production
 	bun run build
 
-start: build ## Build and run production on :3001 (no Tailscale)
+start: build ## Build and run production on :7788 (no Tailscale)
 	bun run start
 
 dist: ## One executable with everything in it → dist/orbit (make dist TARGETS=all for both Mac archs)
 	@scripts/dist.sh $(TARGETS)
 
-stop: ## Stop Orbit on :3001 and Tailscale HTTPS (443)
+stop: ## Stop Orbit on :7788 and Tailscale HTTPS (443)
 	@PIDS=$$(lsof -tiTCP:$(PORT) -sTCP:LISTEN 2>/dev/null || true); \
 	if [ -n "$$PIDS" ]; then \
 		echo "  Stopping PID(s) $$PIDS on :$(PORT)"; \
@@ -76,7 +76,7 @@ icons: ## Regenerate app icons from the mark + palette (web/public/*.png, icon.s
 # ── test ───────────────────────────────────────────────
 # Builds, starts an Orbit of its own (first free port from 3099, scratch HOME
 # named after it), runs the suites, and takes both down again. The one you are
-# using on :3001 is never touched.
+# using on :7788 is never touched.
 
 test: ## Run every suite against a throwaway server
 	@scripts/test.sh all
@@ -153,15 +153,15 @@ clean: ## Prune ~/.orbit screenshots & uploads (keep newest 50 each)
 	done; \
 	echo "  (config.json, sessions, push subscriptions left alone)"
 
-# ── phone (Tailscale HTTPS → :3001) ─────────────────────
+# ── phone (Tailscale HTTPS → :7788) ─────────────────────
 # Same origin for Safari/Chrome and a Home Screen install:
-# https://<machine>.<tailnet>.ts.net  (443 → localhost:3001)
+# https://<machine>.<tailnet>.ts.net  (443 → localhost:7788)
 #
 # Does not stop agent-opened GUI browsers (Chrome tabs from a CLI in a
 # session). Those are outside Orbit's process; use make stop for Orbit +
 # Tailscale only. Prefer orbit_capture / headless Playwright for agent UI checks.
 
-phone: build ## Phone access — prod :3001 + Tailscale HTTPS (orbit phone)
+phone: build ## Phone access — prod :7788 + Tailscale HTTPS (orbit phone)
 	@bun server/dist/main.js phone
 
 phone-off: ## Stop Tailscale serve (443) used by make phone
@@ -182,7 +182,7 @@ mobile: ## Phone on same WiFi — print LAN URL, then start dev
 
 # ── remote (Tailscale) ─────────────────────────────────
 
-remote-on: ## Expose :3001 via Tailscale HTTPS
+remote-on: ## Expose :7788 via Tailscale HTTPS
 	@$(TS) serve --bg $(PORT)
 
 remote-off: ## Stop Tailscale serve

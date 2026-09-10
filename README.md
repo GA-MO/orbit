@@ -136,11 +136,11 @@ Needs [Bun](https://bun.sh) 1.4 or newer.
 git clone https://github.com/GA-MO/orbit && cd orbit
 make install    # bun install
 make setup      # build, register the MCP server, install the hooks
-make phone      # run on :3001, published over the tailnet
+make phone      # run on :7788, published over the tailnet
 ```
 
 ```sh
-make dev        # Vite on :5173 with HMR, server on :3001
+make dev        # Vite on :5173 with HMR, server on :7788
 make dist       # one executable → dist/orbit  (TARGETS=all for arm64 + x64)
 make doctor     # the same check the installed binary offers
 make stop       # stop the server and the tailnet front door

@@ -4,7 +4,11 @@ set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUITE="${1:-all}"
 
-LIVE_PORT=3001
+# The ports a real Orbit answers on: the default, and the one that was the
+# default before it — an instance started earlier is still there until it is
+# restarted, and killing it ends whatever session is talking through it.
+LIVE_PORTS="7788 3001"
+is_live_port() { case " $LIVE_PORTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 PORT_SEARCH_FIRST=3099
 PORT_SEARCH_LAST=3148
 HEALTH_POLLS=100
@@ -30,8 +34,8 @@ pick_port() {
 PORT="$(pick_port)" || exit 1
 SCRATCH="${ORBIT_TEST_HOME:-/tmp/orbit-smoke-$PORT}"
 
-if [ "$PORT" = "$LIVE_PORT" ]; then
-  echo "  Refusing to test against :$LIVE_PORT — that is the real server, and this kills sessions." >&2
+if is_live_port "$PORT"; then
+  echo "  Refusing to test against :$PORT — a real server answers there, and this kills sessions." >&2
   exit 1
 fi
 
@@ -54,9 +58,19 @@ inherit_login_shell_path
 export ORBIT_TAILSCALE="${ORBIT_TAILSCALE:-$REPO/scripts/fake-tailscale.mjs}"
 
 start_server() {
-  if [ -n "${ORBIT_BIN:-}" ]; then
+  # ORBIT_BIN points the suites at a built executable instead of the checkout's
+  # own server. Relative to the checkout, or absolute — a binary downloaded
+  # from a release is the thing most worth pointing this at, and it does not
+  # live in here.
+  local bin="${ORBIT_BIN:-}"
+  if [ -n "$bin" ]; then
+    case "$bin" in
+      /*) : ;;
+      *)  bin="$REPO/$bin" ;;
+    esac
+    [ -x "$bin" ] || { echo "  ORBIT_BIN is not an executable: $bin" >&2; exit 1; }
     HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
-      "$REPO/$ORBIT_BIN" >"$LOG" 2>&1 &
+      "$bin" >"$LOG" 2>&1 &
   else
     HOME="$SCRATCH" ORBIT_PORT="$PORT" ORBIT_TAILSCALE="$ORBIT_TAILSCALE" \
       bun "$REPO/server/dist/index.js" >"$LOG" 2>&1 &

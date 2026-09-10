@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, WebSocket } from 'ws'
+import { PORT } from './port.js'
 import { PtyManager } from './pty-manager.js'
 import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
 import {
@@ -28,7 +29,6 @@ import * as push from './push.js'
 import { banner, plainBanner } from './banner.js'
 import * as pairing from './pairing.js'
 
-const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const HOME = os.homedir()
 
 const BUN_VIRTUAL_FS_URL = 'file:///$bunfs/'

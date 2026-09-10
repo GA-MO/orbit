@@ -24,9 +24,6 @@ const withGallery = !!process.env.ORBIT_GALLERY
    would otherwise look for index.html one directory too high. */
 const entry = (name: string) => new URL(name, import.meta.url).pathname
 
-/* The service worker is a public file, copied into dist untouched — so its
-   cache name was a constant, and a constant cannot say which build it belongs
-   to. This stamps it after the copy. */
 const stampServiceWorker = () => ({
   name: 'orbit-stamp-sw',
   closeBundle() {
@@ -57,11 +54,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/ws': {
-        target: 'ws://localhost:3001',
+        target: 'ws://localhost:7788',
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:7788',
       },
     },
   },

@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { PORT } from './port.js'
 import { orbitDir } from './home.js'
 import { launcher } from './launcher.js'
 import * as preview from './preview.js'
 import { hookPlan, settingsPath } from './setup.js'
 
-const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const LOGIN_SHELL = '/bin/zsh'
 const LOGIN_SHELL_ARGS = ['-l', '-i', '-c']
 const PATH_LOOKUP_TIMEOUT_MS = 8000

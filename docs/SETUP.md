@@ -67,7 +67,7 @@ Working from a checkout needs Bun 1.4 or newer.
 git clone https://github.com/GA-MO/orbit && cd orbit
 make install    # bun install
 make setup      # build, then bun server/dist/main.js setup
-make phone      # run on :3001, published over the tailnet
+make phone      # run on :7788, published over the tailnet
 ```
 
 `make setup` and `make phone` run the same code as the installed binary. The build step comes first because the MCP server has to exist on disk before it can be registered.
@@ -106,10 +106,10 @@ A Claude Code session that was already open does not see the new server. MCP ser
 ## First run and pairing
 
 ```sh
-orbit phone      # publish :3001 over the tailnet as https, print a QR code, run the server
+orbit phone      # publish :7788 over the tailnet as https, print a QR code, run the server
 ```
 
-`orbit phone` runs `tailscale serve --bg 3001`, prints a QR code, and then starts the server. The QR code encodes `https://<mac>.<tailnet>.ts.net/#pair=<code>`. Point the phone's camera at it and Orbit opens already paired. The code lives for 10 minutes and is good for a handful of uses; `orbit pair` prints a fresh one.
+`orbit phone` runs `tailscale serve --bg 7788`, prints a QR code, and then starts the server. The QR code encodes `https://<mac>.<tailnet>.ts.net/#pair=<code>`. Point the phone's camera at it and Orbit opens already paired. The code lives for 10 minutes and is good for a handful of uses; `orbit pair` prints a fresh one.
 
 Next to the QR code the console prints `[orbit] access token: …` for typing the token by hand.
 
@@ -126,7 +126,7 @@ orbit phone off    # remove the tailnet front door
 make stop          # from a checkout: stop the server and the front door
 ```
 
-To run the server without publishing it, use plain `orbit`. It listens on `:3001`; set `ORBIT_PORT` to change that.
+To run the server without publishing it, use plain `orbit`. It listens on `:7788`; set `ORBIT_PORT` to change that.
 
 ## What gets installed
 
@@ -142,7 +142,7 @@ To run the server without publishing it, use plain `orbit`. It listens on `:3001
 
 Details and caveats are in `MCP.md`.
 
-Every tool talks to the Orbit server on `127.0.0.1:3001`, so the server has to be running. If it is not, the tool reports that it cannot connect; the session itself is not affected.
+Every tool talks to the Orbit server on `127.0.0.1:7788`, so the server has to be running. If it is not, the tool reports that it cannot connect; the session itself is not affected.
 
 ### The notify hook: know when Claude is waiting
 
@@ -180,8 +180,8 @@ Everything lives in `~/.orbit`. Set `ORBIT_HOME` to move that directory without 
 
 | Command | What it does |
 | --- | --- |
-| `orbit` | Run the server on `:3001`. `ORBIT_PORT` changes the port. |
-| `orbit phone` | Publish `:3001` over the tailnet as https (`tailscale serve --bg 3001`), print a pairing QR code, then run the server. |
+| `orbit` | Run the server on `:7788`. `ORBIT_PORT` changes the port. |
+| `orbit phone` | Publish `:7788` over the tailnet as https (`tailscale serve --bg 7788`), print a pairing QR code, then run the server. |
 | `orbit phone off` | Remove the tailnet front door. |
 | `orbit setup` | Write the hooks into `~/.claude/settings.json` (backup at `settings.json.orbit.bak`) and register the MCP server. |
 | `orbit setup --uninstall` | Remove the hooks and the MCP registration. |
@@ -201,9 +201,9 @@ Everything lives in `~/.orbit`. Set `ORBIT_HOME` to move that directory without 
 | `make setup` | Build, then `bun server/dist/main.js setup`. |
 | `make unsetup` | Remove the hooks and the MCP registration. |
 | `make doctor` | The same check the installed binary offers. |
-| `make dev` | Vite on `:5173` with HMR and the server on `:3001`. |
-| `make start` | Build and run production on `:3001` without Tailscale. |
-| `make phone` | Build, then run on `:3001` published over the tailnet. |
+| `make dev` | Vite on `:5173` with HMR and the server on `:7788`. |
+| `make start` | Build and run production on `:7788` without Tailscale. |
+| `make phone` | Build, then run on `:7788` published over the tailnet. |
 | `make phone-off` | Remove the tailnet front door. |
 | `make mobile` | Print the LAN URL and start the dev build for a phone on the same Wi-Fi. |
 | `make stop` | Stop the server and the tailnet front door. |
@@ -241,11 +241,11 @@ Neither touches the checkout or `~/.orbit`; sessions, the token and screenshots 
 | Symptom | Usual cause |
 | --- | --- |
 | `/mcp` does not list `orbit` | The session was open before setup ran. Start a new session. |
-| A tool answers "not reachable on 127.0.0.1:3001" | The server is not running. Run `orbit phone`, `orbit`, or `make phone` / `make start` from a checkout. |
+| A tool answers "not reachable on 127.0.0.1:7788" | The server is not running. Run `orbit phone`, `orbit`, or `make phone` / `make start` from a checkout. |
 | The phone never notifies | Orbit is open on the phone, so notices are quiet by design. Close the app and try again. |
 | `orbit_screen` returns an image with no application windows | Screen Recording permission has not been granted. See the last section of `MCP.md`. |
 | `orbit setup` cannot register the MCP server | `claude` is not on the PATH. |
-| `orbit phone` reports that port 3001 is busy | An Orbit is already running. Stop it first (`make stop` from a checkout). |
+| `orbit phone` reports that port 7788 is busy | An Orbit is already running. Stop it first (`make stop` from a checkout). |
 
 ## Testing
 
@@ -255,7 +255,7 @@ make test-setup     # only the installer wiring
 bash scripts/test.sh <suite>    # smoke, touch, changes, preview-url, idle, ask, setup, install, all
 ```
 
-`scripts/test.sh` builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down. A run never touches `:3001` or the real `~/.orbit`. `ORBIT_BIN=dist/orbit` runs the suites against the compiled executable. If a run is killed part way and leaves a server or scratch directory behind, `make test-clean` reaps it.
+`scripts/test.sh` builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down. A run never touches `:7788` or the real `~/.orbit`. `ORBIT_BIN=dist/orbit` runs the suites against the compiled executable. If a run is killed part way and leaves a server or scratch directory behind, `make test-clean` reaps it.
 
 The documentation images can be regenerated the same way. `make shots` walks the real app on a throwaway server and rewrites `docs/images/*.jpg`; `bun docs/site/build.mjs` then rebuilds the website from them.
 

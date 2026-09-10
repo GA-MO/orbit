@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 
+import { PORT } from './port.js'
 import { orbitDir } from './home.js'
 import { qrBlock } from './qr.js'
 
-const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const QR_INDENT = '    '
 const say = (line = '') => console.log(line ? `  ${line}` : '')
 

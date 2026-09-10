@@ -646,12 +646,20 @@ first.
 
 In production the server serves the built web app itself, so production is a
 single port: `bun run build && bun run start`, then open
-`http://<mac-ip>:3001` (or the tailnet https address `orbit phone` publishes).
+`http://<mac-ip>:7788` (or the tailnet https address `orbit phone` publishes).
 
 ### An installable PWA
 
 Manifest, icons and a service worker make the app installable to the home
 screen. The service worker is registered in production builds only.
+
+### Building the executable (scripts/dist-compile.ts, scripts/dist.sh)
+
+- The compile goes through `Bun.build` rather than `bun build --compile` because one dependency needs a bundle-time patch. A bundler bakes `__dirname` in as the absolute path on the machine that built it; `playwright-core` derives its package root from `__dirname` and `require()`s `package.json` and `browsers.json` from there at module load. The 0.2.0 release, built on a GitHub runner, died on first start looking for `/Users/runner/work/orbit/…` — and every local build had passed, because on the machine that built it that path exists.
+- `inlinePlaywrightJson` replaces those two requires with the files' contents at bundle time. The build refuses to produce an executable if fewer than `MINIMUM_INLINED` were replaced, or if any bundled `playwright-core` file still matches `STILL_READS_JSON_FROM_ITS_PACKAGE_ROOT`: an upgrade that changes the shape must be a build error, not a release that starts on one machine.
+- `FIREFOX_ONLY_PLAYWRIGHT_REQUIRE` (`chromium-bidi`) is external — an optional require the bundler cannot resolve and the binary never needs.
+- `--asset` keeps a path's own last segment and drops what is above it: `web/dist` lands at `/$bunfs/root/dist` and `server/package.json` at `/$bunfs/root/package.json`. A local `make dist` can never reproduce the 0.2.0 failure; to test it, build from a copy of the tree at a throwaway path, delete that path, then `ORBIT_BIN=<binary> bash scripts/test.sh smoke`. `release.yml` does the same thing by moving `node_modules`, `web/dist` and `server/dist` aside and starting the executable from `/tmp` before it publishes anything.
+- `stampServiceWorker` in `web/vite.config.ts` rewrites `__BUILD__` in the copied `sw.js` after the bundle: the worker is a public file copied through untouched, so its cache name was a constant, and a constant cannot say which build it belongs to.
 
 ## Implementation notes
 
@@ -762,8 +770,15 @@ alternatives — keyed by the function or constant it belongs to.
 - `MAX_VIEWPORT_PX` = 4000 because Chrome allocates whatever viewport it is asked for; `scaleFactorFor` uses retina (2×) below `DESKTOP_WIDTH_PX` = 1200 and 1× above, where it only doubles an already large image.
 - The filename is `<timestamp>-<kind>-<label>.png` and `sanitize` keeps `:` (host:port is the point of the label); files without a kind segment predate `orbit_screen` and are URL renders.
 
+### The default port (port.ts)
+
+- `DEFAULT_PORT` = 7788. 3001 was the default until it proved too popular — a Node dev server, a second Node dev server, half the tutorials — so a fresh Orbit collided with whatever was already there. 7788 is in no `/etc/services`, sits clear of the 3000/5000/8000 clusters everything reaches for, and clear of Orbit's own bands: previews from 8443 up, tests from 3099 up.
+- `resolvePort` falls back on an *empty* `ORBIT_PORT`, not only an absent one. `Number(process.env.ORBIT_PORT ?? 3001)` shipped in 0.2.1: `??` does not fall back on `''`, so `ORBIT_PORT=` made the port 0, the server bound whatever the kernel handed out, and the hooks, the MCP server and `doctor` all looked on `:0` and reported nothing there. A value that is not a port throws rather than becoming one, because the alternative is a server nobody can reach and no message saying why.
+- The number is written down in five places that cannot import each other — `Makefile`, `scripts/test.sh`, `scripts/shots.sh`, `web/vite.config.ts`, `package.json` — so `smoke.mjs` reads them back and compares. Drift is otherwise silent: `make stop` stops a port nothing is on, the dev proxy talks to nobody, and the suites stop protecting the live server.
+
 ### MCP server (mcp.ts)
 
+- `SERVER_INFO.version` comes from `packageVersion()`, not a literal. It was hardcoded `0.1.0` and stayed there through 0.2.1, so a client asking the binary what it was got the wrong answer.
 - `MAX_IMAGE_WIDTH` = 1568: Claude resizes anything wider anyway, so a `sips -Z` downscale to a copy costs the agent fewer tokens while the original stays on disk.
 - `orbit_notify` defaults `kind` to `done`; before the field existed every message counted as done, which buried questions.
 - `initialize` echoes the client's `protocolVersion` to avoid a needless renegotiation; tool failures are returned as `isError` content, not JSON-RPC errors, so they land in the conversation.
@@ -906,10 +921,11 @@ alternatives — keyed by the function or constant it belongs to.
 
 ### Test harness and scripts
 
-- `scripts/test.sh` picks the port itself from 3099 up and names the scratch HOME after it: asking the caller for one used to die on "port in use", so a second session invented its own port and HOME, which is how six `/tmp/orbit-smoke-31xx` directories outlived their runs. `:3001` is refused because the suites kill sessions and that is the live Orbit; `smoke.mjs` (`SMOKE_FORCE` overrides), `changes-smoke.mjs`, `shots.mjs` and `shots.sh` each refuse it independently.
+- `scripts/test.sh` picks the port itself from 3099 up and names the scratch HOME after it: asking the caller for one used to die on "port in use", so a second session invented its own port and HOME, which is how six `/tmp/orbit-smoke-31xx` directories outlived their runs. `LIVE_PORTS` (7788 and 3001) are refused because the suites kill sessions and a real Orbit answers there; 3001 is on the list because it was the default until 0.2.2 and an instance started before that is still on it until restarted. `smoke.mjs` (`SMOKE_FORCE` overrides), `changes-smoke.mjs`, `shots.mjs` and `shots.sh` each refuse them independently.
 - `test.sh` exports `REAL_PATH` from `/bin/zsh -lic`: the scratch HOME has no rc files, so the server's login shell rebuilt PATH without `~/.local/bin` or version-manager shims and provider detection (`zsh -lic 'command -v claude'`) reported every agent "not installed" — a false negative nobody investigates.
-- `test.sh` sets `ORBIT_TAILSCALE` to `fake-tailscale.mjs`: the real CLI either skipped the preview tests or published real mappings, and `:8443 → 127.0.0.1:3099` once outlived the throwaway server and confused a debugging session weeks later. The fake keeps mappings in a JSON file under the test HOME, seeds `443 → 3001` (the front door `make phone` created) so Orbit must leave it alone untold, prints the CLI's words on stderr (which `preview.ts` reads), and keeps the trailing dot on `DNSName` because `preview.ts` strips it.
+- `test.sh` sets `ORBIT_TAILSCALE` to `fake-tailscale.mjs`: the real CLI either skipped the preview tests or published real mappings, and `:8443 → 127.0.0.1:3099` once outlived the throwaway server and confused a debugging session weeks later. The fake keeps mappings in a JSON file under the test HOME, seeds `443 → 7788` (the front door `orbit phone` created) so Orbit must leave it alone untold, prints the CLI's words on stderr (which `preview.ts` reads), and keeps the trailing dot on `DNSName` because `preview.ts` strips it.
 - `test.sh` deletes the scratch HOME only when suites pass (a failed run's server log is what someone wants to read) and retries `rm -rf` five times at 0.3s because the server's shells write `.zsh_history` a moment after the server has gone.
+- `ORBIT_BIN` points the suites at a built executable instead of the checkout's server, absolute or relative to the checkout — a binary downloaded from a release is the thing most worth pointing them at, and it does not live in the tree.
 - `smoke.mjs` attaches the `gone` message listener before any `await`: under Bun the socket opens, is told `gone` and closes within ~3ms, before a fetch returns, so a listener attached after waits forever.
 - `smoke.mjs` asks resumability of the provider list, not the new session: a live session is never resumable by design (resuming would put a second agent into a held conversation), so gating on it skipped the test on every machine while claiming Claude was not installed.
 - `smoke.mjs` conversation bookkeeping runs in a child process with its own data directory because a second `PtyManager` on the same `~/.orbit` would be two writers of one `sessions.json`; every session it makes is killed immediately so a machine with Claude Code does not get real agents in a scratch folder.

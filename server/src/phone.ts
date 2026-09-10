@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
 
+import { PORT } from './port.js'
 import * as preview from './preview.js'
 
-const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const SERVER_OWNS_PROCESS = -1
 const say = (line = '') => console.log(line ? `  ${line}` : '')
 

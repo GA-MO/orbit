@@ -12,14 +12,14 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(REPO, 'package.json'))
 const WebSocket = require('ws')
 
-const LIVE_ORBIT_PORT = 3001
+const LIVE_ORBIT_PORTS = [7788, 3001]
 const PORT = Number(process.env.ORBIT_PORT ?? 3099)
 const BASE = `http://127.0.0.1:${PORT}`
 const WS_URL = `ws://127.0.0.1:${PORT}/ws`
 const HOME = os.homedir()
 
-if (PORT === LIVE_ORBIT_PORT && !process.env.SMOKE_FORCE) {
-  console.error('Refusing to run against port 3001 — that is the real server, and this kills')
+if (LIVE_ORBIT_PORTS.includes(PORT) && !process.env.SMOKE_FORCE) {
+  console.error(`Refusing to run against port ${PORT} — a real server answers there, and this kills`)
   console.error('sessions. Start a throwaway one (see the header) or set SMOKE_FORCE=1.')
   process.exit(1)
 }
@@ -81,6 +81,59 @@ const phone = (chooseAnswer, viewingSessionId) => {
   })
   return { ws, seen, open }
 }
+
+section('the port everything has to agree on')
+
+const { resolvePort, DEFAULT_PORT } = await import(path.join(REPO, 'server/dist/port.js'))
+check('an unset ORBIT_PORT is the default', resolvePort(undefined) === DEFAULT_PORT, String(DEFAULT_PORT))
+check('an empty ORBIT_PORT is the default, not 0', resolvePort('') === DEFAULT_PORT, String(resolvePort('')))
+check('…and so is one that is only spaces', resolvePort('   ') === DEFAULT_PORT)
+check('a real port is itself', resolvePort('3099') === 3099)
+const refuses = (raw) => {
+  try {
+    resolvePort(raw)
+    return false
+  } catch {
+    return true
+  }
+}
+check('anything that is not a port is refused out loud', ['0', '-1', '70000', 'abc', '80.5'].every(refuses))
+
+const runOrbit = (args, env) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(REPO, 'server/dist/main.js'), ...args], {
+      env: { ...process.env, ...env },
+    })
+    let output = ''
+    child.stdout.on('data', (d) => (output += d))
+    child.stderr.on('data', (d) => (output += d))
+    child.on('close', (code) => resolve({ code, output: output.trim() }))
+  })
+
+const unusable = await runOrbit(['doctor'], { ORBIT_PORT: 'abc' })
+check('an unusable ORBIT_PORT exits 2', unusable.code === 2, String(unusable.code))
+check(
+  '…saying so in one sentence, with no stack trace',
+  unusable.output.split('\n').length === 1 && unusable.output.startsWith('orbit: ORBIT_PORT must be'),
+  unusable.output.split('\n')[0],
+)
+check('the server is on the port this suite was told', (await api('/api/sessions', null, 'GET')).status === 200, String(PORT))
+
+const namesThePort = {
+  'Makefile': /^PORT := (\d+)$/m,
+  'scripts/test.sh': /^LIVE_PORTS="(\d+)/m,
+  'scripts/shots.sh': /^LIVE_PORTS="(\d+)/m,
+  'web/vite.config.ts': /target: 'http:\/\/localhost:(\d+)'/,
+  'package.json': /serve --bg (\d+)/,
+}
+const disagree = Object.entries(namesThePort)
+  .map(([file, pattern]) => [file, fs.readFileSync(path.join(REPO, file), 'utf8').match(pattern)?.[1]])
+  .filter(([, found]) => Number(found) !== DEFAULT_PORT)
+check(
+  'every file that names the default port names the same one',
+  disagree.length === 0,
+  disagree.map(([file, found]) => `${file}: ${found ?? 'not found'}`).join(', '),
+)
 
 section('captures')
 const PRESET_WIDTHS = [['phone', 780], ['tablet', 1668], ['desktop', 1440]]

@@ -24,7 +24,7 @@ This page is for anyone who wants the coding agent inside an Orbit session to se
 | `orbit_ask` | Puts a question with up to four options on the phone and blocks until one is tapped or the question times out. |
 | `orbit_preview` | Opens the running app itself on the phone, at the page you name. Not a picture: it can be tapped, scrolled and filled in, in a frame over the terminal, without leaving the session. |
 
-Every tool talks to the Orbit server on port 3001 using the token in `~/.orbit/config.json`. The server has to be running; otherwise the tool reports that it cannot connect, and the session carries on.
+Every tool talks to the Orbit server on port 7788 using the token in `~/.orbit/config.json`. The server has to be running; otherwise the tool reports that it cannot connect, and the session carries on.
 
 ## Install
 

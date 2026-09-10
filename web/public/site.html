@@ -1041,7 +1041,7 @@
                 <span class="layer-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span>
                 <span>
                   <b>Orbit server</b>
-                  <small>Node.js · TypeScript · ws · พอร์ต 3001</small>
+                  <small>Bun · TypeScript · ws · พอร์ต 7788</small>
                 </span>
               </button>
 
@@ -1246,7 +1246,7 @@
                 </p>
                 <ul>
                   <li><strong>HTTPS ผ่าน Tailscale</strong> (แนะนำ) — <code>https://&lt;เครื่อง&gt;.&lt;tailnet&gt;.ts.net</code> ใช้ได้ทุกฟีเจอร์ และเข้าจากนอกบ้านได้</li>
-                  <li><strong>LAN ธรรมดา</strong> — <code>http://&lt;ip-ของ-mac&gt;:3001</code> ต้องอยู่ WiFi วงเดียวกัน และเสียงกับ Add to Home Screen จะใช้ไม่ได้</li>
+                  <li><strong>LAN ธรรมดา</strong> — <code>http://&lt;ip-ของ-mac&gt;:7788</code> ต้องอยู่ WiFi วงเดียวกัน และเสียงกับ Add to Home Screen จะใช้ไม่ได้</li>
                 </ul>
                 <div class="callout info">
                   ที่เสียงใช้ไม่ได้บน HTTP ไม่ใช่ข้อจำกัดของ Orbit —
@@ -1520,7 +1520,7 @@
           <h2>ให้ agent มองเห็นงานตัวเอง และเรียกหาคุณเป็น</h2>
           <p class="lede">
             ปกติ Orbit คือมือถือสั่ง Mac — MCP server ที่มากับโปรเจกต์คือทางกลับกัน
-            ทั้งหมดคุยกับ server ที่พอร์ต 3001 ด้วย token ใน <code>~/.orbit/config.json</code>
+            ทั้งหมดคุยกับ server ที่พอร์ต 7788 ด้วย token ใน <code>~/.orbit/config.json</code>
           </p>
         </div>
 
@@ -1885,7 +1885,7 @@
         holds: 'sessions.json, scrollback/, screenshots/, uploads/, push-subscriptions.json',
         files: ['server/src/index.ts', 'server/src/notify.ts', 'server/src/screenshot.ts'],
         note:
-          'พอร์ตเดียว (3001) ในโหมด production — เสิร์ฟทั้งไฟล์ของ web/dist และ API ' +
+          'พอร์ตเดียว (7788) ในโหมด production — เสิร์ฟทั้งไฟล์ของ web/dist และ API ' +
           'เพื่อให้เป็น origin เดียวกัน ซึ่ง PWA และคุกกี้ต้องการ',
       },
       pty: {
@@ -1968,7 +1968,7 @@
     const NODES = [
       { id: 'phone', name: 'มือถือ', sub: 'xterm.js\nservice worker' },
       { id: 'net', name: 'ชั้นเชื่อมต่อ', sub: 'WSS + Bearer\nTailscale' },
-      { id: 'server', name: 'Orbit server', sub: 'index.ts\n:3001' },
+      { id: 'server', name: 'Orbit server', sub: 'index.ts\n:7788' },
       { id: 'pty', name: 'PTY', sub: 'node-pty\nzsh' },
       { id: 'agent', name: 'Agent CLI', sub: 'claude\ncodex' },
       { id: 'disk', name: '~/.orbit', sub: 'sessions\nscrollback' },
@@ -2228,7 +2228,7 @@
 
     const SAMPLES = [
       'npm run build',
-      'sudo lsof -i :3001',
+      'sudo lsof -i :7788',
       'git push --force origin main',
       'rm -rf ~/Development/orbit/node_modules',
       'git status',
@@ -2285,7 +2285,7 @@
         {
           title: 'สองพอร์ต พร้อม HMR',
           code:
-            '<span class="cm"># ครั้งแรกเท่านั้น</span>\nnpm install\n\n<span class="cm"># server :3001 + web :5173</span>\nnpm run dev',
+            '<span class="cm"># ครั้งแรกเท่านั้น</span>\nnpm install\n\n<span class="cm"># server :7788 + web :5173</span>\nnpm run dev',
           after:
             'เปิด <code>http://&lt;ip-ของ-mac&gt;:5173</code> จากมือถือได้เลย — Vite bind ทุก interface ' +
             'และ proxy <code>/ws</code> กับ <code>/api</code> ไปให้ backend เอง มือถือจึงต้องถึงแค่พอร์ต 5173',
@@ -2296,7 +2296,7 @@
           title: 'พอร์ตเดียว ติดตั้งเป็นแอปได้',
           code: 'npm run build\nnpm start -w server\n\n<span class="cm"># console จะพิมพ์:</span>\n<span class="cm"># [orbit] access token: …</span>',
           after:
-            'เปิด <code>http://&lt;ip-ของ-mac&gt;:3001</code> แล้วใส่ token ที่ console พิมพ์ไว้ — ' +
+            'เปิด <code>http://&lt;ip-ของ-mac&gt;:7788</code> แล้วใส่ token ที่ console พิมพ์ไว้ — ' +
             'server เสิร์ฟ <code>web/dist</code> เองจึงเป็น origin เดียว ซึ่งคือสิ่งที่คุกกี้และ PWA ต้องการ',
         },
       ],
@@ -2304,7 +2304,7 @@
         {
           title: 'HTTPS ใบจริง โดยไม่เปิดพอร์ตออกเน็ต',
           code:
-            '<span class="cm"># ลง Tailscale ทั้งบน Mac และมือถือ แล้ว login บัญชีเดียวกัน</span>\ntailscale status\n\n<span class="cm"># เปิด MagicDNS + HTTPS ใน admin console ก่อน</span>\nnpm run remote:on      <span class="cm"># tailscale serve --bg 3001</span>\nnpm run remote:status\nnpm run remote:off     <span class="cm"># เลิกแชร์</span>',
+            '<span class="cm"># ลง Tailscale ทั้งบน Mac และมือถือ แล้ว login บัญชีเดียวกัน</span>\ntailscale status\n\n<span class="cm"># เปิด MagicDNS + HTTPS ใน admin console ก่อน</span>\nnpm run remote:on      <span class="cm"># tailscale serve --bg 7788</span>\nnpm run remote:status\nnpm run remote:off     <span class="cm"># เลิกแชร์</span>',
           after:
             'แล้วเปิด <code>https://&lt;เครื่อง&gt;.&lt;tailnet&gt;.ts.net</code> — ได้ secure context ครบ ' +
             'จึงใช้เสียง, service worker และ Add to Home Screen ได้ และเข้าจากนอกบ้านได้ด้วย',

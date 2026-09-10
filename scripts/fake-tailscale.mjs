@@ -6,7 +6,7 @@ import path from 'node:path'
 const HOST = 'smoke-mac.example-tailnet.ts.net'
 const ORBIT_HOME = process.env.ORBIT_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.orbit')
 const STATE_FILE = process.env.ORBIT_FAKE_TAILSCALE_STATE ?? path.join(ORBIT_HOME, 'fake-tailscale.json')
-const FRONT_DOOR = [{ publicPort: 443, port: 3001 }]
+const FRONT_DOOR = [{ publicPort: 443, port: 7788 }]
 
 const readMappings = () => {
   try {

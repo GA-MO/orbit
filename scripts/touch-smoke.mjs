@@ -6,8 +6,8 @@ const BASE = process.env.ORBIT_URL ?? `http://127.0.0.1:${PORT}`
 const HOME = process.env.ORBIT_HOME ?? '/tmp/orbit-smoke'
 const ENGINE = process.env.ENGINE === 'webkit' ? 'webkit' : 'chromium'
 
-if (BASE.includes(':3001')) {
-  console.error('refusing to run against port 3001 — that is the real server')
+if (['7788', '3001'].some((p) => BASE.includes(`:${p}`))) {
+  console.error('refusing to run against a live Orbit port (7788, 3001) — that is the real server')
   process.exit(1)
 }
 

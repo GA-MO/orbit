@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { chromium } from 'playwright-core'
 
-const LIVE_PORT = '3001'
+const LIVE_PORTS = ['7788', '3001']
 const PORT = process.env.ORBIT_PORT ?? '3099'
 const BASE = process.env.ORBIT_URL ?? `http://127.0.0.1:${PORT}`
 const HOME = process.env.ORBIT_HOME ?? os.homedir()
@@ -23,8 +23,9 @@ const LINE_COUNT = 24
 const RENAMED_LINE = 2
 const RENUMBERED_LINE = 21
 
-if (BASE.includes(`:${LIVE_PORT}`)) {
-  console.error(`refusing to run against port ${LIVE_PORT} — that is the real server`)
+const live = LIVE_PORTS.find((port) => BASE.includes(`:${port}`))
+if (live) {
+  console.error(`refusing to run against port ${live} — a real server answers there`)
   process.exit(1)
 }
 

@@ -2,7 +2,7 @@ const [command, ...rest] = process.argv.slice(2)
 
 const usage = `orbit — a phone-side console for the coding agents on this Mac
 
-  orbit                    run the server (ORBIT_PORT, default 3001)
+  orbit                    run the server (ORBIT_PORT, default 7788)
   orbit phone [off]        run it published over the tailnet as https
   orbit setup [--approval] [--uninstall]  wire the hooks and MCP server into Claude Code (--approval adds the phone-side gate)
   orbit pair               a fresh QR to pair a phone with the running server
@@ -16,6 +16,23 @@ const exit = (code: number) => {
   if (code >= 0) process.exit(code)
 }
 
+const UNUSABLE_PORT = 'ORBIT_UNUSABLE_PORT'
+
+const reportConfigProblemsPlainly = (err: unknown): never => {
+  if ((err as NodeJS.ErrnoException)?.code === UNUSABLE_PORT) {
+    console.error(`orbit: ${(err as Error).message}`)
+    process.exit(2)
+  }
+  throw err
+}
+
+try {
+  await dispatch()
+} catch (err) {
+  reportConfigProblemsPlainly(err)
+}
+
+async function dispatch(): Promise<void> {
 switch (command) {
   case undefined:
   case 'serve':
@@ -59,4 +76,5 @@ switch (command) {
   default:
     console.error(`orbit: unknown command "${command}"\n\n${usage}`)
     process.exit(2)
+}
 }

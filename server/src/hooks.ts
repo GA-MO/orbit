@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 
+import { PORT } from './port.js'
 import { screenCommand } from './approval.js'
 import { orbitDir } from './home.js'
 
-const PORT = Number(process.env.ORBIT_PORT ?? 3001)
 const APPROVE_TIMEOUT_SECONDS = 180
 const APPROVE_STDIN_LIMIT_MS = 5000
 const NOTIFY_STDIN_LIMIT_MS = 3000

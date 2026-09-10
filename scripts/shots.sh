@@ -3,7 +3,11 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-LIVE_PORT=3001
+# The ports a real Orbit answers on: the default, and the one that was the
+# default before it — an instance started earlier is still there until it is
+# restarted, and killing it ends whatever session is talking through it.
+LIVE_PORTS="7788 3001"
+is_live_port() { case " $LIVE_PORTS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 PORT_SEARCH_FIRST=3099
 PORT_SEARCH_LAST=3148
 HEALTH_POLLS=100
@@ -21,8 +25,8 @@ pick_port() {
 
 PORT="$(pick_port)" || exit 1
 
-if [ "$PORT" = "$LIVE_PORT" ]; then
-  echo "  Refusing to run against :$LIVE_PORT — that is the real server." >&2
+if is_live_port "$PORT"; then
+  echo "  Refusing to run against :$PORT — a real server answers there." >&2
   exit 1
 fi
 

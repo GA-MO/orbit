@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
 
-const LIVE_PORT = '3001'
+const LIVE_PORTS = ['7788', '3001']
 const PORT = process.env.ORBIT_PORT ?? '3099'
 const BASE = `http://127.0.0.1:${PORT}`
 const SCRATCH = process.env.ORBIT_HOME
@@ -19,8 +19,9 @@ const JPEG_QUALITY = 88
 const TERMINAL_TIMEOUT_MS = 15000
 const FAIL_SHOT = '/tmp/shot-fail.png'
 
-if (BASE.includes(`:${LIVE_PORT}`)) {
-  console.error(`refusing to run against port ${LIVE_PORT} — that is the real server`)
+const live = LIVE_PORTS.find((port) => BASE.includes(`:${port}`))
+if (live) {
+  console.error(`refusing to run against port ${live} — a real server answers there`)
   process.exit(1)
 }
 if (!SCRATCH || SCRATCH === os.homedir()) {

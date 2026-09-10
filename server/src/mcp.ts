@@ -4,12 +4,13 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { packageVersion } from './banner.js'
+import { PORT } from './port.js'
 
 const execFileAsync = promisify(execFile)
 
 const PROTOCOL_VERSION = '2025-06-18'
-const SERVER_INFO = { name: 'orbit', version: '0.1.0' }
-const PORT = Number(process.env.ORBIT_PORT ?? 3001)
+const SERVER_INFO = { name: 'orbit', version: packageVersion() }
 const BASE = `http://127.0.0.1:${PORT}`
 const SESSION_ID = process.env.ORBIT_SESSION_ID || null
 const MAX_IMAGE_WIDTH = 1568

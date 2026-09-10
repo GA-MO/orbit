@@ -7,7 +7,7 @@ just typed.
 ## Never stash to run a test
 
 `git stash push -- some/file.tsx && <test>; git stash pop` looks reversible. It
-is not: restarting the server on :3001, or a session dying mid-edit, kills the
+is not: restarting the live server, or a session dying mid-edit, kills the
 shell before `pop` runs. The work then sits in a stash while `git status` looks
 clean — which is the worst possible way to lose it, because nothing points at
 it.
@@ -29,19 +29,20 @@ the last line tells you where it is. Do not set `ORBIT_TEST_PORT` or
 `ORBIT_TEST_HOME` to work around a busy port; that is what left six orphaned
 scratch directories behind, and it is now handled for you.
 
-Never point a test at :3001. The suites kill sessions, and :3001 is the Orbit
-you are talking through. `scripts/test.sh` refuses, but nothing stops a
-hand-rolled command.
+Never point a test at a live Orbit — :7788, or :3001 for an instance started
+before 7788 became the default. The suites kill sessions, and one of those is
+the Orbit you are talking through. `scripts/test.sh` refuses both, but nothing
+stops a hand-rolled command.
 
     make test-clean    # reap a server or scratch HOME a killed run left behind
 
 ## What not to restart
 
-- **:3001** — the live Orbit. `make stop` or a restart ends the conversation
-  that asked for it. Hand the restart to the user, and write down where you got
-  to first.
-- **Tailscale serve on 443** — `make phone` set it up to proxy :3001. It is
-  meant to be there; it is not a leftover.
+- **The live Orbit** — :7788 by default, and :3001 for one started before that
+  was the default. `make stop` or a restart ends the conversation that asked
+  for it. Hand the restart to the user, and write down where you got to first.
+- **Tailscale serve on 443** — `orbit phone` set it up to proxy the live
+  Orbit. It is meant to be there; it is not a leftover.
 
 ## No comments in the source
 

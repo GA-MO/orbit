@@ -46,7 +46,7 @@ tailscale status        # lists every device with its 100.x.y.z address
 
 ## 3. Enable https for the tailnet
 
-Orbit works over plain http, but only as a terminal. Everything a phone needs beyond that requires a secure context in the browser: voice input (Web Speech), Add to Home Screen, the service worker behind the offline shell, and Web Push. Over `http://<mac-ip>:3001` on the LAN, or the Vite dev server on `:5173` from `make dev`, none of those register.
+Orbit works over plain http, but only as a terminal. Everything a phone needs beyond that requires a secure context in the browser: voice input (Web Speech), Add to Home Screen, the service worker behind the offline shell, and Web Push. Over `http://<mac-ip>:7788` on the LAN, or the Vite dev server on `:5173` from `make dev`, none of those register.
 
 `tailscale serve` solves this. It gives the Mac a real https address with a real certificate, reachable only from inside your tailnet. It needs a one-time change in the [Tailscale admin console](https://login.tailscale.com/admin/dns): on the DNS tab, turn on **MagicDNS** and click **Enable HTTPS**. Without both, `tailscale serve` refuses to start.
 
@@ -58,20 +58,20 @@ With Orbit installed (see `SETUP.md`; the one-line installer places the executab
 orbit phone
 ```
 
-This runs `tailscale serve --bg 3001` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`, and a pairing QR code. On the phone, with the Tailscale VPN on, point the camera at the code: Orbit opens already paired. Add it to the home screen and scan the code once more from the app's login screen, because iOS gives a home-screen app storage of its own. The token is printed beside the code for typing, and `orbit pair` prints a fresh code when the one on screen has expired.
+This runs `tailscale serve --bg 7788` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`, and a pairing QR code. On the phone, with the Tailscale VPN on, point the camera at the code: Orbit opens already paired. Add it to the home screen and scan the code once more from the app's login screen, because iOS gives a home-screen app storage of its own. The token is printed beside the code for typing, and `orbit pair` prints a fresh code when the one on screen has expired.
 
 No port is needed in the address. The terminal's WebSocket runs over `wss://` automatically, and Add to Home Screen produces a full PWA.
 
 The first request can take ten seconds or more while Tailscale obtains the certificate. After that it is as fast as any local page.
 
-If something is already listening on `:3001`, `orbit phone` points the https address at it and returns, leaving that server alone.
+If something is already listening on `:7788`, `orbit phone` points the https address at it and returns, leaving that server alone.
 
 From a checkout of the repository, the same commands are:
 
 ```sh
 make phone        # build, then orbit phone
 make phone-off    # take the 443 front door down
-make stop         # stop the server on :3001 and the 443 front door
+make stop         # stop the server on :7788 and the 443 front door
 ```
 
 ### Plain http, without a certificate
@@ -79,10 +79,10 @@ make stop         # stop the server on :3001 and the 443 front door
 Before enabling https, or as a fallback, the server is reachable over the tailnet without `tailscale serve`:
 
 ```sh
-orbit             # the server alone, on :3001 (ORBIT_PORT to change it)
+orbit             # the server alone, on :7788 (ORBIT_PORT to change it)
 ```
 
-Then open `http://<tailscale-ip-of-the-mac>:3001` (for example `http://100.101.102.103:3001`) or the MagicDNS name, `http://<machine>.<tailnet>.ts.net:3001`, and enter the access token once. You get the terminal, and nothing that needs a secure context.
+Then open `http://<tailscale-ip-of-the-mac>:7788` (for example `http://100.101.102.103:7788`) or the MagicDNS name, `http://<machine>.<tailnet>.ts.net:7788`, and enter the access token once. You get the terminal, and nothing that needs a secure context.
 
 ### Turning the front door off
 
@@ -97,7 +97,7 @@ The 443 mapping is only cleared by `orbit phone off` or `make stop`. It survives
 The older scripts still exist and call `tailscale` the same way, from `PATH` or the app bundle:
 
 ```sh
-bun run remote:on         # tailscale serve --bg 3001
+bun run remote:on         # tailscale serve --bg 7788
 bun run remote:status     # tailscale serve status
 bun run remote:off        # tailscale serve --https=443 off
 ```
@@ -230,9 +230,9 @@ Remove only the `token` key from `~/.orbit/config.json`, then restart the server
 | The `.ts.net` name is unknown on the phone | MagicDNS is off, or the phone's VPN is not connected. Turn on MagicDNS in the admin console and check the Tailscale switch on the phone. Until then the `100.x.y.z` address still works. |
 | The phone cannot reach the Mac at all | The Tailscale VPN switch must be on in the app on both devices. From the Mac, `tailscale ping <phone-ip>`. |
 | The first https request hangs for a long time | Tailscale is issuing the certificate. Wait ten to twenty seconds and reload; later requests are fast. |
-| The page loads but the terminal does not connect | The WebSocket is blocked. With `serve` in use, open the `https://` address, not `http://…:3001`; do not mix the two. |
-| The login screen appears even though the token was entered | The token is stored per origin. `http://100.x…:3001` and `https://….ts.net` are different origins; enter it once more. |
-| `Port 3001 already in use` | Another Orbit (or something else) is listening. `orbit phone` points the https address at it and exits. Run `make stop` to stop the server on `:3001` and the front door, or set `ORBIT_PORT` to run on another port. |
+| The page loads but the terminal does not connect | The WebSocket is blocked. With `serve` in use, open the `https://` address, not `http://…:7788`; do not mix the two. |
+| The login screen appears even though the token was entered | The token is stored per origin. `http://100.x…:7788` and `https://….ts.net` are different origins; enter it once more. |
+| `Port 7788 already in use` | Another Orbit (or something else) is listening. `orbit phone` points the https address at it and exits. Run `make stop` to stop the server on `:7788` and the front door, or set `ORBIT_PORT` to run on another port. |
 | The connection drops when the Mac sleeps | In System Settings, keep the Mac on power and turn off "Put hard disks to sleep", or use `caffeinate` or Amphetamine. |
 | `orbit_screen` returns a black or empty image | macOS needs Screen Recording permission for the process running Orbit. Grant it in System Settings > Privacy & Security > Screen Recording. |
 | The access token needs to change | See [Rotating the token](#rotating-the-token). |
