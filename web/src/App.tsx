@@ -31,6 +31,9 @@ import {
 import {
   AuthError,
   checkAuth,
+  checkAuthWithoutToken,
+  hasToken,
+  retirePushSubscription,
   pairCodeIn,
   pairWithCode,
   clearAttention,
@@ -312,6 +315,12 @@ export default function App() {
     const boot = async () => {
       try {
         await exchangePairCodeIfAny()
+        if (await checkAuthWithoutToken()) {
+          if (!cancelled) setLocked(false)
+          registerPush()
+          await reattachToStoredSession()
+          return
+        }
         if (!(await checkAuth())) {
           if (!cancelled) setLocked(true)
           return
@@ -408,6 +417,11 @@ export default function App() {
     setCurrentId(null)
     setCurrent(null)
     setLocked(true)
+  }, [])
+
+  const stopNotifications = useCallback(async () => {
+    await retirePushSubscription(await pushEndpoint())
+    await dropPush()
   }, [])
 
   const pickImage = async (file: File | null) => {
@@ -543,6 +557,8 @@ export default function App() {
             onSelect={selectSession}
             onNew={() => setNewSessionOpen(true)}
             onUnpair={unpair}
+            holdsToken={hasToken()}
+            onStopNotifications={stopNotifications}
             onToast={showToast}
           />
         </div>

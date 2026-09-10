@@ -4,8 +4,8 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
+import { launch, type Chrome, type Page } from './chrome.js'
 import { orbitDir } from './home.js'
-import { chromium, type Browser, type Page } from 'playwright-core'
 
 const execFileAsync = promisify(execFile)
 
@@ -13,7 +13,6 @@ const SCREENSHOT_DIR = orbitDir('screenshots')
 const KEEP = 50
 const BROWSER_IDLE_MS = 60_000
 const NAVIGATION_TIMEOUT_MS = 20_000
-const LOAD_FALLBACK_TIMEOUT_MS = 5000
 const SCREENCAPTURE_TIMEOUT_MS = 15_000
 const MIN_VIEWPORT_PX = 200
 const MAX_VIEWPORT_PX = 4000
@@ -79,19 +78,18 @@ export interface CaptureOptions {
   label?: string
 }
 
-let browser: Browser | null = null
-let launching: Promise<Browser> | null = null
+let browser: Chrome | null = null
+let launching: Promise<Chrome> | null = null
 let idleTimer: NodeJS.Timeout | null = null
 let inFlight = 0
 
-async function getBrowser(): Promise<Browser> {
+async function getBrowser(): Promise<Chrome> {
   if (browser?.isConnected()) return browser
   if (launching) return launching
-  launching = chromium
-    .launch({ channel: 'chrome', headless: true })
+  launching = launch()
     .then((b) => {
       browser = b
-      b.on('disconnected', () => {
+      b.onDisconnected(() => {
         if (browser === b) browser = null
       })
       return b
@@ -140,12 +138,11 @@ const scaleFactorFor = (width: number): number => (width >= DESKTOP_WIDTH_PX ? P
 
 const navigateOrSettleForLoad = async (page: Page, url: string): Promise<void> => {
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: NAVIGATION_TIMEOUT_MS })
+    await page.goto(url, NAVIGATION_TIMEOUT_MS)
   } catch (err) {
-    const message = (err as Error).message
-    const netError = message.match(NAVIGATION_FAILURE)?.[0]
+    const netError = (err as Error).message.match(NAVIGATION_FAILURE)?.[0]
     if (netError) throw new Error(`${url} did not respond (${netError})`)
-    await page.waitForLoadState('load', { timeout: LOAD_FALLBACK_TIMEOUT_MS }).catch(() => {})
+    throw err
   }
 }
 
@@ -161,7 +158,7 @@ export async function capture(url: string, opts: CaptureOptions = {}): Promise<S
   beginCapture()
   let page: Page
   try {
-    page = await (await getBrowser()).newPage({ viewport: { width, height }, deviceScaleFactor })
+    page = await (await getBrowser()).newPage({ width, height, deviceScaleFactor })
   } catch (err) {
     endCapture()
     throw err
@@ -170,7 +167,7 @@ export async function capture(url: string, opts: CaptureOptions = {}): Promise<S
     await navigateOrSettleForLoad(page, url)
     const file = urlCaptureFileName(url, opts.label)
     const filePath = path.join(SCREENSHOT_DIR, file)
-    await page.screenshot({ path: filePath, fullPage: opts.fullPage ?? false })
+    await fsp.writeFile(filePath, await page.screenshot({ fullPage: opts.fullPage ?? false }))
     await prune()
     return await describe(file)
   } finally {

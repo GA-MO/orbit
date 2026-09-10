@@ -85,22 +85,28 @@ export default function Login({ onSuccess, notice = null }: Props) {
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold tracking-wide">Orbit</h1>
           <p className="mt-2 text-sm leading-relaxed text-mut">
-            Pair with your Mac: scan the QR code on its screen, or type the
-            access token printed beside it
+            This Orbit was started with the LAN open, so it asks every browser for its
+            access token. Scan the QR code on your Mac’s screen, or type the token printed
+            beside it
             (<code className="font-mono text-xs text-fore">[orbit] access token</code>)
           </p>
         </div>
         <Field
-          type="password"
+          type="text"
+          inputMode="text"
           placeholder="Access token"
-          className="text-center"
+          className="text-center font-mono tracking-wide"
           value={value}
           autoFocus
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && connect(value)}
+          onKeyDown={(e) => e.key === 'Enter' && connect(value.trim())}
         />
         {error && <div className="text-center text-sm text-danger">{error}</div>}
-        <Button className="w-full py-3" disabled={busy || !value.trim()} onClick={() => connect(value)}>
+        <Button className="w-full py-3" disabled={busy || !value.trim()} onClick={() => connect(value.trim())}>
           {busy ? 'Checking…' : 'Connect'}
         </Button>
         {qrScanSupported() ? (

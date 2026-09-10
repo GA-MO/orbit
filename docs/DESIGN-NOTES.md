@@ -737,7 +737,19 @@ alternatives — keyed by the function or constant it belongs to.
 - `MAX_BUFFERED` = 4 MiB on `ws.bufferedAmount`: a phone on a slow link reading a fast agent would otherwise have output queued in memory without bound; frames are dropped rather than queued, and the scrollback replay on reconnect fills the gap.
 - `shutdown` closes warm Chrome and every preview serve (8443+) but leaves the 443 front door alone; a 2 s `setTimeout(...).unref()` guarantees exit if either hangs.
 - `unhandledRejection` and `uncaughtException` are logged, not fatal: Node's default is to exit, and here exiting kills every PTY.
-- `pairBase` prefers the published tailnet address, then `pairing.lanAddress()` (first non-internal IPv4), then `localhost` — the order a phone could actually reach. `pairing`: `USES` = 10 per code, `CODE_BYTES` = 9.
+- `pairBase` prefers the published tailnet address, then `pairing.lanAddress()` (first non-internal IPv4, offered only under `ORBIT_LAN`), then `localhost` — the order a phone could actually reach. `pairing`: `USES` = 10 per code, `CODE_BYTES` = 9.
+- `recognisedByTailscale` is the tokenless door. `tailscale serve` strips `Tailscale-User-Login` from anything a caller sent and re-adds what its own network says, so the header is worth something exactly while the only way in is through that proxy — which is why it returns false outright when `LAN_OPEN`. Tailscale's own documentation makes the same condition: the header means nothing to a program a caller can reach directly.
+- It also requires `originIsThisHost`. `tailscale serve` adds the login header to *every* request it proxies, including one a page published on 8443 makes to Orbit's origin, so without the Origin check the header would be a cross-site write primitive for anything served on the tailnet. This is the same reason the session cookie is checked against Origin, and the reason the cookie authorises reads only while the login authorises writes: the login is checked per request against the proxy, the cookie is a bearer credential the browser attaches on its own.
+- `authorized` is async only because the owner's login may not have been read from the CLI yet. After the first successful read it is a cached string compare; `matches` (constant-time, length-checked) does the comparison, as it does for the token.
+- A Mac where the login cannot be determined admits nobody by header — `tailnetOwnerLogin` returning null fails closed, and the token is then the only credential, exactly as under `ORBIT_LAN`.
+- Pairing codes belong to the `ORBIT_LAN` path. A phone arriving over Tailscale is already recognised and never sees the login screen, so `pairing.ts`'s ten-minute expiry and use count are left as they are rather than being relaxed for it.
+
+### Which interfaces Orbit listens on (network.ts)
+
+- `BIND_HOST` is `127.0.0.1` unless `ORBIT_LAN=1`, and this is what makes the Tailscale headers mean anything: bound to every interface, anyone who can route to the Mac can hit the port directly and set `Tailscale-User-Login` to whatever they like. Loopback-only leaves `tailscale serve` as the sole way in from another device, which is the condition Tailscale states for trusting the headers it adds.
+- `LAN_OPEN` is read from the environment at module load rather than passed down, because `main.ts` sets `ORBIT_LAN` from `--lan` before it imports anything that reads it, and `banner.ts`, `start.ts` and `index.ts` all need the same answer without threading a flag through three call sites.
+- `ORBIT_LAN` is compared against `'1'` exactly. A truthiness test would make `ORBIT_LAN=0` open the LAN, which is the wrong way round for a variable whose only job is to widen what is reachable.
+- `--lan` is accepted by `orbit` and by `orbit start`; every other argument to `start` is still refused, so a typo cannot silently start something.
 
 ### Startup banner and QR (banner.ts, qr.ts)
 
@@ -745,6 +757,7 @@ alternatives — keyed by the function or constant it belongs to.
 - `WIDE` = 64 columns is where the two-column layout starts wrapping values; below it the banner switches to one fact per line. No box is drawn because it would have to be laid out for a width the server cannot know.
 - `plainBanner`'s token line keeps its historical wording verbatim: it is what users copy and what `grep` in the troubleshooting docs matches.
 - `PACKAGE_JSON_CANDIDATES` reads `package.json` from disk (checkout) or `/$bunfs/root/package.json` (compiled) rather than importing it, avoiding `resolveJsonModule` and a bundled copy.
+- `wifiUrlFor` offers the wi-fi row only under `ORBIT_LAN`. The banner names the doors that are open, and with the LAN closed nothing is listening on that address — printing it would send someone to a connection refused.
 - `lanAddress` runs `ipconfig getifaddr` over `LAN_INTERFACES` (`en0`, then `en1`) and the banner prints its URL as a row of its own, beside the localhost one. `http://localhost:7788` is the address the server is proudest of and the one address a phone cannot open; a Mac with only the localhost line printed left the reader to work out their own IP. It is a `null` when there is no Wi-Fi, and the row is simply absent — a guessed address is worse than none. `plainBanner` carries the same fact as `[orbit] same wi-fi: …`.
 - `renderBanner` takes the tailnet address as an argument because only `index.ts` knows whether it already paid for the `tailscale status` process; a self-fetching banner would spawn one per start and be untestable without Tailscale.
 - `qr.ts` uses a default import of `qrcode-terminal`: it assigns a whole object to `module.exports`, which the ESM loader cannot split into named exports. The `generate` callback is synchronous and is the only way to get the string instead of stdout.
@@ -765,7 +778,8 @@ alternatives — keyed by the function or constant it belongs to.
 
 - `FIRST_PORT` = 8443 because `npm run preview:on` always used it; `MAX_PREVIEWS` = 12 bounds the scan.
 - `CLI_CANDIDATES` puts `ORBIT_TAILSCALE` first: every path ends at that binary, so it is how tests exercise publishing on a machine with no Tailscale, and the escape hatch for an install in neither of the two known places (`PATH`, `/Applications/Tailscale.app/Contents/MacOS/Tailscale`).
-- `findCli` and `tailnetHost` cache their answer and, on failure, refuse to retry for `RETRY_AFTER_FAILURE_MS` = 30,000 — a logged-out or not-yet-up Tailscale is worth asking again later, not on every request.
+- `tailnetOwnerLogin` reads `Self.UserID` and looks it up in the `User` map of `tailscale status --json`; the `DNSName` the same call carries is what `tailnetHost` wants, but the two are cached separately because a tailnet host is published while a login authorises, and one being unavailable should not deny the other.
+- `findCli`, `tailnetHost` and `tailnetOwnerLogin` cache their answer and, on failure, refuse to retry for `RETRY_AFTER_FAILURE_MS` = 30,000 — a logged-out or not-yet-up Tailscale is worth asking again later, not on every request.
 - `run` surfaces the first stderr line as the error: the CLI puts the useful sentence there ("HTTPS must be enabled in the admin console").
 - `previewUrl` strips every leading slash and backslash and puts one back, so `//evil.com/x` cannot become a host; `..` is clamped by `new URL` against the origin, and the result is verified to share the origin. A full `http://` argument is refused as a plain `Error` so the module does not import `index.ts`'s `bad()`.
 - `ports.ts`: `EPHEMERAL_FROM` = 32,768 and `RESERVED_BELOW` = 1024 filter by number alone. `MACOS_SERVICE_BY_LSOF_NAME_PREFIX` keys are prefixes because `lsof -F` truncates command names to nine characters (`ControlCe`, `IPNExten`, `Tailscal`).

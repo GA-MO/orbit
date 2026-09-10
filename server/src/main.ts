@@ -2,8 +2,8 @@ const [command, ...rest] = process.argv.slice(2)
 
 const usage = `orbit — a phone-side console for the coding agents on this Mac
 
-  orbit                    run the server (ORBIT_PORT, default 7788)
-  orbit start              run it published over the tailnet as https, for the phone
+  orbit [--lan]            run the server (ORBIT_PORT, default 7788; --lan opens it to the Wi-Fi)
+  orbit start [--lan]      run it published over the tailnet as https, for the phone
   orbit stop               stop the server on that port, and the tailnet front door
   orbit setup [--approval] [--uninstall]  wire the hooks and MCP server into Claude Code (--approval adds the phone-side gate)
   orbit pair               a fresh QR to pair a phone with the running server
@@ -19,6 +19,12 @@ const exit = (code: number) => {
 }
 
 const UNUSABLE_PORT = 'ORBIT_UNUSABLE_PORT'
+
+const LAN_FLAG = '--lan'
+
+const openTheLan = () => {
+  process.env.ORBIT_LAN = '1'
+}
 
 const reportConfigProblemsPlainly = (err: unknown): never => {
   if ((err as NodeJS.ErrnoException)?.code === UNUSABLE_PORT) {
@@ -38,18 +44,25 @@ async function dispatch(): Promise<void> {
 switch (command) {
   case undefined:
   case 'serve':
+  case LAN_FLAG:
+    if (command === LAN_FLAG || rest.includes(LAN_FLAG)) openTheLan()
     await import('./index.js')
     break
   case 'mcp':
     await import('./mcp.js')
     break
-  case 'start':
-    if (rest.length) {
-      console.error(`orbit start takes no arguments — to take it down, use \`orbit stop\`.`)
+  case 'start': {
+    const unexpected = rest.filter((arg) => arg !== LAN_FLAG)
+    if (unexpected.length) {
+      console.error(
+        `orbit start takes no arguments but ${LAN_FLAG} — to take it down, use \`orbit stop\`.`,
+      )
       process.exit(2)
     }
+    if (rest.includes(LAN_FLAG)) openTheLan()
     exit(await (await import('./start.js')).runStart())
     break
+  }
   case 'phone': {
     const start = await import('./start.js')
     if (rest[0] === 'off') {

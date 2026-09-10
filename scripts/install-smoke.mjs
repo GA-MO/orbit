@@ -210,7 +210,7 @@ check('…and is not an error', secondStop.code === 0, String(secondStop.code))
 listener.kill('SIGKILL')
 
 section('orbit start')
-const { lanUrl } = await import(path.join(REPO, 'server/dist/banner.js'))
+const { lanAddress, lanUrl } = await import(path.join(REPO, 'server/dist/banner.js'))
 const MAIN = path.join(REPO, 'server/dist/main.js')
 const NO_TAILSCALE = path.join(os.tmpdir(), 'orbit-no-such-tailscale')
 const HEALTH_POLLS = 80
@@ -266,13 +266,13 @@ try {
   check('a Mac that cannot publish over Tailscale still gets a server', serving, lastLines(startSaid, 4))
   check('…and says why it could not publish', startSaid.includes('Could not publish over Tailscale'), lastLines(startSaid, 6))
   check('…and that HTTPS is what Tailscale would buy', startSaid.includes('need HTTPS'), lastLines(startSaid, 6))
+  check('…and offers --lan as the way to let a phone on the same wi-fi in', startSaid.includes('orbit start --lan'), lastLines(startSaid, 8))
   const wifi = lanUrl(startPort)
   check(
-    '…and names an address a phone on the same wi-fi can open',
-    wifi ? startSaid.includes(wifi) : startSaid.includes('no Wi-Fi address'),
+    '…without naming a wi-fi address nothing is listening on',
+    !wifi || !startSaid.includes(wifi),
     wifi ?? 'this Mac has no LAN address',
   )
-  if (wifi) check('…which the banner offers too', startSaid.split(wifi).length - 1 >= 2, lastLines(startSaid, 12))
 } finally {
   try {
     process.kill(started.pid, 'SIGKILL')
@@ -328,7 +328,106 @@ check('…and it names the command that does take it down', startOff.includes('o
 const help = orbitSays(['help'])
 check('the usage text offers `orbit start`', help.includes('orbit start'), lastLines(help, 12))
 check('…and no longer mentions `orbit phone`', !help.includes('orbit phone'), lastLines(help, 12))
+check('…and the usage text names --lan', help.includes('--lan'), lastLines(help, 12))
 
+section('which doors are open, and who gets through them')
+
+const fakeStatus = JSON.parse(execFileSync(process.execPath, [FAKE_TAILSCALE, 'status', '--json'], { encoding: 'utf8' }))
+const OWNER_LOGIN = fakeStatus.User[fakeStatus.Self.UserID].LoginName
+const STRANGER_LOGIN = 'someone-else@example.com'
+const LOGIN_HEADER = 'Tailscale-User-Login'
+const REQUEST_TIMEOUT_MS = 4000
+const REFUSED = 0
+
+const startServer = async ({ lan = false } = {}) => {
+  const port = await freeHighPort()
+  if (LIVE_PORTS.includes(port)) throw new Error(`refusing to test against :${port}`)
+  const serverHome = makeHome()
+  const child = spawn(process.execPath, [MAIN], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      HOME: serverHome,
+      ORBIT_HOME: serverHome,
+      ORBIT_PORT: String(port),
+      ORBIT_TAILSCALE: FAKE_TAILSCALE,
+      ...(lan ? { ORBIT_LAN: '1' } : {}),
+    },
+  })
+  let said = ''
+  child.stdout.on('data', (chunk) => (said += chunk))
+  child.stderr.on('data', (chunk) => (said += chunk))
+  const up = await answers(port)
+  const config = path.join(serverHome, '.orbit', 'config.json')
+  const token = up ? JSON.parse(fs.readFileSync(config, 'utf8')).token : null
+  return { child, port, token, up, said: () => said }
+}
+
+const request = async (origin, pathname, { headers = {}, body } = {}) => {
+  try {
+    const res = await fetch(`${origin}${pathname}`, {
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'application/json', ...headers } : headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+    return { status: res.status, cookie: res.headers.get('set-cookie') }
+  } catch {
+    return { status: REFUSED, cookie: null }
+  }
+}
+
+const wifiAddress = lanAddress()
+
+const closed = await startServer()
+try {
+  const local = `http://127.0.0.1:${closed.port}`
+  check('by default the port answers on 127.0.0.1', closed.up, lastLines(closed.said(), 4))
+  if (wifiAddress) {
+    const overWifi = await request(`http://${wifiAddress}:${closed.port}`, '/healthz')
+    check('…and does not answer on the Mac\'s wi-fi address', overWifi.status === REFUSED, `${wifiAddress}:${closed.port} answered ${overWifi.status}`)
+  }
+
+  const bare = await request(local, '/api/auth/check')
+  check('a request with neither header nor token is refused', bare.status === 401, String(bare.status))
+
+  const owner = await request(local, '/api/auth/check', { headers: { [LOGIN_HEADER]: OWNER_LOGIN } })
+  check("the owner's Tailscale login is served with no token", owner.status === 200, String(owner.status))
+  check('…and is handed the session cookie the socket and images need', !!owner.cookie?.includes('orbit_session='), owner.cookie ?? 'no Set-Cookie')
+
+  const stranger = await request(local, '/api/auth/check', { headers: { [LOGIN_HEADER]: STRANGER_LOGIN } })
+  check('…while a different Tailscale login is refused', stranger.status === 401, String(stranger.status))
+
+  const wrote = await request(local, '/api/notify', { headers: { [LOGIN_HEADER]: OWNER_LOGIN }, body: { message: 'in over the tailnet' } })
+  check('…and that login carries writes, not only reads', wrote.status === 200, String(wrote.status))
+
+  const tokened = await request(local, '/api/auth/check', { headers: { Authorization: `Bearer ${closed.token}` } })
+  check('the token is accepted with the LAN closed', tokened.status === 200, String(tokened.status))
+} finally {
+  try {
+    process.kill(closed.child.pid, 'SIGKILL')
+  } catch {}
+}
+
+const opened = await startServer({ lan: true })
+try {
+  const local = `http://127.0.0.1:${opened.port}`
+  check('under ORBIT_LAN=1 the port answers on 127.0.0.1', opened.up, lastLines(opened.said(), 4))
+  if (wifiAddress) {
+    const overWifi = await request(`http://${wifiAddress}:${opened.port}`, '/healthz')
+    check('…and on the Mac\'s wi-fi address too', overWifi.status === 200, `${wifiAddress}:${opened.port} answered ${overWifi.status}`)
+  }
+
+  const forged = await request(local, '/api/auth/check', { headers: { [LOGIN_HEADER]: OWNER_LOGIN } })
+  check('under ORBIT_LAN=1 a Tailscale-User-Login header is still refused, since anyone reaching the port can set it', forged.status === 401, String(forged.status))
+
+  const tokened = await request(local, '/api/auth/check', { headers: { Authorization: `Bearer ${opened.token}` } })
+  check('…and the token is the one credential that gets in', tokened.status === 200, String(tokened.status))
+} finally {
+  try {
+    process.kill(opened.child.pid, 'SIGKILL')
+  } catch {}
+}
 
 console.log('')
 console.log(failures === 0 ? '  install: all good.' : `  install: ${failures} failed.`)

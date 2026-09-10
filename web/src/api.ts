@@ -47,6 +47,7 @@ const PAIR_CODE_IN_FRAGMENT = /#pair=([A-Za-z0-9_-]{8,})\s*$/
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY) ?? ''
 export const setToken = (token: string) => localStorage.setItem(TOKEN_KEY, token)
+export const hasToken = () => getToken() !== ''
 
 export class AuthError extends Error {
   constructor() {
@@ -56,11 +57,13 @@ export class AuthError extends Error {
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
+const withBearer = (headers: HeadersInit): HeadersInit => {
+  const token = getToken()
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers
+}
+
 const authFetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...(init.headers ?? {}), Authorization: `Bearer ${getToken()}` },
-  })
+  const res = await fetch(url, { ...init, headers: withBearer(init.headers ?? {}) })
   if (res.status === 401) throw new AuthError()
   return res
 }
@@ -108,13 +111,24 @@ export const checkAuth = async (): Promise<boolean> => {
   }
 }
 
-export const unpairPhone = async (pushEndpoint: string | null): Promise<void> => {
+export const checkAuthWithoutToken = async (): Promise<boolean> => {
+  const res = await fetch('/api/auth/check')
+  if (res.status === 401) return false
+  if (!res.ok) throw new Error(`/api/auth/check: ${res.status}`)
+  return true
+}
+
+export const retirePushSubscription = async (pushEndpoint: string | null): Promise<void> => {
   const res = await authFetch('/api/auth/unpair', {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify({ endpoint: pushEndpoint }),
   })
   if (!res.ok) throw new Error(`unpair failed: ${res.status}`)
+}
+
+export const unpairPhone = async (pushEndpoint: string | null): Promise<void> => {
+  await retirePushSubscription(pushEndpoint)
   forgetTheMac()
 }
 

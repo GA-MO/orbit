@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { qrBlock } from './qr.js'
+import { LAN_OPEN } from './network.js'
 
 const ACCENT = '\x1b[36m'
 const BOLD = '\x1b[1m'
@@ -44,8 +45,10 @@ export function lanUrl(port: number): string | null {
   return address ? `http://${address}:${port}` : null
 }
 
-const wifiUrlFor = (facts: BannerFacts): string | null =>
-  facts.lanUrl === undefined ? lanUrl(facts.port) : facts.lanUrl
+const wifiUrlFor = (facts: BannerFacts): string | null => {
+  if (facts.lanUrl !== undefined) return facts.lanUrl
+  return LAN_OPEN ? lanUrl(facts.port) : null
+}
 
 export function packageVersion(): string {
   for (const candidate of PACKAGE_JSON_CANDIDATES) {

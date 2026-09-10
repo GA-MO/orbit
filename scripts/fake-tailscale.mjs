@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 const HOST = 'smoke-mac.example-tailnet.ts.net'
+const OWNER_USER_ID = 1001
+const OWNER_LOGIN = 'smoke-owner@example.com'
 const ORBIT_HOME = process.env.ORBIT_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.orbit')
 const STATE_FILE = process.env.ORBIT_FAKE_TAILSCALE_STATE ?? path.join(ORBIT_HOME, 'fake-tailscale.json')
 const FRONT_DOOR_PUBLIC_PORT = 443
@@ -32,7 +34,15 @@ const httpsPortFlag = (flags) => Number(flags.find((flag) => flag.startsWith('--
 
 const printVersion = () => process.stdout.write('1.0.0-fake\n')
 
-const printStatus = () => process.stdout.write(JSON.stringify({ Self: { DNSName: `${HOST}.` } }))
+const printStatus = () =>
+  process.stdout.write(
+    JSON.stringify({
+      Self: { DNSName: `${HOST}.`, UserID: OWNER_USER_ID },
+      User: {
+        [OWNER_USER_ID]: { ID: OWNER_USER_ID, LoginName: OWNER_LOGIN, DisplayName: 'Smoke Owner' },
+      },
+    }),
+  )
 
 const printServeStatus = () => {
   const web = {}
