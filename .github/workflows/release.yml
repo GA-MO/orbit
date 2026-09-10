@@ -35,15 +35,25 @@ jobs:
       # and not on the first Mac that downloads the release.
       - name: The arm64 build must start with nothing else on disk
         run: |
-          mv node_modules web/dist server/dist /tmp/
+          # Distinct names on the way out: web/dist and server/dist share a
+          # basename, and moving both into one directory collides.
+          mkdir -p /tmp/off-disk
+          mv node_modules /tmp/off-disk/node_modules
+          mv web/dist /tmp/off-disk/web-dist
+          mv server/dist /tmp/off-disk/server-dist
           export HOME=/tmp/orbit-release-home ORBIT_PORT=3177
           mkdir -p "$HOME"
           (cd /tmp && "$GITHUB_WORKSPACE/dist/orbit-darwin-arm64" > "$HOME/server.log" 2>&1 &)
-          for i in $(seq 1 40); do curl -fsS http://127.0.0.1:3177/healthz >/dev/null 2>&1 && break; sleep 0.5; done
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3177/healthz >/dev/null 2>&1; then break; fi
+            sleep 0.5
+          done
           curl -fsS http://127.0.0.1:3177/healthz || { cat "$HOME/server.log"; exit 1; }
-          curl -fsS -o /dev/null -w ' / → %{http_code} %{content_type}\n' http://127.0.0.1:3177/
+          curl -fsS -o /dev/null -w ' / → %{http_code} %{content_type}\n' http://127.0.0.1:3177/ \
+            || { cat "$HOME/server.log"; exit 1; }
           if grep -qi 'uncaught\|Cannot find module' "$HOME/server.log"; then cat "$HOME/server.log"; exit 1; fi
-          kill "$(lsof -tiTCP:3177 -sTCP:LISTEN)" || true
+          cat "$HOME/server.log"
+          kill "$(lsof -tiTCP:3177 -sTCP:LISTEN)" 2>/dev/null || true
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
