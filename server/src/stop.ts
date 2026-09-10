@@ -22,12 +22,8 @@ export const takeFrontDoorDown = async (): Promise<number> => {
   }
 }
 
-const signal = (pids: string[], sig: NodeJS.Signals): void => {
-  for (const pid of pids) {
-    try {
-      process.kill(Number(pid), sig)
-    } catch {}
-  }
+const stop = (pids: string[], force: boolean): void => {
+  for (const pid of pids) platform.stopsProcess(Number(pid), force)
 }
 
 const waitForRelease = async (port: number): Promise<string[]> => {
@@ -47,11 +43,11 @@ export async function runStop(port: number = PORT): Promise<number> {
     say(`Nothing listening on :${port}.`)
   } else {
     say(`Stopping PID ${pids.join(', ')} on :${port} …`)
-    signal(pids, 'SIGTERM')
+    stop(pids, false)
     const stubborn = await waitForRelease(port)
     if (stubborn.length) {
       say(`Still there — force-killing PID ${stubborn.join(', ')}.`)
-      signal(stubborn, 'SIGKILL')
+      stop(stubborn, true)
       await waitForRelease(port)
     } else {
       say(`Stopped PID ${pids.join(', ')}.`)

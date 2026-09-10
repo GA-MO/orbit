@@ -9,7 +9,11 @@ local_dir="${ORBIT_LOCAL_DIR:-}"
 say() { printf '  %s\n' "$*"; }
 fail() { printf '  %s\n' "$*" >&2; exit 1; }
 
-[ "$(uname -s)" = "Darwin" ] || fail "Orbit runs on macOS — this is $(uname -s)."
+case "$(uname -s)" in
+  Darwin) ;;
+  MINGW*|MSYS*|CYGWIN*) fail "On Windows, install with PowerShell:  irm https://raw.githubusercontent.com/$repo/main/install.ps1 | iex" ;;
+  *) fail "Orbit runs on macOS and Windows — this is $(uname -s)." ;;
+esac
 case "$(uname -m)" in
   arm64) arch=arm64 ;;
   x86_64) arch=x64 ;;

@@ -1,15 +1,21 @@
-# The cheap gates: a typecheck of both workspaces, a build, and the suites
-# that need no browser and no Claude CLI. `touch` and `changes` drive Chrome
-# and `setup` edits a Claude Code config, so those stay on a Mac at the desk:
+# The gates that run on every push: a typecheck of both workspaces, a build,
+# and the suites, on both operating systems Orbit supports. Windows is here
+# because everything that broke there broke silently — a 404 for the app
+# shell, captures that never answered — and only a suite noticed.
 #
-#     bash scripts/test.sh all
+#     bash scripts/test.sh all      # macOS, at the desk
+#     bun scripts/test.ts all       # either, and what CI runs
 name: ci
 on:
   push:
   pull_request:
 jobs:
   check:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -20,7 +26,11 @@ jobs:
       - run: bunx tsc --noEmit -p web
       - run: bun run build
       - run: bun audit
-      - run: bash scripts/test.sh idle
-      - run: bash scripts/test.sh ask
-      - run: bash scripts/test.sh preview-url
-      - run: bash scripts/test.sh install
+      - run: bun scripts/test.ts idle
+      - run: bun scripts/test.ts ask
+      - run: bun scripts/test.ts preview-url
+      - run: bun scripts/test.ts install
+      - run: bun scripts/test.ts setup
+      - run: bun scripts/test.ts smoke
+      - run: bun scripts/test.ts touch
+      - run: bun scripts/test.ts changes

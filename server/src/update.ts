@@ -19,6 +19,7 @@ const LEADING_V = /^v/
 const WHITESPACE = /\s+/
 const VERSION_SEPARATOR = '.'
 const STAGED_SUFFIX = '.orbit-update'
+const REPLACED_SUFFIX = '.orbit-replaced'
 const CHECK_FLAG = '--check'
 
 const say = (line = '') => console.log(line ? `  ${line}` : '')
@@ -139,10 +140,19 @@ const clearQuarantine = (file: string): void => platform.clearsDownloadBlock(fil
 const replaceExecutable = (executable: string, bytes: Buffer): void => {
   const mode = fs.statSync(executable).mode & MODE_BITS
   const staged = `${executable}${STAGED_SUFFIX}`
+  const replaced = `${executable}${REPLACED_SUFFIX}`
   fs.writeFileSync(staged, bytes)
   fs.chmodSync(staged, mode)
   clearQuarantine(staged)
-  fs.renameSync(staged, executable)
+  fs.rmSync(replaced, { force: true })
+  fs.renameSync(executable, replaced)
+  try {
+    fs.renameSync(staged, executable)
+  } catch (err) {
+    fs.renameSync(replaced, executable)
+    throw err
+  }
+  fs.rmSync(replaced, { force: true })
 }
 
 const sayWhatIsLeftToDo = async (): Promise<void> => {

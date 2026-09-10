@@ -111,6 +111,11 @@ export const win32: Platform = {
   looksUpCommandOnPath: (command): Command =>
     powerShellScript(`if (-not (Get-Command ${command} -ErrorAction SilentlyContinue)) { exit 1 }`),
 
+  runsExecutableOnPath: (command, args): Command => ({
+    file: 'cmd.exe',
+    args: ['/d', '/s', '/c', command, ...args],
+  }),
+
   capturesWholeScreen: (filePath, display): Command => powerShellScript(CAPTURE_SCRIPT(filePath, display)),
 
   downscalesImage: (source, destination, maxWidth): Command =>
@@ -164,6 +169,13 @@ export const win32: Platform = {
     } catch {
       return []
     }
+  },
+
+  stopsProcess: (pid, force) => {
+    const args = ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])]
+    try {
+      execFileSync('taskkill.exe', args, { stdio: 'ignore', timeout: QUERY_TIMEOUT_MS })
+    } catch {}
   },
 
   workingDirectoriesOf: async () => [],

@@ -15,6 +15,7 @@ export interface Platform {
   runsCommandInLoginShell(command: string): Command
   opensInteractiveShell(): Command
   looksUpCommandOnPath(command: string): Command
+  runsExecutableOnPath(command: string, args: string[]): Command
   capturesWholeScreen(filePath: string, display?: number): Command
   downscalesImage(source: string, destination: string, maxWidth: number): Command
   screenCaptureHint: string
@@ -24,6 +25,7 @@ export interface Platform {
   tailscaleCliCandidates: string[]
   listeningSockets(): Promise<ListeningSocket[]>
   pidsListeningOn(port: number): string[]
+  stopsProcess(pid: number, force: boolean): void
   workingDirectoriesOf(pids: number[]): Promise<[pid: number, cwd: string][]>
   serviceThatIsNotADevServer(command: string): string | undefined
   clearsDownloadBlock(file: string): void

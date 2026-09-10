@@ -2,9 +2,10 @@
 # One executable with everything in it: the server, the MCP server, the hooks,
 # the installer, the built web app and bun-pty's library.
 #
-#   scripts/dist.sh                       # this Mac's architecture → dist/orbit
+#   scripts/dist.sh                       # this machine's architecture → dist/orbit
 #   scripts/dist.sh bun-darwin-x64        # a named target → dist/orbit-darwin-x64
-#   scripts/dist.sh all                   # both Mac architectures
+#   scripts/dist.sh all                   # every target a release publishes
+#   scripts/dist.sh mac                   # both Mac architectures
 #
 # Chrome, Tailscale and Claude Code are still the machine's own — this is the
 # thing that talks to them, not them.
@@ -13,12 +14,23 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
 MAC_TARGETS=(bun-darwin-arm64 bun-darwin-x64)
+# Bun compiles no bun-windows-arm64; an ARM Windows machine runs this one.
+WINDOWS_TARGETS=(bun-windows-x64)
+ALL_TARGETS=("${MAC_TARGETS[@]}" "${WINDOWS_TARGETS[@]}")
 
 targets=("${@:-host}")
-[ "${targets[0]}" = "all" ] && targets=("${MAC_TARGETS[@]}")
+case "${targets[0]}" in
+  all)     targets=("${ALL_TARGETS[@]}") ;;
+  mac)     targets=("${MAC_TARGETS[@]}") ;;
+  windows) targets=("${WINDOWS_TARGETS[@]}") ;;
+esac
 
 output_for() {
-  if [ "$1" = "host" ]; then echo "dist/orbit"; else echo "dist/orbit-${1#bun-}"; fi
+  case "$1" in
+    host)         echo "dist/orbit" ;;
+    bun-windows-*) echo "dist/orbit-${1#bun-}.exe" ;;
+    *)            echo "dist/orbit-${1#bun-}" ;;
+  esac
 }
 
 # Through Bun's API rather than `bun build --compile` so the assets the server

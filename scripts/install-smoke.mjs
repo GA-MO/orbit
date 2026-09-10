@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -6,11 +7,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const INSTALLER = path.join(REPO, 'install.sh')
+const WINDOWS = process.platform === 'win32'
+const INSTALLER = path.join(REPO, WINDOWS ? 'install.ps1' : 'install.sh')
 const ARCH = os.arch() === 'arm64' ? 'arm64' : 'x64'
-const ASSET = `orbit-darwin-${ARCH}`
+const ASSET = WINDOWS ? 'orbit-windows-x64.exe' : `orbit-darwin-${ARCH}`
+const BINARY = WINDOWS ? 'orbit.exe' : 'orbit'
 const BARE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const SECTION_WIDTH = 58
+const FAKE_VERSION_MARKER = 'ORBIT-FAKE-VERSION='
+const FAKE_TAIL_BYTES = 256
 
 let failures = 0
 const check = (label, ok, detail = '') => {
@@ -19,12 +24,42 @@ const check = (label, ok, detail = '') => {
 }
 const section = (title) => console.log(`\n── ${title} ${'─'.repeat(Math.max(0, SECTION_WIDTH - title.length))}`)
 
+const FAKE_SOURCE = `import fs from 'node:fs'
+const handle = fs.openSync(process.execPath, 'r')
+const size = fs.fstatSync(handle).size
+const tail = Buffer.alloc(Math.min(${FAKE_TAIL_BYTES}, size))
+fs.readSync(handle, tail, 0, tail.length, size - tail.length)
+fs.closeSync(handle)
+const said = tail.toString('latin1').match(/${FAKE_VERSION_MARKER}([0-9.]+)/)
+if (process.argv[2] === 'version') console.log(said ? said[1] : '0.0.0')
+`
+
+let compiledFake = null
+const fakeExecutable = () => {
+  if (compiledFake) return compiledFake
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-fake-exe-'))
+  const source = path.join(dir, 'fake.ts')
+  fs.writeFileSync(source, FAKE_SOURCE)
+  const out = path.join(dir, BINARY)
+  execFileSync(process.execPath, ['build', '--compile', source, '--outfile', out], { stdio: 'pipe' })
+  compiledFake = out
+  return out
+}
+
+const writeFakeBinary = (file, version) => {
+  if (WINDOWS) fs.copyFileSync(fakeExecutable(), file)
+  else fs.writeFileSync(file, `#!/bin/sh\n[ "$1" = version ] && echo ${version}\n`, { mode: 0o755 })
+  if (WINDOWS) fs.appendFileSync(file, `\n${FAKE_VERSION_MARKER}${version}\n`)
+}
+
+const sha256Line = (file, name) =>
+  `${createHash('sha256').update(fs.readFileSync(file)).digest('hex')}  ${name}\n`
+
 const makeRelease = (version, { corrupt = false } = {}) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-release-'))
   const bin = path.join(dir, ASSET)
-  fs.writeFileSync(bin, `#!/bin/sh\n[ "$1" = version ] && echo ${version}\n`, { mode: 0o755 })
-  const checksum = execFileSync('shasum', ['-a', '256', ASSET], { cwd: dir, encoding: 'utf8' })
-  fs.writeFileSync(path.join(dir, `${ASSET}.sha256`), checksum)
+  writeFakeBinary(bin, version)
+  fs.writeFileSync(path.join(dir, `${ASSET}.sha256`), sha256Line(bin, ASSET))
   if (corrupt) fs.appendFileSync(bin, '# tampered after the checksum was taken\n')
   fs.writeFileSync(path.join(dir, 'VERSION'), `v${version}\n`)
   return dir
@@ -37,15 +72,22 @@ const aHomeOfItsOwn = () => {
   return { HOME: home, ORBIT_HOME: home }
 }
 
+const installerCommand = () =>
+  WINDOWS
+    ? ['powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', INSTALLER]]
+    : ['bash', [INSTALLER]]
+
+const installerEnv = (home, env) =>
+  WINDOWS
+    ? { ...process.env, USERPROFILE: home, HOME: home, ORBIT_HOME: home, ORBIT_NO_MODIFY_PATH: '1', ...env }
+    : { ...process.env, HOME: home, ORBIT_HOME: home, PATH: BARE_PATH, ...env }
+
 const runInstaller = (home, env = {}) => {
+  const [file, args] = installerCommand()
   try {
     return {
       ok: true,
-      out: execFileSync('bash', [INSTALLER], {
-        encoding: 'utf8',
-        stdio: 'pipe',
-        env: { ...process.env, HOME: home, ORBIT_HOME: home, PATH: BARE_PATH, ...env },
-      }),
+      out: execFileSync(file, args, { encoding: 'utf8', stdio: 'pipe', env: installerEnv(home, env) }),
     }
   } catch (err) {
     return { ok: false, out: `${err.stdout ?? ''}${err.stderr ?? ''}` }
@@ -53,6 +95,7 @@ const runInstaller = (home, env = {}) => {
 }
 
 const installedVersion = (bin) => execFileSync(bin, ['version'], { encoding: 'utf8' }).trim()
+const isExecutable = (file) => WINDOWS || (fs.statSync(file).mode & 0o111) !== 0
 const zshrcOf = (home) => fs.readFileSync(path.join(home, '.zshrc'), 'utf8')
 const pathLineCount = (home, rc) => rc.split(`${home}/.orbit/bin`).length - 1
 const lastLines = (out, n) => out.trim().split('\n').slice(-n).join(' / ')
@@ -61,18 +104,22 @@ section('a clean install')
 const home = makeHome()
 const first = runInstaller(home, { ORBIT_LOCAL_DIR: makeRelease('9.9.9') })
 check('it runs', first.ok, first.ok ? '' : lastLines(first.out, 2))
-const installed = path.join(home, '.orbit', 'bin', 'orbit')
+const installed = path.join(home, '.orbit', 'bin', BINARY)
 check('the binary lands in ~/.orbit/bin', fs.existsSync(installed))
-check('…executable', (fs.statSync(installed).mode & 0o111) !== 0)
+check('…executable', isExecutable(installed))
 check('…and is the version the release said', installedVersion(installed) === '9.9.9')
 check('it says which version it installed', first.out.includes('Installed orbit 9.9.9'))
-const rc = zshrcOf(home)
-check('~/.zshrc gained the PATH line once', pathLineCount(home, rc) === 1, rc.trim())
+if (WINDOWS) {
+  check('it says where to add it to the PATH', first.out.includes('Add it to your PATH'), lastLines(first.out, 2))
+} else {
+  const rc = zshrcOf(home)
+  check('~/.zshrc gained the PATH line once', pathLineCount(home, rc) === 1, rc.trim())
+}
 
 section('installing again')
 const again = runInstaller(home, { ORBIT_LOCAL_DIR: makeRelease('9.9.10') })
 check('a newer release replaces the binary', again.ok && installedVersion(installed) === '9.9.10')
-check('…without a second PATH line', pathLineCount(home, zshrcOf(home)) === 1)
+if (!WINDOWS) check('…without a second PATH line', pathLineCount(home, zshrcOf(home)) === 1)
 
 section('what must not install')
 const bad = runInstaller(makeHome(), { ORBIT_LOCAL_DIR: makeRelease('6.6.6', { corrupt: true }) })
@@ -86,19 +133,22 @@ section('the knobs')
 const home2 = makeHome()
 const customDir = path.join(home2, 'bin')
 const knobs = runInstaller(home2, { ORBIT_LOCAL_DIR: makeRelease('1.2.3'), ORBIT_INSTALL_DIR: customDir, ORBIT_NO_MODIFY_PATH: '1' })
-check('ORBIT_INSTALL_DIR puts it elsewhere', knobs.ok && fs.existsSync(path.join(customDir, 'orbit')))
-check('ORBIT_NO_MODIFY_PATH leaves ~/.zshrc alone', !fs.existsSync(path.join(home2, '.zshrc')))
+check('ORBIT_INSTALL_DIR puts it elsewhere', knobs.ok && fs.existsSync(path.join(customDir, BINARY)))
+if (!WINDOWS) check('ORBIT_NO_MODIFY_PATH leaves ~/.zshrc alone', !fs.existsSync(path.join(home2, '.zshrc')))
 check('…and says what to add instead', knobs.out.includes('Add it to your PATH'))
-const onPath = runInstaller(makeHome(), { ORBIT_LOCAL_DIR: makeRelease('1.2.3'), ORBIT_INSTALL_DIR: customDir, PATH: `${customDir}:/usr/bin:/bin` })
-check('a directory already on the PATH gets no advice', onPath.ok && !onPath.out.includes('PATH'))
+const alreadyOnPath = WINDOWS
+  ? { Path: `${customDir};${process.env.Path ?? ''}` }
+  : { PATH: `${customDir}:/usr/bin:/bin` }
+const onPath = runInstaller(makeHome(), { ORBIT_LOCAL_DIR: makeRelease('1.2.3'), ORBIT_INSTALL_DIR: customDir, ...alreadyOnPath })
+check('a directory already on the PATH gets no advice', onPath.ok && !onPath.out.includes('Add it to your PATH'))
 
 section('orbit update')
 const { runUpdate } = await import(path.join(REPO, 'server/dist/update.js'))
 
 const makeInstalledExecutable = (version) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-installed-'))
-  const bin = path.join(dir, 'orbit')
-  fs.writeFileSync(bin, `#!/bin/sh\n[ "$1" = version ] && echo ${version}\n`, { mode: 0o755 })
+  const bin = path.join(dir, BINARY)
+  writeFakeBinary(bin, version)
   return { executable: bin, compiled: true, version }
 }
 
@@ -126,22 +176,22 @@ const runFromCheckout = () => {
   }
 }
 
-const unchanged = (installed, before) => fs.readFileSync(installed.executable, 'utf8') === before
+const unchanged = (installed, before) => fs.readFileSync(installed.executable).equals(before)
 
 const checked = makeInstalledExecutable('9.9.9')
-const checkedBefore = fs.readFileSync(checked.executable, 'utf8')
+const checkedBefore = fs.readFileSync(checked.executable)
 const looked = await update(['--check'], checked, makeRelease('9.9.10'))
 check('--check reports what is installed and what is available', looked.code === 0 && looked.out.includes('9.9.9') && looked.out.includes('9.9.10'), lastLines(looked.out, 3))
 check('--check writes nothing', unchanged(checked, checkedBefore))
 
 const current = makeInstalledExecutable('9.9.9')
-const currentBefore = fs.readFileSync(current.executable, 'utf8')
+const currentBefore = fs.readFileSync(current.executable)
 const uptodate = await update([], current, makeRelease('9.9.9'))
 check('an up-to-date install says so', uptodate.code === 0 && uptodate.out.includes('already the latest'), lastLines(uptodate.out, 2))
 check('…and downloads nothing', unchanged(current, currentBefore))
 
 const tampered = makeInstalledExecutable('9.9.9')
-const tamperedBefore = fs.readFileSync(tampered.executable, 'utf8')
+const tamperedBefore = fs.readFileSync(tampered.executable)
 const refused = await update([], tampered, makeRelease('9.9.10', { corrupt: true }))
 check('an asset whose checksum does not match is refused', refused.code !== 0 && refused.out.includes('checksum'), lastLines(refused.out, 2))
 check('…and the old executable survives untouched', unchanged(tampered, tamperedBefore))
@@ -149,7 +199,7 @@ check('…and the old executable survives untouched', unchanged(tampered, tamper
 const upgrading = makeInstalledExecutable('9.9.9')
 const good = await update([], upgrading, makeRelease('9.9.10'))
 check('a good release replaces the executable it is running as', good.code === 0 && installedVersion(upgrading.executable) === '9.9.10', lastLines(good.out, 3))
-check('…keeping the executable bit', (fs.statSync(upgrading.executable).mode & 0o111) !== 0)
+check('…keeping the executable bit', isExecutable(upgrading.executable))
 check('…and says an open Claude Code session must be restarted', good.out.includes('restart'))
 
 const fromCheckout = runFromCheckout()
@@ -194,13 +244,8 @@ const stop = async (port) => {
   }
 }
 
-const listening = (port) => {
-  try {
-    return execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8', stdio: 'pipe' }).trim()
-  } catch {
-    return ''
-  }
-}
+const { platform } = await import(path.join(REPO, 'server/dist/platform/index.js'))
+const listening = (port) => platform.pidsListeningOn(port).join(' ')
 
 const { child: listener, port: throwawayPort } = await startThrowawayListener()
 const stopped = await stop(throwawayPort)

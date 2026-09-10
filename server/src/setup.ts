@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { launcher, launcherArgv } from './launcher.js'
+import { platform } from './platform/index.js'
 import { userHome } from './home.js'
 
 type Json = Record<string, any>
@@ -153,8 +154,12 @@ interface RunResult {
 }
 
 const run = (command: string, args: string[]): RunResult => {
+  const runnable = platform.runsExecutableOnPath(command, args)
   try {
-    return { ok: true, out: execFileSync(command, args, { encoding: 'utf8', stdio: 'pipe' }).trim() }
+    return {
+      ok: true,
+      out: execFileSync(runnable.file, runnable.args, { encoding: 'utf8', stdio: 'pipe' }).trim(),
+    }
   } catch (err) {
     const e = err as { stderr?: string; stdout?: string; message: string }
     return { ok: false, out: `${e.stderr ?? ''}${e.stdout ?? ''}`.trim() || e.message }

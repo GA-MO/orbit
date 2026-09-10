@@ -60,6 +60,8 @@ export const darwin: Platform = {
     args: [...LOGIN_SHELL_ARGS, `command -v ${command}`],
   }),
 
+  runsExecutableOnPath: (command, args): Command => ({ file: command, args }),
+
   capturesWholeScreen: (filePath, display): Command => {
     const args = ['-x', '-t', 'png']
     if (display && display > 0) args.push('-D', String(display))
@@ -110,6 +112,12 @@ export const darwin: Platform = {
     } catch {
       return []
     }
+  },
+
+  stopsProcess: (pid, force) => {
+    try {
+      process.kill(pid, force ? 'SIGKILL' : 'SIGTERM')
+    } catch {}
   },
 
   workingDirectoriesOf: async (pids): Promise<[number, string][]> => {
