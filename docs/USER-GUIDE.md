@@ -30,9 +30,10 @@ curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
 ```
 
 Then run `orbit start` (from a source checkout, `make start`). It prints an
-address, `https://<machine>.<tailnet>.ts.net`. **Open it on your phone**, with
-the Tailscale VPN on. You are in — no pairing, no code to scan, nothing to
-type, nothing that expires.
+address, `https://<machine>.<tailnet>.ts.net`, and a QR code of that address.
+**Point your phone's camera at it**, with the Tailscale VPN on, or type the
+address if you prefer. You are in — no pairing, nothing to type, nothing that
+expires, and the code works as often as you like.
 
 Tailscale is what makes that safe: the server listens on the Mac itself only,
 so the tailnet is the way in, and Tailscale tells Orbit which account is

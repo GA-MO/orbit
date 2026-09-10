@@ -90,9 +90,10 @@ orbit start     # run it, published over your tailnet as https
 if it has to, and takes the tailnet front door down with it, so nothing is
 left proxying to a port with nothing behind it.
 
-`orbit start` prints the tailnet address. Open it on your phone, with
-Tailscale on. That is the whole setup — nothing to pair, nothing to type,
-nothing that expires. Tailscale puts a verified `Tailscale-User-Login` on
+`orbit start` prints the tailnet address and a QR code of it. Scan that with
+your phone's camera, with Tailscale on, or open the address by hand. That is
+the whole setup — nothing to pair, nothing to type, nothing that expires, and
+the code never stops working. Tailscale puts a verified `Tailscale-User-Login` on
 every request it proxies, and a request carrying your Mac's own login is
 served without a token at all. A different login is refused. Add it to the
 home screen and it is the same walk-in from there.

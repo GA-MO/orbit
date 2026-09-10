@@ -596,8 +596,11 @@ So the phone walks in. `tailscale serve` puts a verified
 `Tailscale-User-Login` on everything it proxies, and a request whose login is
 the Mac's own is served with no token at all — reads, writes, the WebSocket,
 and the cookie the socket needs. A different login is refused. There is
-nothing to pair, nothing to type, and nothing that expires; the QR code, the
-pairing code and the ten-minute window all stop being part of the normal path.
+nothing to pair, nothing to type, and nothing that expires; the pairing code
+and the ten-minute window stop being part of the normal path. The QR code
+stays, because not typing the address is worth as much as not typing the
+token — but it now carries the plain tailnet URL, so it is a shortcut rather
+than a secret, and scanning it a hundred times a year is fine.
 
 A Mac whose own login cannot be read fails closed and asks for the token, which
 is the same shape as the case below.

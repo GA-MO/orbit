@@ -86,9 +86,16 @@ const addressRows = (facts: BannerFacts, localUrl: string, wifiUrl: string | nul
 }
 
 const WALK_IN_INSTRUCTIONS = [
-  'Open that address on your phone, with Tailscale on — it lets you straight in.',
-  'Share → Add to Home Screen, and it stays one tap away.',
+  "1. Point the phone's camera at it, with Tailscale on — it lets you straight in.",
+  '2. Share → Add to Home Screen, and it stays one tap away.',
+  'Nothing to type, nothing to pair, and nothing that expires.',
 ]
+
+const codeToScan = (facts: BannerFacts): string | null =>
+  aCredentialIsWanted(facts) ? (facts.pairUrl ?? facts.token) : (facts.tailnetUrl ?? null)
+
+const instructionsFor = (facts: BannerFacts): string[] =>
+  aCredentialIsWanted(facts) ? pairingInstructions(Boolean(facts.pairUrl)) : WALK_IN_INSTRUCTIONS
 
 const pairingInstructions = (hasPairUrl: boolean): string[] =>
   hasPairUrl
@@ -133,18 +140,12 @@ export function banner(facts: BannerFacts): string {
   }
   if (!stacked) out.push('')
 
-  if (aCredentialIsWanted(facts)) {
-    const qr = qrBlock(facts.pairUrl ?? facts.token, INDENT + INDENT)
-    const qrWidth = Math.max(...qr.split('\n').map(visibleWidth))
-    if (qrWidth <= columns) {
-      out.push(qr, '')
-      out.push(...pairingInstructions(Boolean(facts.pairUrl)).map(dimLine))
-    } else {
-      out.push(dimLine('Widen this window to show the pairing code.'))
-    }
-  } else {
-    out.push(...WALK_IN_INSTRUCTIONS.map(dimLine))
-  }
+  const scannable = codeToScan(facts)
+  const qr = scannable ? qrBlock(scannable, INDENT + INDENT) : null
+  const qrFits = qr ? Math.max(...qr.split('\n').map(visibleWidth)) <= columns : false
+  if (qr && qrFits) out.push(qr, '')
+  if (qr && !qrFits) out.push(dimLine('Widen this window to show the QR code.'))
+  out.push(...instructionsFor(facts).map(dimLine))
 
   out.push(dimLine(footnoteLine(facts, localUrl, columns)))
   out.push('')
