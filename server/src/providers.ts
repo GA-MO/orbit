@@ -21,7 +21,6 @@ export const PROVIDERS: Provider[] = [
     },
   },
   { id: 'codex', name: 'Codex CLI', command: 'codex', resumeCommand: 'codex resume --last' },
-  { id: 'gemini', name: 'Gemini CLI', command: 'gemini', resumeCommand: null },
 ]
 
 export function getProvider(id: string): Provider | undefined {
