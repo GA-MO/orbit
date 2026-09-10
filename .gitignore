@@ -9,3 +9,4 @@ dist/
 # Scratch images left by ad-hoc screenshot/crop experiments at the repo root
 /*.png
 /*.jpg
+.rehearsed

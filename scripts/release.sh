@@ -11,6 +11,21 @@ version="${1:?version, e.g. 0.2.0}"
 [ "$(git branch --show-current)" = "main" ] || { echo "  release from main" >&2; exit 1; }
 git tag | grep -qx "v$version" && { echo "  v$version already exists" >&2; exit 1; }
 
+REHEARSED_STAMP='.rehearsed'
+EVERY_ARCHITECTURE=all
+
+rehearsal_that_covers_this_tree() {
+  [ -f "$REHEARSED_STAMP" ] || return 1
+  read -r tree targets < "$REHEARSED_STAMP" || return 1
+  [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ] && [ "$targets" = "$EVERY_ARCHITECTURE" ]
+}
+
+rehearsal_that_covers_this_tree || {
+  echo "  this exact tree has not been rehearsed" >&2
+  echo "  run: scripts/rehearse-release.sh $EVERY_ARCHITECTURE" >&2
+  exit 1
+}
+
 set_version_in() {
   bun -e "const f=process.argv[1];const p=JSON.parse(await Bun.file(f).text());p.version=process.argv[2];await Bun.write(f,JSON.stringify(p,null,2)+'\n')" "$1" "$2"
 }

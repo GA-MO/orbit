@@ -83,6 +83,13 @@ point: it is the only way a baked-in path fails here rather than on someone's
 Mac. `release.yml` does the same on the runner before it publishes anything, so
 a red release job means fix the build, not retag.
 
+A rehearsal proves one tree, not the branch. Any commit after it — a merge, a
+one-line fix, someone else's work landing on main — is unrehearsed, and the
+one that breaks the build is never the one that looks like it might. So the
+rehearsal writes `.rehearsed` naming the tree it proved, and `release.sh`
+refuses to tag a tree that stamp does not name. Rehearse last, tag next; do
+not rehearse, merge, then tag.
+
 A tag that published nothing can be moved. Check `gh release view v<version>`
 first: if there are no assets, delete the tag and re-push it rather than
 burning the next number.
