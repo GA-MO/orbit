@@ -6,6 +6,10 @@ dist/
 *.tsbuildinfo
 # Per-machine Claude Code permissions, written by whoever runs `make setup` here
 .claude/settings.local.json
+# Where Claude Code puts a session's own worktree. It lives inside the repo, so
+# without this every other session sees it as untracked and can sweep it into a
+# commit — as a gitlink, since a worktree carries a .git file of its own.
+.claude/worktrees/
 # Scratch images left by ad-hoc screenshot/crop experiments at the repo root
 /*.png
 /*.jpg
