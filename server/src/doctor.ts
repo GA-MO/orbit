@@ -7,7 +7,7 @@ import { PORT } from './port.js'
 import { orbitDir } from './home.js'
 import { packageVersion } from './banner.js'
 import { COMPILED, launcher } from './launcher.js'
-import { latestVersion } from './update.js'
+import { isNewerThan, latestVersion } from './update.js'
 import * as preview from './preview.js'
 import { hookPlan, settingsPath } from './setup.js'
 
@@ -153,7 +153,7 @@ const checkServer = async (start: string): Promise<Line> => {
     ok: up ? true : null,
     what: `Server on :${PORT}`,
     detail: up ? 'running' : 'not running',
-    fix: up ? undefined : `\`${start}\` to start it, or \`${start} phone\` to also publish it over Tailscale`,
+    fix: up ? undefined : `\`${start} start\` to run it and publish it over your tailnet`,
   }
 }
 
@@ -163,6 +163,7 @@ const checkVersion = async (): Promise<Line> => {
   const latest = await latestVersion().catch(() => null)
   if (!latest) return { ok: null, what: 'Version', detail: `${installed} — could not ask GitHub whether a newer one is out` }
   if (latest === installed) return { ok: true, what: 'Version', detail: `${installed}, the latest release` }
+  if (!isNewerThan(latest, installed)) return { ok: true, what: 'Version', detail: `${installed}, ahead of the ${latest} release` }
   return { ok: null, what: 'Version', detail: `${installed}, and ${latest} has been released`, fix: 'run `orbit update`' }
 }
 

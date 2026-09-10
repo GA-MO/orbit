@@ -42,8 +42,10 @@ export interface PreviewState {
 
 let cli: string | undefined
 let host: string | undefined
+let ownerLogin: string | undefined
 let cliFailedAt = 0
 let hostFailedAt = 0
+let ownerLoginFailedAt = 0
 
 const failedWithinRetryWindow = (at: number) => Date.now() - at < RETRY_AFTER_FAILURE_MS
 
@@ -85,6 +87,18 @@ async function tailnetHost(): Promise<string | null> {
     if (name) return (host = name)
   } catch {}
   hostFailedAt = Date.now()
+  return null
+}
+
+export async function tailnetOwnerLogin(): Promise<string | null> {
+  if (ownerLogin !== undefined) return ownerLogin
+  if (failedWithinRetryWindow(ownerLoginFailedAt)) return null
+  try {
+    const status = JSON.parse(await run(['status', '--json']))
+    const login = status?.User?.[String(status?.Self?.UserID)]?.LoginName
+    if (typeof login === 'string' && login) return (ownerLogin = login)
+  } catch {}
+  ownerLoginFailedAt = Date.now()
   return null
 }
 

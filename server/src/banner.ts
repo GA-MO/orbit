@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { qrBlock } from './qr.js'
+import { LAN_OPEN } from './network.js'
 
 const ACCENT = '\x1b[36m'
 const BOLD = '\x1b[1m'
@@ -44,8 +45,10 @@ export function lanUrl(port: number): string | null {
   return address ? `http://${address}:${port}` : null
 }
 
-const wifiUrlFor = (facts: BannerFacts): string | null =>
-  facts.lanUrl === undefined ? lanUrl(facts.port) : facts.lanUrl
+const wifiUrlFor = (facts: BannerFacts): string | null => {
+  if (facts.lanUrl !== undefined) return facts.lanUrl
+  return LAN_OPEN ? lanUrl(facts.port) : null
+}
 
 export function packageVersion(): string {
   for (const candidate of PACKAGE_JSON_CANDIDATES) {
@@ -63,8 +66,8 @@ export function plainBanner(facts: BannerFacts): string {
   const version = facts.version ?? packageVersion()
   const lines = [
     `[orbit] v${version} listening on http://localhost:${facts.port} (ws: /ws)`,
-    `[orbit] access token: ${facts.token}`,
   ]
+  if (aCredentialIsWanted(facts)) lines.push(`[orbit] access token: ${facts.token}`)
   if (facts.tailnetUrl) lines.push(`[orbit] tailnet: ${facts.tailnetUrl}`)
   const wifiUrl = wifiUrlFor(facts)
   if (wifiUrl) lines.push(`[orbit] same wi-fi: ${wifiUrl}`)
@@ -73,12 +76,26 @@ export function plainBanner(facts: BannerFacts): string {
 
 type Row = [label: string, value: string]
 
+const aCredentialIsWanted = (facts: BannerFacts): boolean => LAN_OPEN || !facts.tailnetUrl
+
 const addressRows = (facts: BannerFacts, localUrl: string, wifiUrl: string | null): Row[] => {
   const rows: Row[] = [facts.tailnetUrl ? ['Phone', facts.tailnetUrl] : ['Browser', `${localUrl}/`]]
   if (wifiUrl) rows.push(['Same wi-fi', `${wifiUrl}/`])
-  rows.push(['Token', facts.token])
+  if (aCredentialIsWanted(facts)) rows.push(['Token', facts.token])
   return rows
 }
+
+const WALK_IN_INSTRUCTIONS = [
+  "1. Point the phone's camera at it, with Tailscale on — it lets you straight in.",
+  '2. Share → Add to Home Screen, and it stays one tap away.',
+  'Nothing to type, nothing to pair, and nothing that expires.',
+]
+
+const codeToScan = (facts: BannerFacts): string | null =>
+  aCredentialIsWanted(facts) ? (facts.pairUrl ?? facts.token) : (facts.tailnetUrl ?? null)
+
+const instructionsFor = (facts: BannerFacts): string[] =>
+  aCredentialIsWanted(facts) ? pairingInstructions(Boolean(facts.pairUrl)) : WALK_IN_INSTRUCTIONS
 
 const pairingInstructions = (hasPairUrl: boolean): string[] =>
   hasPairUrl
@@ -123,14 +140,12 @@ export function banner(facts: BannerFacts): string {
   }
   if (!stacked) out.push('')
 
-  const qr = qrBlock(facts.pairUrl ?? facts.token, INDENT + INDENT)
-  const qrWidth = Math.max(...qr.split('\n').map(visibleWidth))
-  if (qrWidth <= columns) {
-    out.push(qr, '')
-    out.push(...pairingInstructions(Boolean(facts.pairUrl)).map(dimLine))
-  } else {
-    out.push(dimLine('Widen this window to show the pairing code.'))
-  }
+  const scannable = codeToScan(facts)
+  const qr = scannable ? qrBlock(scannable, INDENT + INDENT) : null
+  const qrFits = qr ? Math.max(...qr.split('\n').map(visibleWidth)) <= columns : false
+  if (qr && qrFits) out.push(qr, '')
+  if (qr && !qrFits) out.push(dimLine('Widen this window to show the QR code.'))
+  out.push(...instructionsFor(facts).map(dimLine))
 
   out.push(dimLine(footnoteLine(facts, localUrl, columns)))
   out.push('')

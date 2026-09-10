@@ -10,7 +10,7 @@ Orbit is not a shared service. Each person runs their own Orbit on their own Mac
 - [Install](#install)
 - [Wire it into Claude Code](#wire-it-into-claude-code)
 - [Verify](#verify)
-- [First run and pairing](#first-run-and-pairing)
+- [First run](#first-run)
 - [What gets installed](#what-gets-installed)
 - [Where Orbit keeps its data](#where-orbit-keeps-its-data)
 - [Command reference](#command-reference)
@@ -28,8 +28,8 @@ Orbit runs on Bun only. Node, npm and npx are not needed anywhere, and the insta
 | --- | --- |
 | macOS (Apple silicon or Intel) | Orbit drives a real PTY and captures the Mac's screen. |
 | Claude Code, Codex CLI or Gemini CLI on the login-shell PATH | Orbit finds whichever you use with `zsh -lic`. `orbit setup` calls `claude mcp add`, and the hooks belong to Claude Code. |
-| Google Chrome (optional) | Used by `orbit_capture` through `playwright-core`. No extra browser is downloaded. |
-| Tailscale (can come later) | Needed to use Orbit away from the Mac, and for https. Voice input and Add to Home Screen require a secure context. See `TAILSCALE.md`. |
+| Google Chrome (optional) | Driven headless by `orbit_capture` over the DevTools protocol. No extra browser is downloaded. |
+| Tailscale (can come later) | How a phone reaches the Mac at all: the server binds `127.0.0.1`, and `tailscale serve` is the way in from another device — and the thing that tells Orbit the caller is you, so no token is typed. Also where https comes from; voice input and Add to Home Screen require a secure context. Without it, `orbit start --lan` and the access token. See `TAILSCALE.md`. |
 | Screen Recording permission (optional) | For the terminal that starts Orbit, if `orbit_screen` should see application windows. See `MCP.md`. |
 | Bun 1.4 or newer (developers only) | Only when working from a checkout. Install with `curl -fsSL https://bun.sh/install \| bash` and check with `bun -v`. |
 
@@ -103,23 +103,37 @@ Or type `/mcp` inside Claude Code.
 
 A Claude Code session that was already open does not see the new server. MCP servers are spawned when a session starts, so open a new one. The same applies every time you change `server/src/mcp.ts` in a checkout: `bun run build`, then start a new session.
 
-## First run and pairing
+## First run
 
 ```sh
-orbit start      # publish :7788 over the tailnet as https, print a QR code, run the server
+orbit start      # publish :7788 over the tailnet as https, run the server
 ```
 
-`orbit start` runs `tailscale serve --bg 7788`, prints a QR code, and then starts the server. The QR code encodes `https://<mac>.<tailnet>.ts.net/#pair=<code>`. Point the phone's camera at it and Orbit opens already paired. The code lives for 10 minutes and is good for a handful of uses; `orbit pair` prints a fresh one.
+`orbit start` runs `tailscale serve --bg 7788`, then starts the server, and prints `https://<mac>.<tailnet>.ts.net`. Open that on the phone with the Tailscale VPN on. That is the whole first run: no pairing, no QR to scan, nothing to type, nothing that expires.
 
-If the front door cannot be published — Tailscale is not installed, not logged in, or has HTTPS turned off in the admin console — `orbit start` says which of those it is in one line, notes that voice input and Add to Home Screen need https so Tailscale is worth setting up later, prints the Mac's LAN address for a phone on the same Wi-Fi, and then runs the server anyway. A Mac that has never touched Tailscale still gets a working Orbit on the first run.
+It works because the server listens on `127.0.0.1` and nowhere else, which leaves `tailscale serve` as the only way in from another device. `serve` strips any `Tailscale-User-Login` header a caller sent and stamps on the verified one, so a request carrying the Mac's own tailnet login is served with no token at all — reads, writes and the WebSocket. A different login is refused, and so is a Mac whose own login cannot be read (the token is then the only credential).
 
-Next to the QR code the console prints `[orbit] access token: …` for typing the token by hand. The banner prints the Mac's LAN address next to the localhost one, since `http://localhost:7788` cannot be opened from a phone.
+Add to Home Screen works the same way. The home-screen app has storage of its own, but there is nothing in it to carry over any more, so it simply opens.
 
-To install Orbit on the phone, use Add to Home Screen, open the home-screen app, tap "Scan QR code", and scan the same code again. iOS gives a home-screen app storage of its own, so the pairing from the browser does not carry over.
+### Without Tailscale
+
+If the front door cannot be published — Tailscale is not installed, not logged in, or has HTTPS turned off in the admin console — `orbit start` says which of those it is in one line, notes that voice input and Add to Home Screen need https so Tailscale is worth setting up later, and runs the server anyway. With no front door and nothing listening on the wi-fi, it also tells you to re-run it as:
+
+```sh
+orbit start --lan      # or: orbit --lan, or ORBIT_LAN=1 orbit
+```
+
+That binds every interface and prints the Mac's wi-fi address, so a phone on the same network can open `http://<mac-ip>:7788`.
+
+On this path the login header is ignored completely and the access token is the only credential. Tailscale strips that header when a caller sets it, but its own documentation is explicit that the guarantee holds only while the program behind the proxy listens on localhost alone — with the wi-fi door open, anyone who can reach the port can write the header themselves. Orbit will not trust the header and the back door at once.
+
+So the login screen, the pairing QR and `orbit pair` belong to `--lan`. The banner prints the QR (`https://…/#pair=<code>`, ten minutes, a handful of uses) and `[orbit] access token: …` beside it for typing by hand; `orbit pair` prints a fresh code. On the home-screen app, tap "Scan QR code" and scan it again, since iOS gives that app storage of its own.
 
 The token is stored in `~/.orbit/config.json`. To rotate it, delete only the `token` key from that file, never the whole file. The same file holds the Web Push keypair, and deleting it silently disconnects every phone from push.
 
-Without Tailscale, `make mobile` from a checkout serves the dev build on the same Wi-Fi network. Voice input and Add to Home Screen need https, so you will want Tailscale in the end.
+**Upgrading from 0.2.x?** The wi-fi address stops answering until you pass `--lan`. Everything else is unchanged.
+
+From a checkout, `make mobile` serves the dev build on the same Wi-Fi network. Voice input and Add to Home Screen need https, so you will want Tailscale in the end.
 
 To stop:
 
@@ -128,7 +142,7 @@ orbit stop         # stop the server on its port and remove the tailnet front do
 make stop          # from a checkout: the same as `orbit stop`
 ```
 
-To run the server without publishing it, use plain `orbit`. It listens on `:7788`; set `ORBIT_PORT` to change that.
+To run the server without publishing it, use plain `orbit`. It listens on `127.0.0.1:7788` — the Mac and nothing else, unless `--lan` — and `ORBIT_PORT` changes the port.
 
 ## What gets installed
 
@@ -182,15 +196,16 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 
 | Command | What it does |
 | --- | --- |
-| `orbit` | Run the server on `:7788`. `ORBIT_PORT` changes the port. |
-| `orbit start` | Publish `:7788` over the tailnet as https (`tailscale serve --bg 7788`), print a pairing QR code, then run the server. If it cannot publish, it says why, prints the LAN address instead, and runs the server anyway. Takes no flags. |
+| `orbit` | Run the server on `127.0.0.1:7788`. `ORBIT_PORT` changes the port; `--lan` (or `ORBIT_LAN=1`) binds every interface instead. |
+| `orbit start` | Publish `:7788` over the tailnet as https (`tailscale serve --bg 7788`), then run the server. If it cannot publish, it says why, suggests `--lan`, and runs the server anyway. Takes no arguments but `--lan`. |
 | `orbit stop` | Stop whatever is listening on `:7788` (`ORBIT_PORT` changes the port) — `SIGTERM`, then `SIGKILL` if it is still there — and remove the tailnet front door. Nothing listening is not an error. |
 | `orbit setup` | Write the hooks into `~/.claude/settings.json` (backup at `settings.json.orbit.bak`) and register the MCP server. |
 | `orbit setup --uninstall` | Remove the hooks and the MCP registration. |
 | `orbit doctor` | Report what this Mac has and what it is missing. |
 | `orbit update` | Replace the running executable with the latest release, after checking its published checksum. |
 | `orbit update --check` | Say which version is installed and which is available, and write nothing. |
-| `orbit pair` | Print a fresh pairing QR code. |
+| `orbit start --lan` | The same, but bind every interface so a phone on the same wi-fi can reach it. The tailnet login header is ignored in this mode and the access token is the only credential. |
+| `orbit pair` | Print a fresh pairing QR code. Only meaningful on the `--lan` path. |
 | `orbit mcp` | Run the MCP server on stdio. Claude Code starts this; you do not. |
 | `orbit hook approve` | The approval hook. Claude Code runs this. |
 | `orbit hook notify` | The notification hook. Claude Code runs this. |
@@ -250,6 +265,8 @@ Neither touches the checkout or `~/.orbit`; sessions, the token and screenshots 
 | `orbit_screen` returns an image with no application windows | Screen Recording permission has not been granted. See the last section of `MCP.md`. |
 | `orbit setup` cannot register the MCP server | `claude` is not on the PATH. |
 | `orbit start` reports that port 7788 is busy | An Orbit is already running. Stop it first with `orbit stop` (`make stop` from a checkout). |
+| The phone cannot open the Mac's wi-fi address any more | Expected since the server started binding `127.0.0.1`. Reach it over the tailnet, or run `orbit start --lan`. |
+| A login screen appears on the tailnet address | Orbit could not read the Mac's own tailnet login, so it fell back to the token. Check the Tailscale app is logged in (`orbit doctor` says). |
 
 ## Testing
 

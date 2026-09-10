@@ -31,11 +31,15 @@ import {
 import {
   AuthError,
   checkAuth,
+  checkAuthWithoutToken,
+  forgetToken,
+  retirePushSubscription,
   pairCodeIn,
   pairWithCode,
   clearAttention,
   fetchSessions,
   restartSession,
+  type Recognition,
   unpairPhone,
   uploadImage,
   SESSION_KEY,
@@ -215,6 +219,7 @@ function ToastLink({ message, onOpen }: { message: string; onOpen: () => void })
 
 export default function App() {
   const [locked, setLocked] = useState<boolean | null>(null)
+  const [walkedIn, setWalkedIn] = useState(false)
   const [bootNonce, setBootNonce] = useState(0)
   const [socketNonce, setSocketNonce] = useState(0)
   const [view, setView] = useState<View>('terminal')
@@ -285,6 +290,12 @@ export default function App() {
     let retryTimer: ReturnType<typeof setTimeout> | null = null
     setBooted(false)
 
+    const admit = (recognition: Recognition) => {
+      setWalkedIn(recognition.walkedIn)
+      if (recognition.walkedIn) forgetToken()
+      setLocked(false)
+    }
+
     const exchangePairCodeIfAny = async () => {
       if (!pairCode) return
       const code = pairCode
@@ -312,11 +323,19 @@ export default function App() {
     const boot = async () => {
       try {
         await exchangePairCodeIfAny()
-        if (!(await checkAuth())) {
+        const withoutToken = await checkAuthWithoutToken()
+        if (withoutToken.admitted) {
+          if (!cancelled) admit(withoutToken)
+          registerPush()
+          await reattachToStoredSession()
+          return
+        }
+        const withToken = await checkAuth()
+        if (!withToken.admitted) {
           if (!cancelled) setLocked(true)
           return
         }
-        if (!cancelled) setLocked(false)
+        if (!cancelled) admit(withToken)
         registerPush()
         await reattachToStoredSession()
       } catch (e) {
@@ -381,7 +400,7 @@ export default function App() {
 
   const handleAuthFail = useCallback(async () => {
     try {
-      if (await checkAuth()) {
+      if ((await checkAuth()).admitted) {
         remountTerminalWithFreshCookie()
         return
       }
@@ -408,6 +427,11 @@ export default function App() {
     setCurrentId(null)
     setCurrent(null)
     setLocked(true)
+  }, [])
+
+  const stopNotifications = useCallback(async () => {
+    await retirePushSubscription(await pushEndpoint())
+    await dropPush()
   }, [])
 
   const pickImage = async (file: File | null) => {
@@ -543,6 +567,8 @@ export default function App() {
             onSelect={selectSession}
             onNew={() => setNewSessionOpen(true)}
             onUnpair={unpair}
+            tokenIsTheKey={!walkedIn}
+            onStopNotifications={stopNotifications}
             onToast={showToast}
           />
         </div>

@@ -45,6 +45,8 @@ interface Props {
   onSelect: (id: string) => void
   onNew: () => void
   onUnpair: () => Promise<void>
+  tokenIsTheKey: boolean
+  onStopNotifications: () => Promise<void>
   onToast: (message: string) => void
 }
 
@@ -246,29 +248,54 @@ function MacGroupHeader({
 }
 
 function UnpairSheet({
+  tokenIsTheKey,
   unpairing,
   onUnpair,
+  onStopNotifications,
   onClose,
 }: {
+  tokenIsTheKey: boolean
   unpairing: boolean
   onUnpair: () => void
+  onStopNotifications: () => void
   onClose: () => void
 }) {
   return (
     <Sheet title="This phone" onClose={() => !unpairing && onClose()}>
       <div className="flex flex-col gap-3.5 px-5 pt-2 pb-5">
-        <p className="text-[13px] leading-relaxed text-mut">
-          Un-pairing stops this phone reaching your Mac and stops it notifying you. Your
-          sessions keep running over there. To use Orbit here again you will need the access
-          token from the server console, or its QR code.
-        </p>
+        {tokenIsTheKey ? (
+          <p className="text-[13px] leading-relaxed text-mut">
+            Un-pairing stops this phone reaching your Mac and stops it notifying you. Your
+            sessions keep running over there. To use Orbit here again you will need the access
+            token from the server console, or its QR code.
+          </p>
+        ) : (
+          <p className="text-[13px] leading-relaxed text-mut">
+            This phone holds no token — it reaches your Mac over your tailnet, and your Mac
+            recognises you by your Tailscale login. Un-pairing here would change nothing: the
+            next tap would let you straight back in. To close this phone out, remove it from
+            your tailnet, or stop Orbit sharing on the Mac. You can still stop the
+            notifications it sends here.
+          </p>
+        )}
         <div className="flex flex-row-reverse gap-2">
           <Button className="flex-1" disabled={unpairing} onClick={onClose}>
-            Stay paired
+            {tokenIsTheKey ? 'Stay paired' : 'Close'}
           </Button>
-          <Button variant="danger" className="flex-1" disabled={unpairing} onClick={onUnpair}>
-            {unpairing ? 'Unpairing…' : 'Unpair'}
-          </Button>
+          {tokenIsTheKey ? (
+            <Button variant="danger" className="flex-1" disabled={unpairing} onClick={onUnpair}>
+              {unpairing ? 'Unpairing…' : 'Unpair'}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              className="flex-1"
+              disabled={unpairing}
+              onClick={onStopNotifications}
+            >
+              {unpairing ? 'Stopping…' : 'Stop notifications'}
+            </Button>
+          )}
         </div>
       </div>
     </Sheet>
@@ -291,6 +318,8 @@ export default function SessionsView({
   onSelect,
   onNew,
   onUnpair,
+  tokenIsTheKey,
+  onStopNotifications,
   onToast,
 }: Props) {
   const { sessions, refresh } = useSessionList(active)
@@ -343,6 +372,20 @@ export default function SessionsView({
       setUnpairing(false)
       setPhoneOpen(false)
       onToast('Could not reach your Mac — still paired')
+    }
+  }
+
+  const stopNotifications = async () => {
+    setUnpairing(true)
+    try {
+      await onStopNotifications()
+      setPhoneOpen(false)
+      onToast('This phone will stop notifying you')
+    } catch {
+      setPhoneOpen(false)
+      onToast('Could not reach your Mac — notifications unchanged')
+    } finally {
+      setUnpairing(false)
     }
   }
 
@@ -455,8 +498,10 @@ export default function SessionsView({
 
       {phoneOpen && (
         <UnpairSheet
+          tokenIsTheKey={tokenIsTheKey}
           unpairing={unpairing}
           onUnpair={unpair}
+          onStopNotifications={stopNotifications}
           onClose={() => setPhoneOpen(false)}
         />
       )}

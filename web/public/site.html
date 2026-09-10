@@ -1881,7 +1881,7 @@
       server: {
         title: 'Orbit server',
         role: 'router ของทั้งระบบ — REST, WebSocket, ด่านอนุมัติ, capture, push',
-        tech: 'Node.js · TypeScript · ws · playwright-core · web-push',
+        tech: 'Bun · TypeScript · ws · DevTools protocol · web-push',
         holds: 'sessions.json, scrollback/, screenshots/, uploads/, push-subscriptions.json',
         files: ['server/src/index.ts', 'server/src/notify.ts', 'server/src/screenshot.ts'],
         note:
@@ -2006,10 +2006,10 @@
       {
         id: 'capture',
         label: 'ตรวจงานด้วย capture',
-        note: '<b>ข้อควรรู้:</b> ใช้ Chrome ตัวที่คุณลงไว้เอง (<code>channel: "chrome"</code>) จึงไม่ต้องดาวน์โหลด browser เพิ่ม และ Chrome จะถูกอุ่นเครื่องค้างไว้ระหว่างการ capture',
+        note: '<b>ข้อควรรู้:</b> ใช้ Chrome ตัวที่คุณลงไว้เอง จึงไม่ต้องดาวน์โหลด browser เพิ่ม และ Chrome จะถูกอุ่นเครื่องค้างไว้ระหว่างการ capture',
         steps: [
           { n: 'phone', t: 'ใส่ URL แล้วเลือกขนาดจอ', d: 'Phone / Tablet / Desktop หรือติ๊ก Full page — URL ที่เคยสำเร็จกลายเป็นปุ่มลัด 4 อันล่าสุด' },
-          { n: 'server', t: '<code>POST /api/screenshot</code>', d: 'server สั่ง playwright-core เปิด Chrome ของระบบแบบ headless ที่ viewport ที่ขอมา' },
+          { n: 'server', t: '<code>POST /api/screenshot</code>', d: 'server เปิด Chrome ของระบบแบบ headless แล้วสั่งงานผ่าน DevTools protocol ตรง ๆ ที่ viewport ที่ขอมา' },
           { n: 'agent', t: 'dev server ของคุณตอบ', d: 'ถ้ามันไม่ได้รัน จะได้ error กลับไปตรง ๆ ไม่ใช่ภาพหน้า "เข้าไม่ได้" ของ Chrome ที่ดูเหมือนสำเร็จ' },
           { n: 'disk', t: 'เก็บ PNG', d: 'ลง <code>~/.orbit/screenshots/</code> เก็บ 50 อันล่าสุด พร้อมป้ายว่าเป็นภาพของอะไร' },
           { n: 'phone', t: 'ขึ้นแกลเลอรี', d: 'ดึงผ่าน <code>GET /api/screenshots</code> วางตามสัดส่วนจริงของภาพ แตะเพื่อดูเต็มจอ' },

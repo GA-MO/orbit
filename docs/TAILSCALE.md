@@ -1,5 +1,7 @@
 # Remote access with Tailscale
 
+**Tailscale is how Orbit works, not a convenience on top of it.** The server listens on `127.0.0.1` alone, so `tailscale serve` is the way in from another device — and because it is the only way in, the `Tailscale-User-Login` header it stamps on every request it proxies can be trusted. A request carrying your Mac's own tailnet login is served with no token at all: the phone opens the address and is simply in. A different login is refused. The one way to run Orbit without Tailscale is `orbit start --lan`, which binds every interface and falls back to the access token; see [Without Tailscale, on the Wi-Fi](#without-tailscale-on-the-wi-fi).
+
 This guide is for anyone who wants to open Orbit on a phone from anywhere: on 4G/5G, on a cafe's Wi-Fi, away from the desk. It covers installing Tailscale on the Mac and the phone, publishing Orbit over the tailnet as https, publishing a dev server the same way, running the server at login, and what to check when something does not connect. Nothing here opens a port on your router, sets up dynamic DNS, or exposes anything to the public internet: Tailscale builds a private network (a tailnet) between your own devices over WireGuard, and its personal plan is free.
 
 ```
@@ -46,7 +48,7 @@ tailscale status        # lists every device with its 100.x.y.z address
 
 ## 3. Enable https for the tailnet
 
-Orbit works over plain http, but only as a terminal. Everything a phone needs beyond that requires a secure context in the browser: voice input (Web Speech), Add to Home Screen, the service worker behind the offline shell, and Web Push. Over `http://<mac-ip>:7788` on the LAN, or the Vite dev server on `:5173` from `make dev`, none of those register.
+Orbit works over plain http, but only as a terminal. Everything a phone needs beyond that requires a secure context in the browser: voice input (Web Speech), Add to Home Screen, the service worker behind the offline shell, and Web Push. Over `http://<mac-ip>:7788` from `orbit start --lan`, or the Vite dev server on `:5173` from `make dev`, none of those register.
 
 `tailscale serve` solves this. It gives the Mac a real https address with a real certificate, reachable only from inside your tailnet. It needs a one-time change in the [Tailscale admin console](https://login.tailscale.com/admin/dns): on the DNS tab, turn on **MagicDNS** and click **Enable HTTPS**. Without both, `tailscale serve` refuses to start.
 
@@ -58,7 +60,7 @@ With Orbit installed (see `SETUP.md`; the one-line installer places the executab
 orbit start
 ```
 
-This runs `tailscale serve --bg 7788` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`, and a pairing QR code. On the phone, with the Tailscale VPN on, point the camera at the code: Orbit opens already paired. Add it to the home screen and scan the code once more from the app's login screen, because iOS gives a home-screen app storage of its own. The token is printed beside the code for typing, and `orbit pair` prints a fresh code when the one on screen has expired.
+This runs `tailscale serve --bg 7788` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`. On the phone, with the Tailscale VPN on, open it. There is no login screen and nothing to type: Tailscale tells Orbit which tailnet account is calling, Orbit compares it against the Mac's own, and lets it in. Add it to the home screen and the home-screen app walks in the same way — it needs no storage of its own to remember, because there is nothing to remember.
 
 No port is needed in the address. The terminal's WebSocket runs over `wss://` automatically, and Add to Home Screen produces a full PWA.
 
@@ -66,7 +68,7 @@ The first request can take ten seconds or more while Tailscale obtains the certi
 
 If something is already listening on `:7788`, `orbit start` points the https address at it and returns, leaving that server alone.
 
-If the front door cannot be published at all — Tailscale missing, logged out, or HTTPS not enabled in the admin console — `orbit start` no longer stops. It says which of those it is, notes that voice input and Add to Home Screen need https so this section is worth coming back to, prints the Mac's LAN address for a phone on the same Wi-Fi, and starts the server anyway. The startup banner carries that LAN address too, beside the localhost one.
+If the front door cannot be published at all — Tailscale missing, logged out, or HTTPS not enabled in the admin console — `orbit start` no longer stops. It says which of those it is, notes that voice input and Add to Home Screen need https so this section is worth coming back to, and starts the server anyway. With no front door and no LAN, nothing but the Mac itself can reach it, so it also suggests re-running as `orbit start --lan`.
 
 From a checkout of the repository, the same commands are:
 
@@ -75,15 +77,19 @@ make start        # build, then orbit start
 make stop         # stop the server on :7788 and the 443 front door
 ```
 
-### Plain http, without a certificate
+### Without Tailscale, on the Wi-Fi
 
-Before enabling https, or as a fallback, the server is reachable over the tailnet without `tailscale serve`:
+`orbit` and `orbit start` both listen on `127.0.0.1` only, so a bare `orbit` is reachable from the Mac and nowhere else — not over the LAN, and not over the tailnet's own `100.x.y.z` address either. To open the wi-fi door instead:
 
 ```sh
-orbit             # the server alone, on :7788 (ORBIT_PORT to change it)
+orbit start --lan     # or: orbit --lan, or ORBIT_LAN=1 orbit
 ```
 
-Then open `http://<tailscale-ip-of-the-mac>:7788` (for example `http://100.101.102.103:7788`) or the MagicDNS name, `http://<machine>.<tailnet>.ts.net:7788`, and enter the access token once. You get the terminal, and nothing that needs a secure context.
+That binds every interface and prints the Mac's wi-fi address. Open `http://<mac-ip>:7788` on a phone on the same network.
+
+On this path the `Tailscale-User-Login` header is ignored completely and the access token is the only credential. That is deliberate, and it is the point of the whole design. Tailscale strips the header if a caller sets it — but its own documentation is explicit that the guarantee holds only while the program behind the proxy listens on localhost alone. Once the wi-fi door is open, anyone who can reach the port can write the header themselves and claim to be you. So Orbit will not trust it and the back door at the same time.
+
+The login screen appears here, and only here. Scan the QR code the startup banner prints, or type the token beside it (`[orbit] access token`); `orbit pair` prints a fresh code when the one on screen has expired. You get the terminal, and nothing that needs a secure context.
 
 ### Turning the front door off
 
@@ -200,19 +206,21 @@ Optional. Create `~/Library/LaunchAgents/com.orbit.server.plist`, replacing `YOU
 
 ```sh
 launchctl load ~/Library/LaunchAgents/com.orbit.server.plist
-tail -f /tmp/orbit-server.log      # the address, the token and the pairing QR are printed here
+tail -f /tmp/orbit-server.log      # the address is printed here, with the token and the QR the `--lan` path needs
 ```
 
-A server started by launchd has a minimal `PATH` and no `ORBIT_HOME`, which is why the plist names the installed executable by its full path rather than `orbit`. The agents are unaffected: Orbit starts them through your login shell, which rebuilds whatever `PATH` they need. Drop the `start` argument to run the server without the https front door.
+A server started by launchd has a minimal `PATH` and no `ORBIT_HOME`, which is why the plist names the installed executable by its full path rather than `orbit`. The agents are unaffected: Orbit starts them through your login shell, which rebuilds whatever `PATH` they need. Drop the `start` argument to run the server without the https front door — which leaves it on `127.0.0.1` and reachable from the Mac alone, so add `--lan` as a second `<string>` if that is what you want.
 
 ## 7. How access is protected
 
 | Mechanism | What it does |
 | --- | --- |
-| Bearer token | Every request carries the token in the `Authorization` header. It is entered once per origin and stored by the app. |
+| Loopback only | The server binds `127.0.0.1` unless `--lan` is passed. Nothing on the LAN can reach the port, so `tailscale serve` is the only way in from another device — which is what makes the next row safe. |
+| Tailnet identity | `tailscale serve` strips any `Tailscale-User-Login` a caller sent and stamps on the verified one. A request whose login is the Mac's own is served with no token: reads, writes, the socket, and the cookie the socket needs. Any other login is refused, and so is a Mac whose own login cannot be read. |
+| Origin check | The login header is refused when the request carries an `Origin` belonging to another host, because `serve` stamps the header on everything it proxies — including a page served from a published preview port, which would otherwise be able to act as you. The WebSocket handshake checks `Origin` against `Host` for the same reason. |
+| Bearer token | Still there, and unchanged. It is what the MCP server, the hooks and `orbit pair` use over loopback, and under `--lan` it is the only credential — the header is ignored there entirely. It is simply no longer something a person types on the normal path. |
 | Cookie | An `HttpOnly`, `SameSite=Strict` cookie, marked `Secure` over https, holds a hash of the token. It is used only where a header cannot go: the WebSocket and images. |
-| Origin check | The WebSocket handshake also checks the `Origin` header against the `Host`. |
-| Nothing in URLs | The token never appears in a URL. The pairing QR carries a pairing code in the URL fragment, valid for 10 minutes, never the token itself. |
+| Nothing in URLs | The token never appears in a URL. The pairing QR carries a pairing code in the URL fragment, valid for 10 minutes, never the token itself. Pairing codes and the QR now only matter on the `--lan` path. |
 | Slow rejection | Failed guesses are slowed down. |
 | Tailnet only | `tailscale serve` is reachable from your own devices only. Orbit never uses `funnel`. |
 
@@ -232,7 +240,9 @@ Remove only the `token` key from `~/.orbit/config.json`, then restart the server
 | The phone cannot reach the Mac at all | The Tailscale VPN switch must be on in the app on both devices. From the Mac, `tailscale ping <phone-ip>`. |
 | The first https request hangs for a long time | Tailscale is issuing the certificate. Wait ten to twenty seconds and reload; later requests are fast. |
 | The page loads but the terminal does not connect | The WebSocket is blocked. With `serve` in use, open the `https://` address, not `http://…:7788`; do not mix the two. |
-| The login screen appears even though the token was entered | The token is stored per origin. `http://100.x…:7788` and `https://….ts.net` are different origins; enter it once more. |
+| The wi-fi address stopped answering after an upgrade | Expected. The server binds `127.0.0.1` now. Run `orbit start --lan` to get the old behaviour back, or reach it over the tailnet instead. |
+| A login screen appears on the tailnet address | Orbit could not read the Mac's own tailnet login (`tailscale status --json`), so it fell back to the token. Check the Tailscale app is logged in. |
+| The login screen appears on the `--lan` address every time | The token is stored per origin. `http://<mac-ip>:7788` and `https://….ts.net` are different origins; enter it once more for this one. |
 | `Port 7788 already in use` | Another Orbit (or something else) is listening. `orbit start` points the https address at it and exits. Run `make stop` to stop the server on `:7788` and the front door, or set `ORBIT_PORT` to run on another port. |
 | The connection drops when the Mac sleeps | In System Settings, keep the Mac on power and turn off "Put hard disks to sleep", or use `caffeinate` or Amphetamine. |
 | `orbit_screen` returns a black or empty image | macOS needs Screen Recording permission for the process running Orbit. Grant it in System Settings > Privacy & Security > Screen Recording. |

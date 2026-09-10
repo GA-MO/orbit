@@ -24,7 +24,7 @@ This page is for anyone who wants the coding agent inside an Orbit session to se
 | `orbit_ask` | Puts a question with up to four options on the phone and blocks until one is tapped or the question times out. |
 | `orbit_preview` | Opens the running app itself on the phone, at the page you name. Not a picture: it can be tapped, scrolled and filled in, in a frame over the terminal, without leaving the session. |
 
-Every tool talks to the Orbit server on port 7788 using the token in `~/.orbit/config.json`. The server has to be running; otherwise the tool reports that it cannot connect, and the session carries on.
+Every tool talks to the Orbit server on `127.0.0.1:7788` using the token in `~/.orbit/config.json`. That is what the access token is for now: the MCP server, the hooks and `orbit pair`, over loopback. A phone arriving over Tailscale is recognised by its tailnet login and types nothing. The server has to be running; otherwise the tool reports that it cannot connect, and the session carries on.
 
 ## Install
 
@@ -122,7 +122,7 @@ The hooks and the MCP server talk to the server over a small HTTP API, which is 
 | `POST /api/ask` | Ask a question and wait. Returns `answer`, `timedOut` and `phonesConnected`. |
 | `POST /api/ask/answer` | Answer a question from a push notification. Uses a capability carried by the notification; together with `POST /api/auth/pair` it is the only route that needs no bearer token. |
 
-Every other `/api/*` route needs `Authorization: Bearer <token>`.
+Every other `/api/*` route needs `Authorization: Bearer <token>` — or, from a browser that came in through `tailscale serve` carrying the Mac's own `Tailscale-User-Login` and a matching `Origin`, nothing at all. Under `ORBIT_LAN=1` (`orbit start --lan`) that header is ignored and the token is the only credential; the MCP server and the hooks use the token either way.
 
 ## Good to know
 

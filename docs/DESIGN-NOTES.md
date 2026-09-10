@@ -299,9 +299,9 @@ sentence instead of hanging until the timeout.
 
 ### Headless captures of the app under development
 
-The 📸 panel captures a dev app's URL headless in system Chrome
-(`playwright-core`, `channel: 'chrome'`, no browser download) at a Phone,
-Tablet or Desktop viewport, or full page. The gallery lays every shot out at
+The 📸 panel captures a dev app's URL headless in system Chrome — driven over
+the DevTools protocol directly, no browser download and no automation
+library — at a Phone, Tablet or Desktop viewport, or full page. The gallery lays every shot out at
 its real aspect ratio with tap-to-zoom, and ⇥ inserts the PNG path into the
 terminal for the agent to inspect. Shots are stored in `~/.orbit/screenshots/`
 (the last 50 are kept).
@@ -600,12 +600,83 @@ to exactly what it was before: a banner that opens the question in the app.
 
 ## Authentication and pairing
 
+### The tailnet already knows who you are
+
+Reaching Orbit over `tailscale serve` proves something before the first byte
+of the app is parsed: the address is tailnet-only, so it answered a device on
+the owner's own tailnet and nobody else. Orbit asked for a token on top of
+that anyway, and the token was a sixteen-character string somebody had to read
+off one screen with the characters hidden and type into another. Every phone
+paid that cost once per origin, forever, to re-prove a fact the network had
+already established.
+
+So the phone walks in. `tailscale serve` puts a verified
+`Tailscale-User-Login` on everything it proxies, and a request whose login is
+the Mac's own is served with no token at all — reads, writes, the WebSocket,
+and the cookie the socket needs. A different login is refused. There is
+nothing to pair, nothing to type, and nothing that expires; the pairing code
+and the ten-minute window stop being part of the normal path. The QR code
+stays, because not typing the address is worth as much as not typing the
+token — but it now carries the plain tailnet URL, so it is a shortcut rather
+than a secret, and scanning it a hundred times a year is fine.
+
+A Mac whose own login cannot be read fails closed and asks for the token, which
+is the same shape as the case below.
+
+On the phone this has to be invisible, not merely brief. The app renders
+nothing until the server has answered, so no login field flashes past on the
+way in — a field that appears and vanishes reads as a bug, and asking someone
+to ignore it is worse than the token was. The field appears only when the
+server actually asks for a token, and then it says why it is asking, shows
+what is being typed rather than hiding it behind dots, and does not
+autocapitalise: nobody memorises a token, so hiding it protects nothing and
+costs every attempt.
+
+### Trusting that header costs the wi-fi door
+
+The header is only worth something under a condition Orbit did not previously
+meet. Tailscale strips `Tailscale-User-Login` from anything a caller sent and
+re-adds what its own network says — but its documentation is explicit that
+this is worth nothing unless the program behind the proxy listens on localhost
+alone. Otherwise anyone who can reach the port directly writes the header
+themselves and is whoever they say they are.
+
+Orbit had listened on every interface since its first commit. So it now binds
+`127.0.0.1`, and `tailscale serve` is the way in from another device.
+`ORBIT_LAN=1`, or `orbit start --lan`, opens the wi-fi door again for a Mac
+with no Tailscale — and in that mode the header is ignored entirely and the
+token is the only credential. The one thing that cannot be true is trusting
+the header while the back door is open, so the flag that opens the door is the
+same flag that stops the header being read.
+
+This is a real cost, and it is the trade the design makes deliberately: a Mac
+without Tailscale is a flag away from working, and a Mac with Tailscale never
+sees a login screen again.
+
+### The header is refused when the Origin belongs to elsewhere
+
+`serve` stamps the login header on *every* request it proxies, including one
+that a page published on 8443 makes back to Orbit's origin. Without a check,
+the header would be a cross-site write primitive for anything served on the
+tailnet — a preview of the app under development could act as you.
+
+So the header only counts when the request's `Origin` is a host it was
+addressed to, and a request with no `Origin` at all (a `curl`, an MCP call) is
+not a browser page and passes. This is the same reasoning as the socket's
+Origin check below, and it is why the cookie authorises reads while the login
+authorises writes: the login is re-checked against the proxy on every request,
+where the cookie is a bearer credential the browser attaches on its own.
+
 ### A bearer token for everything; a hashed cookie where a header cannot go
 
+The token has not gone away; it has stopped being something a person types. It
+is what the MCP server, the hooks and `orbit pair` use over loopback, and it is
+the only credential under `--lan`.
+
 An access token is generated to `~/.orbit/config.json` and printed in the
-server console. It is required for all `/api/*` and WebSocket traffic as
-`Authorization: Bearer`; the phone has a login screen, and an invalid or
-expired token drops back to it.
+server console. It is accepted for all `/api/*` and WebSocket traffic as
+`Authorization: Bearer`; the login screen still exists for the paths that need
+it, and an invalid or expired token drops back to it.
 
 A WebSocket handshake and an `<img src>` cannot carry that header, so those
 two authenticate with an `HttpOnly; SameSite=Strict` cookie minted by
@@ -616,6 +687,9 @@ Nothing puts the token in a URL, where it would end up in proxy logs and
 history.
 
 ### The pairing QR carries a code, never the token
+
+Pairing is now the `--lan` path only, and the QR is kept as it was rather than
+relaxed for a phone that no longer sees it.
 
 The QR printed by `orbit start` and `orbit pair` encodes
 `https://<host>/#pair=<code>`: a pairing code that lives ten minutes and
@@ -671,8 +745,8 @@ first.
 ### Production is one port
 
 In production the server serves the built web app itself, so production is a
-single port: `bun run build && bun run start`, then open
-`http://<mac-ip>:7788` (or the tailnet https address `orbit start` publishes).
+single port: `bun run build && bun run start`, then open the tailnet https
+address `orbit start` publishes (or, with `--lan`, `http://<mac-ip>:7788`).
 
 ### An installable PWA
 
@@ -681,9 +755,8 @@ screen. The service worker is registered in production builds only.
 
 ### Building the executable (scripts/dist-compile.ts, scripts/dist.sh)
 
-- The compile goes through `Bun.build` rather than `bun build --compile` because one dependency needs a bundle-time patch. A bundler bakes `__dirname` in as the absolute path on the machine that built it; `playwright-core` derives its package root from `__dirname` and `require()`s `package.json` and `browsers.json` from there at module load. The 0.2.0 release, built on a GitHub runner, died on first start looking for `/Users/runner/work/orbit/…` — and every local build had passed, because on the machine that built it that path exists.
-- `inlinePlaywrightJson` replaces those two requires with the files' contents at bundle time. The build refuses to produce an executable if fewer than `MINIMUM_INLINED` were replaced, or if any bundled `playwright-core` file still matches `STILL_READS_JSON_FROM_ITS_PACKAGE_ROOT`: an upgrade that changes the shape must be a build error, not a release that starts on one machine.
-- `FIREFOX_ONLY_PLAYWRIGHT_REQUIRE` (`chromium-bidi`) is external — an optional require the bundler cannot resolve and the binary never needs.
+- The compile goes through `Bun.build` rather than `bun build --compile` so the assets the server reads from disk are named once, in a file, beside the target.
+- It used to carry a bundle-time patch as well. A bundler bakes `__dirname` in as the absolute path on the machine that built it; `playwright-core` derived its package root from `__dirname` and `require()`d `package.json` and `browsers.json` from there at module load. The 0.2.0 release, built on a GitHub runner, died on first start looking for `/Users/runner/work/orbit/…` — and every local build had passed, because on the machine that built it that path exists. The patch inlined those two requires and refused to build if their shape changed. `chrome.ts` replaced the dependency with the DevTools protocol calls it was used for, so there is nothing left in the bundle that reads a file off a package root, and the patch went with it.
 - The rehearsal in CLAUDE.md ("Never publish a build you have not seen start elsewhere") is the only local check that can catch this class of bug, because it is the deleted build path that makes a baked-in absolute path fail. `install.sh` takes `ORBIT_LOCAL_DIR`, so the rehearsal exercises the real installer — checksum and all — without a GitHub release to install from.
 - `--asset` keeps a path's own last segment and drops what is above it: `web/dist` lands at `/$bunfs/root/dist` and `server/package.json` at `/$bunfs/root/package.json`. A local `make dist` can never reproduce the 0.2.0 failure; to test it, build from a copy of the tree at a throwaway path, delete that path, then `ORBIT_BIN=<binary> bash scripts/test.sh smoke`. `release.yml` does the same thing by moving `node_modules`, `web/dist` and `server/dist` aside and starting the executable from `/tmp` before it publishes anything.
 - `stampServiceWorker` in `web/vite.config.ts` rewrites `__BUILD__` in the copied `sw.js` after the bundle: the worker is a public file copied through untouched, so its cache name was a constant, and a constant cannot say which build it belongs to.
@@ -755,7 +828,19 @@ alternatives — keyed by the function or constant it belongs to.
 - `MAX_BUFFERED` = 4 MiB on `ws.bufferedAmount`: a phone on a slow link reading a fast agent would otherwise have output queued in memory without bound; frames are dropped rather than queued, and the scrollback replay on reconnect fills the gap.
 - `shutdown` closes warm Chrome and every preview serve (8443+) but leaves the 443 front door alone; a 2 s `setTimeout(...).unref()` guarantees exit if either hangs.
 - `unhandledRejection` and `uncaughtException` are logged, not fatal: Node's default is to exit, and here exiting kills every PTY.
-- `pairBase` prefers the published tailnet address, then `pairing.lanAddress()` (first non-internal IPv4), then `localhost` — the order a phone could actually reach. `pairing`: `USES` = 10 per code, `CODE_BYTES` = 9.
+- `pairBase` prefers the published tailnet address, then `pairing.lanAddress()` (first non-internal IPv4, offered only under `ORBIT_LAN`), then `localhost` — the order a phone could actually reach. `pairing`: `USES` = 10 per code, `CODE_BYTES` = 9.
+- `recognisedByTailscale` is the tokenless door. `tailscale serve` strips `Tailscale-User-Login` from anything a caller sent and re-adds what its own network says, so the header is worth something exactly while the only way in is through that proxy — which is why it returns false outright when `LAN_OPEN`. Tailscale's own documentation makes the same condition: the header means nothing to a program a caller can reach directly.
+- It also requires `originIsThisHost`. `tailscale serve` adds the login header to *every* request it proxies, including one a page published on 8443 makes to Orbit's origin, so without the Origin check the header would be a cross-site write primitive for anything served on the tailnet. This is the same reason the session cookie is checked against Origin, and the reason the cookie authorises reads only while the login authorises writes: the login is checked per request against the proxy, the cookie is a bearer credential the browser attaches on its own.
+- `authorized` is async only because the owner's login may not have been read from the CLI yet. After the first successful read it is a cached string compare; `matches` (constant-time, length-checked) does the comparison, as it does for the token.
+- A Mac where the login cannot be determined admits nobody by header — `tailnetOwnerLogin` returning null fails closed, and the token is then the only credential, exactly as under `ORBIT_LAN`.
+- Pairing codes belong to the `ORBIT_LAN` path. A phone arriving over Tailscale is already recognised and never sees the login screen, so `pairing.ts`'s ten-minute expiry and use count are left as they are rather than being relaxed for it.
+
+### Which interfaces Orbit listens on (network.ts)
+
+- `BIND_HOST` is `127.0.0.1` unless `ORBIT_LAN=1`, and this is what makes the Tailscale headers mean anything: bound to every interface, anyone who can route to the Mac can hit the port directly and set `Tailscale-User-Login` to whatever they like. Loopback-only leaves `tailscale serve` as the sole way in from another device, which is the condition Tailscale states for trusting the headers it adds.
+- `LAN_OPEN` is read from the environment at module load rather than passed down, because `main.ts` sets `ORBIT_LAN` from `--lan` before it imports anything that reads it, and `banner.ts`, `start.ts` and `index.ts` all need the same answer without threading a flag through three call sites.
+- `ORBIT_LAN` is compared against `'1'` exactly. A truthiness test would make `ORBIT_LAN=0` open the LAN, which is the wrong way round for a variable whose only job is to widen what is reachable.
+- `--lan` is accepted by `orbit` and by `orbit start`; every other argument to `start` is still refused, so a typo cannot silently start something.
 
 ### Startup banner and QR (banner.ts, qr.ts)
 
@@ -763,6 +848,7 @@ alternatives — keyed by the function or constant it belongs to.
 - `WIDE` = 64 columns is where the two-column layout starts wrapping values; below it the banner switches to one fact per line. No box is drawn because it would have to be laid out for a width the server cannot know.
 - `plainBanner`'s token line keeps its historical wording verbatim: it is what users copy and what `grep` in the troubleshooting docs matches.
 - `PACKAGE_JSON_CANDIDATES` reads `package.json` from disk (checkout) or `/$bunfs/root/package.json` (compiled) rather than importing it, avoiding `resolveJsonModule` and a bundled copy.
+- `wifiUrlFor` offers the wi-fi row only under `ORBIT_LAN`. The banner names the doors that are open, and with the LAN closed nothing is listening on that address — printing it would send someone to a connection refused.
 - `lanAddress` runs `ipconfig getifaddr` over `LAN_INTERFACES` (`en0`, then `en1`) and the banner prints its URL as a row of its own, beside the localhost one. `http://localhost:7788` is the address the server is proudest of and the one address a phone cannot open; a Mac with only the localhost line printed left the reader to work out their own IP. It is a `null` when there is no Wi-Fi, and the row is simply absent — a guessed address is worse than none. `plainBanner` carries the same fact as `[orbit] same wi-fi: …`.
 - `renderBanner` takes the tailnet address as an argument because only `index.ts` knows whether it already paid for the `tailscale status` process; a self-fetching banner would spawn one per start and be untestable without Tailscale.
 - `qr.ts` uses a default import of `qrcode-terminal`: it assigns a whole object to `module.exports`, which the ESM loader cannot split into named exports. The `generate` callback is synchronous and is the only way to get the string instead of stdout.
@@ -783,7 +869,8 @@ alternatives — keyed by the function or constant it belongs to.
 
 - `FIRST_PORT` = 8443 because `npm run preview:on` always used it; `MAX_PREVIEWS` = 12 bounds the scan.
 - `CLI_CANDIDATES` puts `ORBIT_TAILSCALE` first: every path ends at that binary, so it is how tests exercise publishing on a machine with no Tailscale, and the escape hatch for an install in neither of the two known places (`PATH`, `/Applications/Tailscale.app/Contents/MacOS/Tailscale`).
-- `findCli` and `tailnetHost` cache their answer and, on failure, refuse to retry for `RETRY_AFTER_FAILURE_MS` = 30,000 — a logged-out or not-yet-up Tailscale is worth asking again later, not on every request.
+- `tailnetOwnerLogin` reads `Self.UserID` and looks it up in the `User` map of `tailscale status --json`; the `DNSName` the same call carries is what `tailnetHost` wants, but the two are cached separately because a tailnet host is published while a login authorises, and one being unavailable should not deny the other.
+- `findCli`, `tailnetHost` and `tailnetOwnerLogin` cache their answer and, on failure, refuse to retry for `RETRY_AFTER_FAILURE_MS` = 30,000 — a logged-out or not-yet-up Tailscale is worth asking again later, not on every request.
 - `run` surfaces the first stderr line as the error: the CLI puts the useful sentence there ("HTTPS must be enabled in the admin console").
 - `previewUrl` strips every leading slash and backslash and puts one back, so `//evil.com/x` cannot become a host; `..` is clamped by `new URL` against the origin, and the result is verified to share the origin. A full `http://` argument is refused as a plain `Error` so the module does not import `index.ts`'s `bad()`.
 - `ports.ts`: `EPHEMERAL_FROM` = 32,768 and `RESERVED_BELOW` = 1024 filter by number alone. `MACOS_SERVICE_BY_LSOF_NAME_PREFIX` keys are prefixes because `lsof -F` truncates command names to nine characters (`ControlCe`, `IPNExten`, `Tailscal`).
@@ -792,11 +879,24 @@ alternatives — keyed by the function or constant it belongs to.
 - `LOOPBACK_REACHABLE` lists the bind addresses the proxy can reach from the Mac; a server bound to a specific LAN IP is excluded.
 - `projectName` walks up to the nearest `.git` and stops at home: a dev server's cwd is often `repo/web`, and every monorepo answers `web`. `package.json`'s `name` was rejected (a file read per process, and a published name that is often not the folder). A cwd of `/`, `/Users` or home itself yields no label rather than the username.
 
+### Driving Chrome (chrome.ts)
+
+- Chrome is driven over the DevTools protocol on a raw WebSocket rather than through `playwright-core`. The library was one `chromium.launch({ channel: 'chrome' })` and four calls deep, and it cost a bundle-time patch: it derives its package root from `__dirname` and `require()`s JSON off it at load, which a bundler bakes in as the path of the machine that built it. That is what killed 0.2.0. Nothing here reads a file off a package root, so the class of bug is gone rather than guarded against — and the executable is 6MB smaller.
+- `--remote-debugging-pipe` rather than a debugging port, and it is not about the port number. Chrome exits on its own when the pipe closes, so a server killed with `SIGKILL` — which is how the suites stop one — cannot leave a browser running. A port has no such backstop: the first port version left a Chrome and 84MB of profile behind on the machine that was writing it. The pipe is fds 3 and 4, one JSON message per `\0`.
+- With no endpoint line to wait for, `answered` is the startup check: a `Browser.getVersion` racing the process exiting and `LAUNCH_TIMEOUT_MS`, so a Chrome that dies on launch is reported with its stderr instead of timing out silently.
+- `reapStaleProfiles` runs in the startup maintenance beside `pruneStale` because the one thing `close()` can never clean up is the case where `close()` did not run. `STALE_PROFILE_MS` = an hour is far past `BROWSER_IDLE_MS`, so a profile that old belongs to no live browser — the age is what makes it safe against a second Orbit running captures at the same time.
+- `--use-mock-keychain` and `--password-store=basic`: Chrome stores its cookie-encryption key in the login keychain, and a profile it has never seen before makes it ask for one. Under a `mkdtemp` profile that is *every* launch, and headless does not stop the dialog — it opens a modal on the user's desktop and the browser waits behind it, so a capture hangs and a Chrome is left running. Playwright passes both flags for this reason; not copying them is what put the dialog on screen.
+- `stderr.resume()` after the endpoint is read: the pipe is left attached to catch a launch failure, and an unread pipe eventually blocks the process writing to it.
+- Every launch gets its own `mkdtemp` user-data dir, removed on close. Sharing the user's profile would fight the Chrome they have open and put capture cookies in it.
+- `settle` polls rather than plumbing the events into promises: idle is *the absence* of activity for `NETWORK_QUIET_MS` = 500, which a timer has to check anyway. WebSockets are not counted because `Network.requestWillBeSent` does not fire for them — a dev server's open HMR socket would otherwise mean a page that never goes idle.
+- Full page resizes the emulated viewport to the content height and captures normally, instead of `captureBeyondViewport` with a clip: the emulated `deviceScaleFactor` then applies to the output the same way it does for a viewport shot, and the smoke suite pins those exact pixel widths. `MAX_CAPTURE_HEIGHT_PX` = 16,384 is Chrome's texture limit; asking past it returns nothing.
+- `Page.navigate` reports a dead server as `errorText` in its result, not as a failed command, so the "did not respond" case is a returned string rather than a thrown error to pattern-match.
+
 ### Captures (screenshot.ts)
 
 - `launching` holds the in-flight Chrome launch so two captures asked at once (an agent issues them in parallel) share one browser instead of racing two.
 - `closeBrowserWhenIdle` (`BROWSER_IDLE_MS` = 60,000) is armed only when `inFlight` reaches zero — a capture that finishes while another runs must not schedule a close under it.
-- `navigateOrSettleForLoad` waits for `networkidle` and, on a plain timeout, falls back to `load` with `LOAD_FALLBACK_TIMEOUT_MS` = 5000; but a `net::*` error is thrown because Chrome renders its own "can't be reached" page, and saving that would report a picture instead of a failure.
+- `navigateOrSettleForLoad` lets a slow page settle silently — `goto` returns at its deadline rather than throwing, since a capture of a page still loading is worth more than no capture — but a `net::*` error is rethrown because Chrome renders its own "can't be reached" page, and saving that would report a picture instead of a failure.
 - `MAX_VIEWPORT_PX` = 4000 because Chrome allocates whatever viewport it is asked for; `scaleFactorFor` uses retina (2×) below `DESKTOP_WIDTH_PX` = 1200 and 1× above, where it only doubles an already large image.
 - The filename is `<timestamp>-<kind>-<label>.png` and `sanitize` keeps `:` (host:port is the point of the label); files without a kind segment predate `orbit_screen` and are URL renders.
 
@@ -974,7 +1074,7 @@ alternatives — keyed by the function or constant it belongs to.
 - `smoke.mjs` sign-out asserts the `Set-Cookie` has the same name and `Path=/`, or the browser keeps the live cookie beside the expired one; the token is deliberately untouched (rotating would sign out every device and cost a restart).
 - `ask-smoke.mjs` tests `notify.ts` directly rather than over HTTP because the answer token would otherwise have to be recovered from an encrypted push payload. `topicIsValid`: proven against Apple's endpoint on 9 Sep 2026 — 12- and 10-character topics returned 201, 13-character and the 9-character `orbit-ask` returned 400 BadWebPushTopic; the rule is length (the header is decoded as base64url), not the characters, and both shipped topics were wrong for five weeks.
 - `idle-smoke.mjs` uses `QUIET = 120`ms against a fake session; the echo case matters because typed input is echoed as output and restarts the clock, so what stops a report is the turn's output count resetting, not a cancelled timer.
-- `touch-smoke.mjs` taps via Playwright's touchscreen so the emulated click follows (the reason tap handling swallows clicks); press-and-hold is dispatched in-page because Playwright has no API for it. The `hold` selector keeps dispatching to the original node even once detached, because a real finger does and resolving the target afresh had silently repaired the dead-glyph swipe bug. WebKit cannot construct `Touch` but has `createTouch`; Chromium is the reverse. `spanAt` finds a word by column because xterm draws a whole unstyled row as one span. The alt-screen app is written to a file because quoting through `node -e` over a pty breaks silently, and it repaints continuously because a draw-once app cannot reproduce the detached-node case.
+- The browser suites still drive Chrome through Playwright. It is a devDependency of the repo, never of the server, so it does not reach the executable: what made it worth removing from `screenshot.ts` was the bundle, and a test script has no bundle. `touch-smoke.mjs` taps via Playwright's touchscreen so the emulated click follows (the reason tap handling swallows clicks); press-and-hold is dispatched in-page because Playwright has no API for it. The `hold` selector keeps dispatching to the original node even once detached, because a real finger does and resolving the target afresh had silently repaired the dead-glyph swipe bug. WebKit cannot construct `Touch` but has `createTouch`; Chromium is the reverse. `spanAt` finds a word by column because xterm draws a whole unstyled row as one span. The alt-screen app is written to a file because quoting through `node -e` over a pty breaks silently, and it repaints continuously because a draw-once app cannot reproduce the detached-node case.
 - `changes-smoke.mjs` scopes the "Stage" click to the sheet with an exact match because "Stage all" sits in the list behind it and a substring match clicks through. Both browser suites reset `errors` after login because the 401 that raised the login screen is the app working; touch-smoke also ignores `40[14]` for the login probe and example.com's missing `/a/b`.
 - `install-smoke.mjs` reuses its stand-in releases for the `orbit update` cases and calls `runUpdate` in-process with a fake `Installed`, capturing `console.log`: the four that matter are that `--check` and a refused checksum leave the executable byte-for-byte as it was, that an up-to-date install stops before downloading, and that a checkout is refused — the last through a real `bun server/dist/main.js update`, which is also the check that the subcommand is wired into the dispatcher.
 - `setup-smoke.mjs` makes its own HOME regardless of the script's because it edits `~/.claude/settings.json`; it asserts the approval hook carries `timeout: 190` (the one that fails open when wrong) and that legacy `scripts/orbit-approve.mjs` hooks are taken over rather than doubled, since double hooks buzz the phone twice per question.
@@ -984,7 +1084,7 @@ alternatives — keyed by the function or constant it belongs to.
 ### Installer and release scripts
 
 - `install.sh`: while the repo is private, assets come via `gh` when logged in, else via the API by asset id with `GITHUB_TOKEN` (private assets are only reachable by id). `ORBIT_LOCAL_DIR` replaces every fetch with a `cp` so `install-smoke.mjs` runs with no network or real binary. A missing or mismatched `.sha256` aborts before install. `xattr -d com.apple.quarantine` runs although nothing went through a browser — harmless when absent. The PATH line is appended to `~/.zshrc` only if the dir is not already on PATH and not already in the file (`ORBIT_NO_MODIFY_PATH` skips it).
-- `dist.sh` passes `--external chromium-bidi` because it is an optional require inside playwright-core (for Firefox) that the bundler cannot resolve and the binary never needs; `web/dist` and `server/package.json` go in as `--asset` because the server reads them from disk (`WEB_DIST`). A `.sha256` sits beside each binary because the Homebrew formula names it and `tap.sh` reads it from the release rather than this machine.
+- `dist.sh` puts `web/dist` and `server/package.json` in as `--asset` because the server reads them from disk (`WEB_DIST`). A `.sha256` sits beside each binary because the Homebrew formula names it and `tap.sh` reads it from the release rather than this machine.
 - `release.sh` runs `bun install --silent` after bumping both package.json files because the lockfile carries workspace versions, and tolerates an empty commit for a version the files already carry.
 - `icons.mjs` reads colours out of `web/src/styles.css` and fails loudly if a token is missing; renders each size at exact pixels in system Chrome, since scaling down a bigger PNG is what turned the old favicon to mush. Sizes below 192 drop the satellite (~5% of width, a smudge at small sizes). `RIM = rgb(255 255 255 / 0.17)` keeps the ring dark under a satellite so the sweep is the bright thing; the satellite-less favicon opens the rim up. All PNGs are full-bleed ink (iOS will not round-trip transparency; Android's legacy path drops a white plate); apple-touch-icon is 180 unrounded since iOS applies its own squircle; maskable artwork sits inside the 80% safe circle. `syncColours` rewrites manifest and theme-color from `--color-ink` because three files once disagreed.
 

@@ -1,4 +1,5 @@
 import { lanUrl } from './banner.js'
+import { LAN_OPEN } from './network.js'
 import { PORT } from './port.js'
 import * as preview from './preview.js'
 import { listeningPids } from './stop.js'
@@ -16,18 +17,29 @@ const sayPublished = (url: string) => {
   say()
 }
 
-const sayUnpublished = (reason: string) => {
+const sayWifiDoor = () => {
   const wifi = lanUrl(PORT)
+  if (wifi) {
+    say('Until then, on a phone on the same Wi-Fi:')
+    say(`  ${wifi}/`)
+    return
+  }
+  say(`This Mac has no Wi-Fi address to offer a phone — http://localhost:${PORT} works on the Mac itself.`)
+}
+
+const sayHowToOpenTheWifiDoor = () => {
+  say('Orbit is listening on this Mac alone, so no phone can reach it yet.')
+  say('Until then, to let a phone on the same Wi-Fi in:')
+  say('  orbit start --lan')
+}
+
+const sayUnpublished = (reason: string) => {
   say()
   say(`Could not publish over Tailscale: ${reason}`)
   say('Voice input and Add to Home Screen need HTTPS, so Tailscale is worth setting up later.')
   say()
-  if (wifi) {
-    say('Until then, on a phone on the same Wi-Fi:')
-    say(`  ${wifi}/`)
-  } else {
-    say(`This Mac has no Wi-Fi address to offer a phone — http://localhost:${PORT} works on the Mac itself.`)
-  }
+  if (LAN_OPEN) sayWifiDoor()
+  else sayHowToOpenTheWifiDoor()
   say()
 }
 

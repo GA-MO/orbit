@@ -44,6 +44,10 @@ stops a hand-rolled command.
 - **Tailscale serve on 443** — `orbit start` (`make start`) set it up to proxy
   the live Orbit. It is meant to be there; it is not a leftover. `orbit stop`
   takes it down along with the server, which is exactly what not to run here.
+  It is also now the only way in: the server binds `127.0.0.1` unless it was
+  started with `--lan`, so dropping the front door does not merely inconvenience
+  the phone, it cuts it off. And it is what tells Orbit the caller is the owner
+  — without it a phone gets a token prompt where it used to walk in.
 
 ## No comments in the source
 

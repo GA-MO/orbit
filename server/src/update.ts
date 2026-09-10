@@ -18,6 +18,7 @@ const DOWNLOAD_TIMEOUT_MS = 120_000
 const MODE_BITS = 0o7777
 const LEADING_V = /^v/
 const WHITESPACE = /\s+/
+const VERSION_SEPARATOR = '.'
 const STAGED_SUFFIX = '.orbit-update'
 const CHECK_FLAG = '--check'
 
@@ -98,6 +99,20 @@ const withoutLeadingV = (tag: string): string => tag.replace(LEADING_V, '')
 
 export const latestVersion = async (): Promise<string> => withoutLeadingV((await latestRelease()).tag)
 
+const versionNumbers = (version: string): number[] =>
+  version.split(VERSION_SEPARATOR).map((part) => Number.parseInt(part, 10) || 0)
+
+export const isNewerThan = (candidate: string, current: string): boolean => {
+  const offered = versionNumbers(candidate)
+  const running = versionNumbers(current)
+  const depth = Math.max(offered.length, running.length)
+  for (let place = 0; place < depth; place += 1) {
+    const [left, right] = [offered[place] ?? 0, running[place] ?? 0]
+    if (left !== right) return left > right
+  }
+  return false
+}
+
 export interface Installed {
   executable: string
   compiled: boolean
@@ -167,6 +182,12 @@ const install = async (release: Release, installed: Installed): Promise<number> 
   return 0
 }
 
+const whatIsThereToDo = (latest: string, installed: string): string => {
+  if (isNewerThan(latest, installed)) return 'Run `orbit update` to install it.'
+  if (latest === installed) return `orbit ${installed} is already the latest release of ${repo()}.`
+  return `orbit ${installed} is ahead of the latest release of ${repo()} — nothing to install.`
+}
+
 export async function runUpdate(args: string[], installed: Installed = thisInstall()): Promise<number> {
   if (!installed.compiled) return refuseFromCheckout()
 
@@ -186,13 +207,13 @@ export async function runUpdate(args: string[], installed: Installed = thisInsta
   if (args.includes(CHECK_FLAG)) {
     say(`Installed:  ${installed.version}`)
     say(`Available:  ${latest}`)
-    say(latest === installed.version ? 'Nothing to do.' : 'Run `orbit update` to install it.')
+    say(whatIsThereToDo(latest, installed.version))
     say()
     return 0
   }
 
-  if (latest === installed.version) {
-    say(`orbit ${installed.version} is already the latest release of ${repo()}.`)
+  if (!isNewerThan(latest, installed.version)) {
+    say(whatIsThereToDo(latest, installed.version))
     say()
     return 0
   }

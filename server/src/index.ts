@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, WebSocket } from 'ws'
 import { PORT } from './port.js'
+import { BIND_HOST, LAN_OPEN } from './network.js'
 import { PtyManager } from './pty-manager.js'
 import { PROVIDERS, getProvider, detectAvailability } from './providers.js'
 import {
@@ -17,6 +18,7 @@ import {
   sessionCookie,
 } from './auth.js'
 import { screen } from './approval.js'
+import * as chrome from './chrome.js'
 import * as screenshot from './screenshot.js'
 import * as preview from './preview.js'
 import * as ports from './ports.js'
@@ -154,8 +156,26 @@ const safePath = (p: string): string | null => {
 const hasBearerToken = (req: http.IncomingMessage): boolean =>
   matches(req.headers.authorization ?? '', `Bearer ${TOKEN}`)
 
-const authorized = (req: http.IncomingMessage): boolean => {
+const TAILSCALE_LOGIN_HEADER = 'tailscale-user-login'
+
+const tailscaleLoginHeader = (req: http.IncomingMessage): string => {
+  const given = req.headers[TAILSCALE_LOGIN_HEADER]
+  return (Array.isArray(given) ? given[0] : (given ?? '')).trim()
+}
+
+const recognisedByTailscale = async (req: http.IncomingMessage): Promise<boolean> => {
+  const headerCanBeForged = LAN_OPEN
+  if (headerCanBeForged) return false
+  const given = tailscaleLoginHeader(req)
+  if (!given) return false
+  if (!originIsThisHost(req)) return false
+  const owner = await preview.tailnetOwnerLogin()
+  return !!owner && matches(given, owner)
+}
+
+const authorized = async (req: http.IncomingMessage): Promise<boolean> => {
   if (hasBearerToken(req)) return true
+  if (await recognisedByTailscale(req)) return true
   const cookieMayAuthorize = req.method === 'GET'
   return cookieMayAuthorize && hasSessionCookie(req, TOKEN)
 }
@@ -281,7 +301,7 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse) {
 
   if (url.pathname.startsWith('/api/')) {
     if (!carriesItsOwnCredential(req, url)) {
-      if (!authorized(req)) {
+      if (!(await authorized(req))) {
         await slowDownCredentialGuessing(req)
         return json(res, 401, { error: 'unauthorized' })
       }
@@ -385,9 +405,10 @@ async function handleAuthedApi(req: http.IncomingMessage, res: http.ServerRespon
 const renewSessionCookie = (req: http.IncomingMessage, res: http.ServerResponse) =>
   res.setHeader('Set-Cookie', sessionCookie(TOKEN, isSecureRequest(req)))
 
-on('GET /api/auth/check', ({ req, res }) => {
-  if (hasBearerToken(req)) renewSessionCookie(req, res)
-  return json(res, 200, { ok: true })
+on('GET /api/auth/check', async ({ req, res }) => {
+  const walkedIn = await recognisedByTailscale(req)
+  if (hasBearerToken(req) || walkedIn) renewSessionCookie(req, res)
+  return json(res, 200, { ok: true, walkedIn })
 })
 
 on('POST /api/auth/pair', async ({ req, res, body }) => {
@@ -946,7 +967,11 @@ const wss = new WebSocketServer({
 wss.on('connection', async (ws: WebSocket, req) => {
   const url = new URL(req.url ?? '/ws', 'http://localhost')
 
-  if (!hasBearerToken(req) && !(hasSessionCookie(req, TOKEN) && originIsThisHost(req))) {
+  const mayOpenTheSocket =
+    hasBearerToken(req) ||
+    (await recognisedByTailscale(req)) ||
+    (hasSessionCookie(req, TOKEN) && originIsThisHost(req))
+  if (!mayOpenTheSocket) {
     await slowDownCredentialGuessing(req)
     ws.close(4001, 'unauthorized')
     return
@@ -1063,7 +1088,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
   })
 })
 
-server.listen(PORT, async () => {
+server.listen(PORT, BIND_HOST, async () => {
 
   const tailnetUrl = await Promise.race([
     preview
@@ -1082,9 +1107,11 @@ server.listen(PORT, async () => {
     store.sweepOrphanScrollback(known),
     uploads.prune(),
     screenshot.pruneStale(),
+    chrome.reapStaleProfiles(),
   ])
-    .then(([orphans]) => {
+    .then(([orphans, , , profiles]) => {
       if (orphans > 0) console.log(`[orbit] removed ${orphans} orphan scrollback file(s)`)
+      if (profiles > 0) console.log(`[orbit] removed ${profiles} abandoned Chrome profile(s)`)
     })
     .catch((err) => console.error('[orbit] startup maintenance failed:', err))
 })
@@ -1098,7 +1125,7 @@ async function pairBase(tailnetUrl?: string | null): Promise<string> {
           .catch(() => null)
       : tailnetUrl
   if (published) return published
-  const lan = pairing.lanAddress()
+  const lan = LAN_OPEN ? pairing.lanAddress() : null
   return lan ? `http://${lan}:${PORT}` : `http://localhost:${PORT}`
 }
 
