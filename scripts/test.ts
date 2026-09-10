@@ -146,11 +146,13 @@ const childEnv = (extra: Record<string, string>): Record<string, string> => ({
 })
 
 const [serverFile, serverArgs] = serverCommand()
-const logFd = fs.openSync(LOG, 'a')
+const log = fs.createWriteStream(LOG, { flags: 'a' })
 const server: ChildProcess = spawn(serverFile, serverArgs, {
   env: childEnv({}),
-  stdio: ['ignore', logFd, logFd],
+  stdio: ['ignore', 'pipe', 'pipe'],
 })
+server.stdout?.pipe(log)
+server.stderr?.pipe(log)
 
 let passed = false
 let cleanedUp = false
