@@ -453,6 +453,23 @@ set per session. What separates a session on the phone from one at the desk
 is `ORBIT_SESSION` in the environment, which Codex passes to the notifier
 along with everything else — the same test the Claude hook already made.
 
+It is only ever a turn ending. Claude's hooks also carry "waiting for you";
+Codex's `notify` cannot, and the tempting shapes to handle — an approval
+prompt, a plan waiting to be accepted — are the terminal's own desktop
+notifications and never reach a notifier. Codex parked at a real approval
+prompt was watched sending nothing, and `codex-rs/hooks/src/legacy_notify.rs`
+agrees: one payload variant, one match arm, `AfterAgent`. So a Codex session
+waiting on approval is still found the old way, by going quiet, and Orbit
+does not pretend otherwise.
+
+Codex does have a full hooks system underneath — `hooks.json`, with
+`permission_request` and `pre_tool_use` among its events — and that is where
+this belongs eventually. `notify` is the legacy door into it, carrying a
+`TODO: Remove this hook` in Codex's own source. It was taken because the
+hooks system's user-level configuration is not documented anywhere the
+outside can read, and a guess at a file format is a worse foundation than a
+door that at least works today.
+
 ### Approval for what the agent runs itself
 
 Terminal screening (below) only ever sees what *you* typed — a command from
@@ -917,6 +934,7 @@ alternatives — keyed by the function or constant it belongs to.
 
 - `readStdin` in both hooks resolves after `APPROVE_STDIN_LIMIT_MS` = 5000 / `NOTIFY_STDIN_LIMIT_MS` = 3000 regardless of EOF, so a hook never hangs Claude Code if stdin is not closed.
 - `describeStop` fires only when `ORBIT_SESSION === '1'`: at a desk a turn ending is not news, and the variable is inherited from the PTY the agent was launched in. `describeCodexTurn` makes the same test for the same reason, and it matters more there: Claude's hooks are per-settings-file, Codex's `notify` is one line for every Codex on the machine.
+- `describeCodex` handles `agent-turn-complete` and nothing else, because nothing else can arrive. Codex's `approval-requested` and `plan-mode-prompt` are its terminal's desktop notifications, not payloads for a notifier, and a branch for a payload that cannot come is a claim the code does not keep.
 - `runNotifyHook` reads `lastArgument()` before stdin, because Codex passes its payload as argv and leaves stdin open — the other order cost every Codex notice the full `NOTIFY_STDIN_LIMIT_MS` waiting for an EOF that never came. Claude passes nothing in argv, so the fallback never fires for it.
 - `isTheTitleCodexGivesTheThread`: Codex runs the notifier twice per turn. The second is an internal turn on a thread of its own that names the conversation, and its whole reply is the schema it was asked for, `{"title":"…"}`. There is no flag in the payload marking it internal — the thread id differs from the session's, but a hook process has no memory of what the session's was — so the reply's shape is the signal. An answer that is JSON with any other shape is still news.
 - `APPROVE_OPTIONS` puts `Block` first because the phone emphasises the first option; exit 0 with empty stdout means "allow" and lets Claude Code's own permission flow continue.

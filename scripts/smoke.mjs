@@ -1181,8 +1181,8 @@ check(
   describe(codexTurn('{"title":"Say MANGO","rows":3}'))?.kind === 'done',
 )
 check(
-  'Codex asking for approval is a session waiting, not one finished',
-  describe({ type: 'approval-requested', cwd: NOTIFY_FOLDER })?.kind === 'waiting',
+  'a turn finishing is the only thing Codex can tell us this way',
+  describe({ type: 'approval-requested', cwd: NOTIFY_FOLDER }) === null,
 )
 check('a shape from neither agent says nothing', describe({ type: 'something-else' }) === null)
 delete process.env.ORBIT_SESSION

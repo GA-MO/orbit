@@ -23,11 +23,6 @@ const WAITING_NOTIFICATIONS: Record<string, string> = {
   elicitation_dialog: 'A tool is asking you something',
 }
 
-const CODEX_WAITING: Record<string, string> = {
-  'approval-requested': 'Codex is asking for approval',
-  'plan-mode-prompt': 'Codex is waiting on a plan',
-}
-
 const CODEX_TURN_COMPLETE = 'agent-turn-complete'
 const THREAD_TITLE_KEY = 'title'
 
@@ -194,11 +189,8 @@ const describeCodexTurn = (input: HookInput): NoticeText | null => {
   return { message: summary ? `Finished: ${summary}` : 'Codex finished', kind: 'done', quiet: true }
 }
 
-const describeCodex = (input: HookInput): NoticeText | null => {
-  if (input.type === CODEX_TURN_COMPLETE) return describeCodexTurn(input)
-  const waiting = CODEX_WAITING[input.type]
-  return waiting ? { message: waiting, kind: 'waiting', quiet: true } : null
-}
+const describeCodex = (input: HookInput): NoticeText | null =>
+  input.type === CODEX_TURN_COMPLETE ? describeCodexTurn(input) : null
 
 const describeClaude = (input: HookInput): NoticeText | null => {
   switch (input.hook_event_name) {
