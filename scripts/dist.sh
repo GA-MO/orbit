@@ -39,8 +39,13 @@ compile() {
   bun scripts/dist-compile.ts "$1" "$2"
 }
 
+# Git for Windows ships one of these two, not reliably both.
+checksum_of() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else sha256sum "$1"; fi
+}
+
 write_checksum_beside() {
-  (cd dist && shasum -a 256 "$(basename "$1")" > "$(basename "$1").sha256")
+  (cd dist && checksum_of "$(basename "$1")" > "$(basename "$1").sha256")
 }
 
 report_size() {

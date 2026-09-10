@@ -1,21 +1,29 @@
-# A tag `v<version>` becomes a GitHub release with one executable per Mac
-# architecture and a checksum beside each, then a formula in the Homebrew
-# tap that names those checksums. Cut one with scripts/release.sh.
+# A tag `v<version>` becomes a GitHub release with one executable per machine
+# Orbit runs on — two Mac architectures and Windows x64 — and a checksum
+# beside each, then a formula in the Homebrew tap that names the two Mac
+# checksums. Cut one with scripts/release.sh.
+#
+# Building and publishing are separate jobs on purpose. Each executable is
+# built on the operating system it runs on and started there before anything
+# is published, and a Mac cannot start a Windows build. So `mac` and `windows`
+# each prove their own asset, hand it over as an artifact, and only if both
+# succeed does `release` collect them and create the release. A red build job
+# means nothing is published at all.
 name: release
 on:
   push:
     tags: ['v*']
 jobs:
-  build:
+  mac:
     runs-on: macos-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      # Checked once, here, rather than in both build jobs: nothing is
+      # published unless every build job passed, so one place is enough.
       - name: The tag must be the version the code says it is
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -23,7 +31,7 @@ jobs:
           [ "$tag" = "$pkg" ] || { echo "tag v$tag but server/package.json says $pkg"; exit 1; }
       - run: bash scripts/test.sh idle
       - run: bash scripts/test.sh ask
-      - run: bash scripts/dist.sh all
+      - run: bash scripts/dist.sh mac
       - name: The x64 build must at least start (needs Rosetta on the runner)
         continue-on-error: true
         run: arch -x86_64 dist/orbit-darwin-x64 version
@@ -54,22 +62,131 @@ jobs:
           if grep -qi 'uncaught\|Cannot find module' "$HOME/server.log"; then cat "$HOME/server.log"; exit 1; fi
           cat "$HOME/server.log"
           kill "$(lsof -tiTCP:3177 -sTCP:LISTEN)" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orbit-darwin
+          path: |
+            dist/orbit-darwin-arm64
+            dist/orbit-darwin-arm64.sha256
+            dist/orbit-darwin-x64
+            dist/orbit-darwin-x64.sha256
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # The suites are run through bun rather than scripts/test.sh: PowerShell
+      # is the shell here, and the runner is the same one ci.yml already runs
+      # every suite on.
+      - run: bun scripts/test.ts idle
+      - run: bun scripts/test.ts ask
+      # dist.sh is bash, and the runner's default shell is not. Git for Windows
+      # supplies both bash and the shasum the script writes checksums with.
+      - name: Build the Windows executable
+        shell: bash
+        run: bash scripts/dist.sh windows
+      - run: dist\orbit-windows-x64.exe version
+      # The Mac job's reason, on the other operating system: a bundler bakes
+      # absolute paths in, and on the machine that built it those paths exist.
+      # So everything the bundle could still be reaching for is moved away —
+      # node_modules, the web build, the server build — and the executable is
+      # started from another directory entirely. A path that survived into the
+      # binary fails here rather than on the first Windows machine that
+      # downloads the release. Nothing is published unless this passes.
+      - name: The Windows build must start with nothing else on disk
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Distinct names on the way out: web\dist and server\dist share a
+          # leaf name, and moving both into one directory collides.
+          New-Item -ItemType Directory -Force -Path C:\off-disk | Out-Null
+          Move-Item node_modules C:\off-disk\node_modules
+          Move-Item web\dist C:\off-disk\web-dist
+          Move-Item server\dist C:\off-disk\server-dist
+          $home_dir = 'C:\orbit-release-home'
+          New-Item -ItemType Directory -Force -Path $home_dir | Out-Null
+          # Orbit reads USERPROFILE for the home directory on Windows; HOME is
+          # set as well so anything that still looks for it agrees.
+          $env:USERPROFILE = $home_dir
+          $env:HOME = $home_dir
+          $env:ORBIT_PORT = '3177'
+          $out = Join-Path $home_dir 'server.out.log'
+          $err = Join-Path $home_dir 'server.err.log'
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'dist\orbit-windows-x64.exe'
+          # Start-Process refuses to send both streams to one file, so they are
+          # kept apart and both printed when anything goes wrong.
+          $server = Start-Process -FilePath $exe -WorkingDirectory 'C:\' `
+            -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+          function Show-Log {
+            foreach ($file in @($out, $err)) {
+              if (Test-Path $file) { Write-Host "--- $file"; Get-Content $file }
+            }
+          }
+          $answered = $false
+          foreach ($attempt in 1..40) {
+            if ($server.HasExited) { Show-Log; throw "the server exited with $($server.ExitCode) before it answered" }
+            try {
+              Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:3177/healthz | Out-Null
+              $answered = $true
+              break
+            } catch { Start-Sleep -Milliseconds 500 }
+          }
+          if (-not $answered) { Show-Log; throw 'the server never answered /healthz' }
+          try {
+            $root = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 http://127.0.0.1:3177/
+          } catch { Show-Log; throw "/ did not answer: $_" }
+          Write-Host " / -> $($root.StatusCode) $($root.Headers['Content-Type'])"
+          $log = @()
+          foreach ($file in @($out, $err)) { if (Test-Path $file) { $log += Get-Content $file } }
+          if ($log -match 'uncaught|Cannot find module') { Show-Log; throw 'the log names a module it could not find' }
+          Show-Log
+          Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orbit-windows
+          path: |
+            dist/orbit-windows-x64.exe
+            dist/orbit-windows-x64.exe.sha256
+          if-no-files-found: error
+
+  release:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Only the assets are needed here — both build jobs have already proved
+      # them — so the checkout is skipped and the artifacts are merged back
+      # into one dist directory, the shape scripts/tap.sh and install.sh
+      # expect a release to have.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: orbit-*
+          merge-multiple: true
+          path: dist
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "orbit ${GITHUB_REF_NAME#v}" \
             --generate-notes \
             dist/orbit-darwin-arm64 dist/orbit-darwin-arm64.sha256 \
-            dist/orbit-darwin-x64 dist/orbit-darwin-x64.sha256
+            dist/orbit-darwin-x64 dist/orbit-darwin-x64.sha256 \
+            dist/orbit-windows-x64.exe dist/orbit-windows-x64.exe.sha256
 
   tap:
-    needs: build
+    needs: release
     runs-on: ubuntu-latest
     # Needs a token that can push to the tap repository (a fine-grained PAT
     # with contents:write on it), as the TAP_TOKEN secret. Without one this
     # job is skipped and the formula can be placed by hand: scripts/tap.sh.
+    # The formula stays Mac-only — Homebrew has no Windows to install to.
     if: ${{ vars.TAP_REPO != '' }}
     steps:
       - uses: actions/checkout@v4

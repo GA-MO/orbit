@@ -11,18 +11,29 @@ version="${1:?version, e.g. 0.2.0}"
 [ "$(git branch --show-current)" = "main" ] || { echo "  release from main" >&2; exit 1; }
 git tag | grep -qx "v$version" && { echo "  v$version already exists" >&2; exit 1; }
 
+# The rehearsal writes two words: the tree it worked from, and the target
+# group it built. The shape is unchanged now that Windows is one of the
+# targets, because the question it answers is unchanged — was every asset
+# this tag will publish built from exactly this tree? A rehearsal of `mac`
+# builds two of the three, so its stamp does not say `all` and this refuses
+# it, which is the whole point of the second word.
+#
+# What the stamp does not claim is that every asset ran. A Mac cannot start
+# the Windows executable; .github/workflows/release.yml does that on a
+# windows-latest runner, and publishes nothing if it fails.
 REHEARSED_STAMP='.rehearsed'
-EVERY_ARCHITECTURE=all
+EVERY_TARGET_A_RELEASE_PUBLISHES=all
 
 rehearsal_that_covers_this_tree() {
   [ -f "$REHEARSED_STAMP" ] || return 1
   read -r tree targets < "$REHEARSED_STAMP" || return 1
-  [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ] && [ "$targets" = "$EVERY_ARCHITECTURE" ]
+  [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ] &&
+    [ "$targets" = "$EVERY_TARGET_A_RELEASE_PUBLISHES" ]
 }
 
 rehearsal_that_covers_this_tree || {
   echo "  this exact tree has not been rehearsed" >&2
-  echo "  run: scripts/rehearse-release.sh $EVERY_ARCHITECTURE" >&2
+  echo "  run: scripts/rehearse-release.sh $EVERY_TARGET_A_RELEASE_PUBLISHES" >&2
   exit 1
 }
 

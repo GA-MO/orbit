@@ -6,7 +6,15 @@
 # from CI and died on the first Mac that ran it.
 #
 #   scripts/rehearse-release.sh          # this Mac's architecture only (faster)
-#   scripts/rehearse-release.sh all      # both Mac architectures, as a release builds
+#   scripts/rehearse-release.sh all      # every target a release publishes
+#
+# `all` includes the Windows executable, and a Mac cannot start one. It is
+# built here anyway — a build failure is a build failure, and it must show up
+# at the desk rather than on the runner — and its checksum is verified, but
+# what it does when it runs is not something this machine can say. The
+# release workflow starts it on a windows-latest runner before anything is
+# published; see .github/workflows/release.yml. This script says so in its
+# output rather than letting "rehearsed" quietly mean less than it did.
 #
 # Prints what it proved, and exits non-zero at the first thing it could not.
 set -euo pipefail
@@ -16,6 +24,18 @@ cd "$REPO"
 TARGETS="${1:-host}"
 REHEARSED_STAMP='.rehearsed'
 NOT_PINNABLE=dirty
+WINDOWS_ASSET=orbit-windows-x64.exe
+
+# A rehearsal is a build plus everything done to what it built, and on a Mac
+# there is nothing to do to a Windows executable but look at it. Rehearsing
+# that target alone would only compile it — say so rather than fail later,
+# with no Mac binary, in the middle of install.sh.
+[ "$TARGETS" != windows ] || {
+  echo "  a Mac cannot rehearse the Windows build on its own" >&2
+  echo "  build it with: scripts/dist.sh windows" >&2
+  echo "  rehearse a release with: scripts/rehearse-release.sh all" >&2
+  exit 1
+}
 
 committed_tree() {
   [ -z "$(git status --porcelain)" ] && git rev-parse 'HEAD^{tree}' || echo "$NOT_PINNABLE"
@@ -45,7 +65,10 @@ if [ "$TARGETS" = host ]; then
   cp "$BUILD_FROM/dist/orbit" "$ARTIFACTS/orbit-darwin-$ARCH"
   (cd "$ARTIFACTS" && shasum -a 256 "orbit-darwin-$ARCH" > "orbit-darwin-$ARCH.sha256")
 else
-  cp "$BUILD_FROM"/dist/orbit-darwin-* "$ARTIFACTS/"
+  # Everything the build produced, not just the Mac half: a release directory
+  # carries the Windows executable too, and install.sh is about to be pointed
+  # at this one as if it were the release.
+  cp "$BUILD_FROM"/dist/orbit-* "$ARTIFACTS/"
 fi
 printf 'v%s\n' "$(bun -e "console.log(JSON.parse(await Bun.file('server/package.json').text()).version)")" > "$ARTIFACTS/VERSION"
 
@@ -57,6 +80,25 @@ proved "the path baked into the executable no longer exists"
 step "Verifying the checksums a release would publish"
 (cd "$ARTIFACTS" && for f in *.sha256; do shasum -a 256 -c "$f" >/dev/null; done)
 proved "every asset matches its .sha256"
+
+case "$TARGETS" in
+  all)
+    step "Checking the Windows asset a release would publish"
+    [ -f "$ARTIFACTS/$WINDOWS_ASSET" ] || {
+      echo "    the build produced no $WINDOWS_ASSET" >&2
+      exit 1
+    }
+    [ -f "$ARTIFACTS/$WINDOWS_ASSET.sha256" ] || {
+      echo "    $WINDOWS_ASSET has no checksum beside it" >&2
+      exit 1
+    }
+    # The name is not cosmetic: server/src/platform/win32.ts decides what
+    # `orbit update` asks a release for, and this is that name.
+    proved "$WINDOWS_ASSET is here with its checksum, under the name orbit update looks for"
+    printf '    – built, but not started: this is a Mac. release.yml starts it\n'
+    printf '      on windows-latest before it publishes anything.\n'
+    ;;
+esac
 
 step "Installing it the way a stranger does"
 env -i HOME="$WORK/home" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
@@ -147,5 +189,10 @@ elif [ "$TREE_NOW" != "$TREE_THIS_REHEARSES" ]; then
   printf '  proved is not what you would tag. Rehearse again.\n\n'
 else
   printf '%s %s\n' "$TREE_THIS_REHEARSES" "$TARGETS" > "$REPO/$REHEARSED_STAMP"
-  printf '\n  Rehearsed clean. scripts/release.sh <version> is safe to run.\n\n'
+  printf '\n  Rehearsed clean. scripts/release.sh <version> is safe to run.\n'
+  if [ "$TARGETS" = all ]; then
+    printf '  The Mac executables ran here; %s only compiled. The\n' "$WINDOWS_ASSET"
+    printf '  release workflow starts it on Windows before it publishes.\n'
+  fi
+  printf '\n'
 fi
