@@ -38,7 +38,7 @@ function Get-Asset($name, $destination) {
 
 Write-Host ''
 $tag = if ($wantedVersion) { $wantedVersion } else { Get-LatestTag }
-if (-not $tag) { Fail "could not find a release of $repo — is it private? Set GITHUB_TOKEN." }
+if (-not $tag) { Fail "could not find a release of $repo - is it private? Set GITHUB_TOKEN." }
 Say "Installing orbit $tag for x64 -> $installDir"
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
@@ -49,13 +49,13 @@ try {
 
   try { Get-Asset $asset $binary } catch { Fail "could not download $asset from $repo $tag" }
   try { Get-Asset "${asset}.sha256" $checksumFile } catch {
-    Fail "release $tag carries no checksum for $asset — not installing it"
+    Fail "release $tag carries no checksum for $asset - not installing it"
   }
 
   $published = ((Get-Content $checksumFile -Raw).Trim() -split '\s+')[0]
   $actual = (Get-FileHash -Algorithm SHA256 -Path $binary).Hash
   if ($published.ToLower() -ne $actual.ToLower()) {
-    Fail 'checksum of the download does not match the one the release published — not installing it'
+    Fail 'checksum of the download does not match the one the release published - not installing it'
   }
 
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
@@ -90,7 +90,7 @@ if (-not $onPath) {
     if (($userPath -split ';') -notcontains $installDir) {
       $joined = if ($userPath) { "$userPath;$installDir" } else { $installDir }
       [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
-      Say "Added $installDir to your PATH — open a new terminal to pick it up"
+      Say "Added $installDir to your PATH - open a new terminal to pick it up"
     }
   }
 }
