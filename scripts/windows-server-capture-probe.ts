@@ -26,7 +26,6 @@ async function probe(shape: StdioShape, port: number): Promise<string> {
     env: {
       ...(process.env as Record<string, string>),
       HOME: home,
-      USERPROFILE: home,
       ORBIT_PORT: String(port),
       ORBIT_HOME: home,
     },
@@ -100,9 +99,13 @@ const scratchHome = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-probe-home-'))
 
 await inProcess('launch() from the TypeScript source', '../server/src/chrome.js')
 await inProcess('launch() from the compiled dist', '../server/dist/chrome.js')
-await inProcess('launch() with HOME and USERPROFILE moved', '../server/src/chrome.js', {
+await inProcess('launch() with USERPROFILE moved, the way the suites used to', '../server/src/chrome.js', {
   HOME: scratchHome,
   USERPROFILE: scratchHome,
+})
+await inProcess('launch() with ORBIT_HOME moved instead', '../server/src/chrome.js', {
+  HOME: scratchHome,
+  ORBIT_HOME: scratchHome,
 })
 
 const SHAPES: StdioShape[] = ['inherit', 'pipe', 'ignore']

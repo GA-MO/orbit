@@ -16,7 +16,7 @@ const LIVE_ORBIT_PORTS = [7788, 3001]
 const PORT = Number(process.env.ORBIT_PORT ?? 3099)
 const BASE = `http://127.0.0.1:${PORT}`
 const WS_URL = `ws://127.0.0.1:${PORT}/ws`
-const HOME = os.homedir()
+const HOME = process.env.ORBIT_HOME ?? os.homedir()
 
 if (LIVE_ORBIT_PORTS.includes(PORT) && !process.env.SMOKE_FORCE) {
   console.error(`Refusing to run against port ${PORT} — a real server answers there, and this kills`)
@@ -515,7 +515,7 @@ const CONVERSATION_BOOKKEEPING_SCRIPT = `
       const { getProvider } = await import(${JSON.stringify(path.join(REPO, 'server/dist/providers.js'))})
       const claude = getProvider('claude')
       const m = new PtyManager()
-      const folder = process.env.HOME
+      const folder = process.env.ORBIT_HOME ?? process.env.HOME
       const end = (s) => { s.kill(); return new Promise((r) => setTimeout(r, 250)) }
       const info = (id) => m.list().find((s) => s.id === id)
 
