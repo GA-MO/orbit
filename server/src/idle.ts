@@ -11,7 +11,8 @@ const OSC_SEQUENCE = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g
 const ESCAPE_SEQUENCE = /\x1b(\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|O[A-Za-z]|.)?/g
 const CONTROL_CHAR = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g
 const CARRIAGE_RETURN = /\r/g
-const FRAME_EDGE = /^[\s─-╿|>❯▶●•*]+|[\s─-╿|]+$/g
+const CURSOR_TO_ROW = /\x1b\[(\d*)(?:;\d*)?H/g
+const FRAME_EDGE = /^[\s─-╿|>❯›▶●•*]+|[\s─-╿|]+$/g
 const HAS_LETTER_OR_DIGIT = /[\p{L}\p{N}]/u
 
 const AGENT_CHROME = [
@@ -22,6 +23,8 @@ const AGENT_CHROME = [
   /^bypassing permissions/i,
   /^\d+ lines? (selected|hidden)/i,
   /^ctrl\+/i,
+  /^ask codex to do anything/i,
+  /^\S+ \S+ · /,
 ]
 
 const isChrome = (line: string): boolean => AGENT_CHROME.some((re) => re.test(line))
@@ -33,8 +36,22 @@ const isQuestion = (line: string): boolean => line.endsWith('?')
 
 const isStatement = (line: string): boolean => line.length >= MIN_STATEMENT_LENGTH
 
+const breakWhereTheCursorChangesRow = (raw: string): string => {
+  let out = ''
+  let copiedTo = 0
+  let row: string | null = null
+  for (const move of raw.matchAll(CURSOR_TO_ROW)) {
+    const movedToRow = move[1] || '1'
+    out += raw.slice(copiedTo, move.index)
+    if (row !== null && movedToRow !== row) out += '\n'
+    row = movedToRow
+    copiedTo = move.index + move[0].length
+  }
+  return out + raw.slice(copiedTo)
+}
+
 const plainText = (raw: string): string =>
-  raw
+  breakWhereTheCursorChangesRow(raw)
     .replace(OSC_SEQUENCE, '')
     .replace(ESCAPE_SEQUENCE, '')
     .replace(CARRIAGE_RETURN, '\n')

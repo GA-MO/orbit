@@ -46,6 +46,21 @@ lastWordIs('a window title is not the message', '\x1b]0;claude — orbit\x07Read
 
 lastWordIs('the frame around a box is not part of it', '╭──────────╮\n│ Continue? │\n╰──────────╯\n', 'Continue?')
 
+const codexPainted = (answer) =>
+  `\x1b[13;1H• ${answer}\x1b[19;1H› Ask Codex to do anything\x1b[20;3Hgpt-5.6-terra default · /Users/x/project`
+
+lastWordIs(
+  'a screen painted row by row is read as rows, not as one long line',
+  codexPainted('The migration finished and all 43 rows moved across.'),
+  'The migration finished and all 43 rows moved across.',
+)
+
+lastWordIs(
+  '…so a question drawn that way still ends in its question mark',
+  codexPainted('Which database should I point it at?'),
+  'Which database should I point it at?',
+)
+
 const stoppedOnQuestion = [
   'I can rename the file or leave it. Which do you want?',
   '',
