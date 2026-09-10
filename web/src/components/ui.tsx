@@ -418,9 +418,36 @@ export const sessionLabel = (session: {
   providerName: string;
 }) => session.name ?? session.firstCommand ?? session.providerName;
 
-export const PROVIDER_GLYPH: Record<string, string> = {
-  shell: "❯",
-  claude: "✳",
-  codex: "◎",
-  gemini: "✦",
+const GlyphShell = icon(<path d="m10 8 4 4-4 4" />);
+const GlyphClaude = icon(
+  <path d="M12 4.5v15M5.5 8.25l13 7.5M18.5 8.25l-13 7.5" />,
+);
+const GlyphCodex = icon(
+  <>
+    <circle cx="12" cy="12" r="7.5" />
+    <circle cx="12" cy="12" r="3" />
+  </>,
+);
+const GlyphGemini = icon(
+  <path d="M12 4c0 4.4 3.6 8 8 8-4.4 0-8 3.6-8 8 0-4.4-3.6-8-8-8 4.4 0 8-3.6 8-8Z" />,
+);
+
+const PROVIDER_GLYPHS: Record<string, typeof GlyphShell> = {
+  shell: GlyphShell,
+  claude: GlyphClaude,
+  codex: GlyphCodex,
+  gemini: GlyphGemini,
 };
+
+export function ProviderGlyph({
+  providerId,
+  size = 20,
+  className = "",
+}: {
+  providerId: string;
+  size?: number;
+  className?: string;
+}) {
+  const Glyph = PROVIDER_GLYPHS[providerId] ?? GlyphShell;
+  return <Glyph size={size} className={className} />;
+}

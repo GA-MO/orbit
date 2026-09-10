@@ -19,7 +19,7 @@ import {
   basename,
   shortPath,
   useArrival,
-  PROVIDER_GLYPH,
+  ProviderGlyph,
 } from '../components/ui'
 
 const RECENTS_MAX = 5
@@ -85,8 +85,8 @@ function ProviderPicker({
               active ? 'border-accent bg-accent/10' : 'border-line bg-raised hover:border-faint'
             }`}
           >
-            <span className={`font-mono text-lg ${active ? 'text-accent' : 'text-mut'}`}>
-              {PROVIDER_GLYPH[p.id]}
+            <span className={`flex ${active ? 'text-accent' : 'text-mut'}`}>
+              <ProviderGlyph providerId={p.id} size={20} />
             </span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{p.name}</span>

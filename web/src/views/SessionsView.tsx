@@ -21,7 +21,7 @@ import {
   IconPhone,
   IconPlus,
   IconTrash,
-  PROVIDER_GLYPH,
+  ProviderGlyph,
   Sheet,
   basename,
   sessionLabel,
@@ -30,7 +30,6 @@ import {
 } from '../components/ui'
 
 const STOP_SETTLE_MS = 400
-const FALLBACK_GLYPH = '❯'
 
 type Group = 'a' | 'e' | 'm'
 const ENDED_HEADER_KEY = 'h:ended'
@@ -141,11 +140,11 @@ function SessionRow({
       {s.alive && <span className="live-edge" aria-hidden />}
       <span className="relative shrink-0">
         <span
-          className={`flex size-10 items-center justify-center rounded-full border font-mono text-base ${
+          className={`flex size-10 items-center justify-center rounded-full border ${
             s.alive ? 'border-line text-accent' : 'border-line-subtle text-faint'
           }`}
         >
-          {PROVIDER_GLYPH[s.providerId] ?? FALLBACK_GLYPH}
+          <ProviderGlyph providerId={s.providerId} size={18} />
         </span>
       </span>
 

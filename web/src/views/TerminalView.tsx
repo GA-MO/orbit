@@ -7,7 +7,7 @@ import {
   IconPlus,
   IconRestart,
   OrbitMark,
-  PROVIDER_GLYPH,
+  ProviderGlyph,
   basename,
   sessionLabel,
 } from '../components/ui'
@@ -26,7 +26,6 @@ const STATUS_COLOR: Record<ConnectionStatus, string> = {
   ended: 'text-faint',
 }
 
-const FALLBACK_GLYPH = '❯'
 
 interface Props {
   session: SessionInfo | null
@@ -42,8 +41,8 @@ function SessionTitle({ session }: { session: SessionInfo | null }) {
   return (
     <div className="flex items-center gap-2">
       {session && (
-        <span className="font-mono text-[13px] text-accent">
-          {PROVIDER_GLYPH[session.providerId] ?? FALLBACK_GLYPH}
+        <span className="flex text-accent">
+          <ProviderGlyph providerId={session.providerId} size={15} />
         </span>
       )}
       <span
