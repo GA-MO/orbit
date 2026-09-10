@@ -2,8 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-
-import { WebSocket } from 'ws'
+import type { Readable, Writable } from 'node:stream'
 
 const APPLICATION_DIRS = ['/Applications', path.join(os.homedir(), 'Applications')]
 const BROWSER_NAMES = ['Google Chrome', 'Google Chrome Beta', 'Google Chrome Canary', 'Chromium']
@@ -14,11 +13,11 @@ const EXECUTABLE_CANDIDATES = APPLICATION_DIRS.flatMap((dir) =>
 const NOT_INSTALLED =
   'Google Chrome was not found — install it from https://www.google.com/chrome, or point ORBIT_CHROME at a Chrome executable'
 const CONNECTION_CLOSED = 'the browser closed the connection'
-const NO_DEVTOOLS_ENDPOINT = 'Chrome started but never said where DevTools was listening'
+const STARTUP_TIMED_OUT = 'Chrome started but never answered on its DevTools pipe'
 
 const LAUNCH_ARGS = [
   '--headless=new',
-  '--remote-debugging-port=0',
+  '--remote-debugging-pipe',
   '--no-first-run',
   '--no-default-browser-check',
   '--disable-background-networking',
@@ -30,13 +29,18 @@ const LAUNCH_ARGS = [
   'about:blank',
 ]
 
-const DEVTOOLS_ENDPOINT = /^DevTools listening on (ws:\/\/\S+)$/m
+const CDP_PIPE_READ_FD = 4
+const CDP_PIPE_WRITE_FD = 3
+const MESSAGE_DELIMITER = '\0'
+const STDERR_KEPT_CHARS = 2000
 const LAUNCH_TIMEOUT_MS = 20_000
 const COMMAND_TIMEOUT_MS = 30_000
 const CLOSE_TIMEOUT_MS = 5000
 const NETWORK_QUIET_MS = 500
 const SETTLE_POLL_MS = 50
 const MAX_CAPTURE_HEIGHT_PX = 16_384
+const PROFILE_PREFIX = 'orbit-chrome-'
+const STALE_PROFILE_MS = 60 * 60_000
 
 export interface Viewport {
   width: number
@@ -86,97 +90,79 @@ async function findExecutable(): Promise<string> {
   throw new Error(NOT_INSTALLED)
 }
 
-function devtoolsEndpoint(chrome: ChildProcess): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let said = ''
-    const timer = setTimeout(() => done(new Error(NO_DEVTOOLS_ENDPOINT)), LAUNCH_TIMEOUT_MS)
-    const done = (err: Error | null, endpoint?: string) => {
-      clearTimeout(timer)
-      chrome.stderr?.off('data', onData)
-      chrome.off('exit', onExit)
-      chrome.off('error', onError)
-      if (err) reject(err)
-      else resolve(endpoint as string)
+function connect(chrome: ChildProcess): Connection {
+  const toChrome = chrome.stdio[CDP_PIPE_WRITE_FD] as Writable
+  const fromChrome = chrome.stdio[CDP_PIPE_READ_FD] as Readable
+  const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>()
+  const handlers = new Set<(event: Event) => void>()
+  const closedListeners = new Set<() => void>()
+  let nextId = 1
+  let buffered = ''
+
+  const deliver = (text: string) => {
+    const message = JSON.parse(text)
+    if (typeof message.id !== 'number') {
+      for (const handler of [...handlers]) handler(message as Event)
+      return
     }
-    const onData = (chunk: Buffer) => {
-      said += String(chunk)
-      const endpoint = said.match(DEVTOOLS_ENDPOINT)?.[1]
-      if (endpoint) done(null, endpoint)
+    const waiting = pending.get(message.id)
+    if (!waiting) return
+    pending.delete(message.id)
+    if (message.error) waiting.reject(new Error(message.error.message))
+    else waiting.resolve(message.result)
+  }
+
+  fromChrome.on('data', (chunk: Buffer) => {
+    buffered += String(chunk)
+    for (let end = buffered.indexOf(MESSAGE_DELIMITER); end >= 0; end = buffered.indexOf(MESSAGE_DELIMITER)) {
+      const message = buffered.slice(0, end)
+      buffered = buffered.slice(end + MESSAGE_DELIMITER.length)
+      if (message) deliver(message)
     }
-    const onExit = (code: number | null) =>
-      done(new Error(`Chrome exited with ${code ?? 'no code'}${said ? `: ${said.trim()}` : ''}`))
-    const onError = (err: Error) =>
-      done(new Error(`Chrome could not be started: ${err.message}`))
-    chrome.stderr?.on('data', onData)
-    chrome.once('exit', onExit)
-    chrome.once('error', onError)
   })
-}
 
-function connect(endpoint: string): Promise<Connection> {
-  return new Promise((resolve, reject) => {
-    const socket = new WebSocket(endpoint)
-    const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>()
-    const handlers = new Set<(event: Event) => void>()
-    const closedListeners = new Set<() => void>()
-    let nextId = 1
+  const markClosed = () => {
+    for (const waiting of pending.values()) waiting.reject(new Error(CONNECTION_CLOSED))
+    pending.clear()
+    for (const listener of [...closedListeners]) listener()
+  }
+  fromChrome.once('close', markClosed)
+  fromChrome.on('error', () => {})
+  toChrome.on('error', () => {})
 
-    socket.on('message', (raw) => {
-      const message = JSON.parse(String(raw))
-      if (typeof message.id !== 'number') {
-        for (const handler of [...handlers]) handler(message as Event)
-        return
-      }
-      const waiting = pending.get(message.id)
-      if (!waiting) return
-      pending.delete(message.id)
-      if (message.error) waiting.reject(new Error(message.error.message))
-      else waiting.resolve(message.result)
-    })
-
-    socket.once('error', reject)
-    socket.once('close', () => {
-      for (const waiting of pending.values()) waiting.reject(new Error(CONNECTION_CLOSED))
-      pending.clear()
-      for (const listener of [...closedListeners]) listener()
-    })
-
-    socket.once('open', () => {
-      socket.off('error', reject)
-      socket.on('error', () => {})
-      resolve({
-        send(method, params = {}, sessionId) {
-          const id = nextId++
-          return new Promise((settle, fail) => {
-            const timer = setTimeout(() => {
-              pending.delete(id)
-              fail(new Error(`${method} timed out`))
-            }, COMMAND_TIMEOUT_MS)
-            pending.set(id, {
-              resolve: (value) => {
-                clearTimeout(timer)
-                settle(value)
-              },
-              reject: (err) => {
-                clearTimeout(timer)
-                fail(err)
-              },
-            })
-            socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }))
-          })
-        },
-        listen(handler) {
-          handlers.add(handler)
-          return () => handlers.delete(handler)
-        },
-        isOpen: () => socket.readyState === WebSocket.OPEN,
-        onClosed(listener) {
-          closedListeners.add(listener)
-        },
-        close: () => socket.close(),
+  return {
+    send(method, params = {}, sessionId) {
+      const id = nextId++
+      return new Promise((settle, fail) => {
+        const timer = setTimeout(() => {
+          pending.delete(id)
+          fail(new Error(`${method} timed out`))
+        }, COMMAND_TIMEOUT_MS)
+        pending.set(id, {
+          resolve: (value) => {
+            clearTimeout(timer)
+            settle(value)
+          },
+          reject: (err) => {
+            clearTimeout(timer)
+            fail(err)
+          },
+        })
+        toChrome.write(
+          JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + MESSAGE_DELIMITER,
+        )
       })
-    })
-  })
+    },
+    listen(handler) {
+      handlers.add(handler)
+      return () => handlers.delete(handler)
+    },
+    isOpen: () => toChrome.writable,
+    onClosed(listener) {
+      closedListeners.add(listener)
+    },
+    close: () => toChrome.end(),
+  }
 }
 
 async function openPage(connection: Connection, viewport: Viewport): Promise<Page> {
@@ -248,25 +234,63 @@ async function openPage(connection: Connection, viewport: Viewport): Promise<Pag
   }
 }
 
+function answered(chrome: ChildProcess, connection: Connection, said: () => string): Promise<void> {
+  const died = new Promise<never>((_, reject) =>
+    chrome.once('exit', (code) =>
+      reject(new Error(`Chrome exited with ${code ?? 'no code'}${said().trim() ? `: ${said().trim()}` : ''}`)),
+    ),
+  )
+  const tooSlow = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(STARTUP_TIMED_OUT)), LAUNCH_TIMEOUT_MS).unref?.()
+  })
+  died.catch(() => {})
+  tooSlow.catch(() => {})
+  return Promise.race([connection.send('Browser.getVersion').then(() => {}), died, tooSlow])
+}
+
+export async function reapStaleProfiles(): Promise<number> {
+  const parent = os.tmpdir()
+  const names = (await fsp.readdir(parent).catch(() => [])).filter((name) =>
+    name.startsWith(PROFILE_PREFIX),
+  )
+  const reaped = await Promise.all(
+    names.map(async (name) => {
+      const profile = path.join(parent, name)
+      const stat = await fsp.stat(profile).catch(() => null)
+      if (!stat || Date.now() - stat.mtimeMs < STALE_PROFILE_MS) return 0
+      const removed = await fsp.rm(profile, { recursive: true, force: true }).then(
+        () => 1,
+        () => 0,
+      )
+      return removed
+    }),
+  )
+  return reaped.reduce((total, one) => total + one, 0)
+}
+
 export async function launch(): Promise<Chrome> {
   const executable = await findExecutable()
-  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'orbit-chrome-'))
+  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), PROFILE_PREFIX))
   const chrome = spawn(executable, [...LAUNCH_ARGS, `--user-data-dir=${userDataDir}`], {
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
   })
 
+  let said = ''
+  chrome.stderr?.on('data', (chunk: Buffer) => {
+    said = (said + String(chunk)).slice(-STDERR_KEPT_CHARS)
+  })
+
+  const exited = new Promise<void>((resolve) => chrome.once('exit', () => resolve()))
   const discard = async (err: Error) => {
     chrome.kill('SIGKILL')
     await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {})
     throw err
   }
 
-  const endpoint = await devtoolsEndpoint(chrome).catch(discard)
-  const connection = await connect(endpoint).catch(discard)
-  chrome.stderr?.resume()
+  const connection = connect(chrome)
+  await answered(chrome, connection, () => said).catch(discard)
 
   let alive = true
-  const exited = new Promise<void>((resolve) => chrome.once('exit', () => resolve()))
   const disconnected = new Set<() => void>()
   const markGone = () => {
     if (!alive) return

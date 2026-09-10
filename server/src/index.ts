@@ -18,6 +18,7 @@ import {
   sessionCookie,
 } from './auth.js'
 import { screen } from './approval.js'
+import * as chrome from './chrome.js'
 import * as screenshot from './screenshot.js'
 import * as preview from './preview.js'
 import * as ports from './ports.js'
@@ -1105,9 +1106,11 @@ server.listen(PORT, BIND_HOST, async () => {
     store.sweepOrphanScrollback(known),
     uploads.prune(),
     screenshot.pruneStale(),
+    chrome.reapStaleProfiles(),
   ])
-    .then(([orphans]) => {
+    .then(([orphans, , , profiles]) => {
       if (orphans > 0) console.log(`[orbit] removed ${orphans} orphan scrollback file(s)`)
+      if (profiles > 0) console.log(`[orbit] removed ${profiles} abandoned Chrome profile(s)`)
     })
     .catch((err) => console.error('[orbit] startup maintenance failed:', err))
 })
