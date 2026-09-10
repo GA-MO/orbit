@@ -322,10 +322,9 @@ check(
   aliasOff.includes('orbit stop takes both down'),
   lastLines(aliasOff, 2),
 )
-check(
-  '`start off` is no longer a way to drop the front door',
-  !(await import(path.join(REPO, 'server/dist/start.js'))).runStart.length,
-)
+const startOff = orbitSays(['start', 'off'])
+check('`start off` is refused rather than quietly starting', startOff.includes('takes no arguments'), lastLines(startOff, 2))
+check('…and it names the command that does take it down', startOff.includes('orbit stop'), lastLines(startOff, 2))
 const help = orbitSays(['help'])
 check('the usage text offers `orbit start`', help.includes('orbit start'), lastLines(help, 12))
 check('…and no longer mentions `orbit phone`', !help.includes('orbit phone'), lastLines(help, 12))

@@ -44,6 +44,10 @@ switch (command) {
     await import('./mcp.js')
     break
   case 'start':
+    if (rest.length) {
+      console.error(`orbit start takes no arguments — to take it down, use \`orbit stop\`.`)
+      process.exit(2)
+    }
     exit(await (await import('./start.js')).runStart())
     break
   case 'phone': {
