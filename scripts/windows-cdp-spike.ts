@@ -42,15 +42,18 @@ const kill = async (chrome: ChildProcess, userDataDir: string) => {
   await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {})
 }
 
-async function tryPipeTransport(executable: string): Promise<string> {
-  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'orbit-spike-pipe-'))
-  const chrome = spawn(executable, ['--remote-debugging-pipe', ...BASE_ARGS, `--user-data-dir=${userDataDir}`], {
+async function tryArgs(name: string, args: string[]): Promise<string> {
+  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), `orbit-spike-${name}-`))
+  const chrome = spawn(findChrome(), [...args, `--user-data-dir=${userDataDir}`], {
     stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
   })
   try {
     const toChrome = chrome.stdio[CDP_PIPE_WRITE_FD] as NodeJS.WritableStream | null
     const fromChrome = chrome.stdio[CDP_PIPE_READ_FD] as NodeJS.ReadableStream | null
     if (!toChrome || !fromChrome) throw new Error('Chrome was given no pipe on fd 3/4')
+
+    let said = ''
+    chrome.stderr?.on('data', (chunk: Buffer) => (said = (said + String(chunk)).slice(-400)))
 
     const answered = new Promise<string>((resolve, reject) => {
       let buffer = ''
@@ -60,36 +63,44 @@ async function tryPipeTransport(executable: string): Promise<string> {
         if (end !== -1) resolve(buffer.slice(0, end))
       })
       fromChrome.on('error', reject)
-      chrome.once('exit', (code) => reject(new Error(`Chrome exited with ${code}`)))
+      chrome.once('exit', (code) => reject(new Error(`Chrome exited with ${code}: ${said.trim()}`)))
     })
 
     toChrome.write(`${JSON.stringify({ id: 1, method: 'Browser.getVersion' })}${MESSAGE_DELIMITER}`)
-    return await withinTimeout('pipe transport', answered)
+    return await withinTimeout(name, answered)
   } finally {
     await kill(chrome, userDataDir)
   }
 }
 
-async function tryPortTransport(executable: string): Promise<string> {
-  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'orbit-spike-port-'))
-  const chrome = spawn(executable, ['--remote-debugging-port=0', ...BASE_ARGS, `--user-data-dir=${userDataDir}`], {
-    stdio: ['ignore', 'ignore', 'pipe'],
-  })
+const PIPE_FIRST = ['--remote-debugging-pipe', '--headless=new', ...BASE_ARGS]
+const HEADLESS_FIRST = ['--headless=new', '--remote-debugging-pipe', ...BASE_ARGS]
+const AS_ORBIT_LAUNCHES_IT = [
+  '--headless=new',
+  '--remote-debugging-pipe',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-networking',
+  '--disable-extensions',
+  '--use-mock-keychain',
+  '--password-store=basic',
+  '--hide-scrollbars',
+  '--mute-audio',
+  'about:blank',
+]
+const WITHOUT_ABOUT_BLANK = AS_ORBIT_LAUNCHES_IT.filter((arg) => arg !== 'about:blank')
+const OLD_HEADLESS = AS_ORBIT_LAUNCHES_IT.map((arg) => (arg === '--headless=new' ? '--headless' : arg))
+
+async function tryOrbitsOwnChrome(): Promise<string> {
+  const { launch } = await import('../server/src/chrome.js')
+  const browser = await launch()
   try {
-    const portFile = path.join(userDataDir, 'DevToolsActivePort')
-    const readPort = (async () => {
-      for (;;) {
-        const text = await fsp.readFile(portFile, 'utf8').catch(() => '')
-        const port = Number(text.split('\n')[0])
-        if (port > 0) return port
-        await new Promise((resolve) => setTimeout(resolve, PORT_FILE_POLL_MS))
-      }
-    })()
-    const port = await withinTimeout('DevToolsActivePort', readPort)
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`)
-    return `port ${port} → ${(await res.text()).slice(0, 200)}`
+    const page = await browser.newPage({ width: 400, height: 300, deviceScaleFactor: 1 })
+    const shot = await page.screenshot({ fullPage: false })
+    await page.close()
+    return `chrome.ts captured ${shot.length} bytes`
   } finally {
-    await kill(chrome, userDataDir)
+    await browser.close()
   }
 }
 
@@ -106,13 +117,18 @@ const report = async (what: string, work: () => Promise<string>) => {
 const executable = findChrome()
 console.log(`\n  Chrome: ${executable}\n`)
 
-const pipeWorks = await report('--remote-debugging-pipe over fd 3/4', () => tryPipeTransport(executable))
-const portWorks = await report('--remote-debugging-port=0 + DevToolsActivePort', () => tryPortTransport(executable))
+const results: Record<string, boolean> = {}
+results.pipeFirst = await report('pipe before --headless=new', () => tryArgs('pipe-first', PIPE_FIRST))
+results.headlessFirst = await report('--headless=new before pipe', () => tryArgs('headless-first', HEADLESS_FIRST))
+results.asOrbit = await report('exactly the args chrome.ts uses', () => tryArgs('as-orbit', AS_ORBIT_LAUNCHES_IT))
+results.noAboutBlank = await report('those args without about:blank', () => tryArgs('no-blank', WITHOUT_ABOUT_BLANK))
+results.oldHeadless = await report('those args with plain --headless', () => tryArgs('old-headless', OLD_HEADLESS))
+results.viaChromeTs = await report('chrome.ts launch() and a real capture', tryOrbitsOwnChrome)
 
 console.log()
-if (pipeWorks) console.log('  chrome.ts can stay as it is on Windows.')
-else if (portWorks) console.log('  chrome.ts needs a second transport: pipe on macOS, WebSocket on Windows.')
-else console.log('  neither transport answered — captures cannot work on Windows yet.')
+if (results.viaChromeTs) console.log('  chrome.ts works on Windows as it stands.')
+else if (results.asOrbit) console.log('  the args are fine — chrome.ts fails somewhere after launch.')
+else console.log('  chrome.ts launch args are what Windows rejects; the passing rows above say which part.')
 console.log()
 
-process.exit(pipeWorks || portWorks ? 0 : 1)
+process.exit(Object.values(results).some(Boolean) ? 0 : 1)
