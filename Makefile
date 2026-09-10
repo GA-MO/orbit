@@ -51,7 +51,7 @@ build: ## Build server + web for production
 start: build ## Build and run it, published over Tailscale for the phone (orbit start)
 	@bun server/dist/main.js start
 
-dist: ## One executable with everything in it → dist/orbit (make dist TARGETS=all for both Mac archs)
+dist: ## One executable with everything in it → dist/orbit (TARGETS=all, mac or windows for more)
 	@scripts/dist.sh $(TARGETS)
 
 stop: ## Stop Orbit on :7788 and Tailscale HTTPS (443)

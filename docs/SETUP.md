@@ -1,8 +1,10 @@
 # Setting Up Orbit
 
-This guide is for anyone setting up Orbit on a Mac for the first time, whether from the one-line installer or from a checkout of the repository. It covers what has to be on the machine, what `orbit setup` writes into Claude Code, how to verify the result, and how to take it all back out. For the agent-side tools and hooks in depth, see `MCP.md`; for reaching the Mac from anywhere, see `TAILSCALE.md`.
+This guide is for anyone setting up Orbit for the first time, on a Mac or on a Windows PC, whether from the one-line installer or from a checkout of the repository. It covers what has to be on the machine, what `orbit setup` writes into Claude Code, how to verify the result, and how to take it all back out. For the agent-side tools and hooks in depth, see `MCP.md`; for reaching the machine from anywhere, see `TAILSCALE.md`.
 
-Orbit is not a shared service. Each person runs their own Orbit on their own Mac and talks to their own agents with their own token. Nothing crosses from one machine to another; the only thing a team shares is this repository.
+Orbit is not a shared service. Each person runs their own Orbit on their own machine and talks to their own agents with their own token. Nothing crosses from one machine to another; the only thing a team shares is this repository.
+
+Both platforms are supported and both are tested. Where the two differ — the login shell, how the screen is captured, how listening ports are found, where Chrome and the Tailscale CLI live — the difference is named in this guide rather than assumed. Linux is not supported, and `install.sh` says so rather than installing something that will not work.
 
 ## Contents
 
@@ -26,35 +28,45 @@ Orbit runs on Bun only. Node, npm and npx are not needed anywhere, and the insta
 
 | Requirement | Why |
 | --- | --- |
-| macOS (Apple silicon or Intel) | Orbit drives a real PTY and captures the Mac's screen. |
-| Claude Code or Codex CLI on the login-shell PATH | Orbit finds whichever you use with `zsh -lic`. `orbit setup` calls `claude mcp add`, and the hooks belong to Claude Code. |
-| Google Chrome (optional) | Driven headless by `orbit_capture` over the DevTools protocol. No extra browser is downloaded. |
-| Tailscale (can come later) | How a phone reaches the Mac at all: the server binds `127.0.0.1`, and `tailscale serve` is the way in from another device — and the thing that tells Orbit the caller is you, so no token is typed. Also where https comes from; voice input and Add to Home Screen require a secure context. Without it, `orbit start --lan` and the access token. See `TAILSCALE.md`. |
-| Screen Recording permission (optional) | For the terminal that starts Orbit, if `orbit_screen` should see application windows. See `MCP.md`. |
+| macOS (Apple silicon or Intel), or Windows on x64 | Orbit drives a real PTY and captures the machine's screen. There is no `bun-windows-arm64` target to compile, so an ARM Windows machine runs the x64 build under emulation. |
+| Claude Code or Codex CLI on the PATH | Orbit finds whichever you use through the login shell: `zsh -lic` on macOS, `Get-Command` in PowerShell on Windows. `orbit setup` calls `claude mcp add`, and the hooks belong to Claude Code. |
+| Google Chrome (optional) | Driven headless by `orbit_capture` over the DevTools protocol. No extra browser is downloaded. Orbit looks in `/Applications` and `~/Applications` on macOS, and under `Google\Chrome\Application\chrome.exe` in Program Files, Program Files (x86) and `LOCALAPPDATA` on Windows. |
+| Tailscale (can come later) | How a phone reaches the machine at all: the server binds `127.0.0.1`, and `tailscale serve` is the way in from another device — and the thing that tells Orbit the caller is you, so no token is typed. Also where https comes from; voice input and Add to Home Screen require a secure context. Without it, `orbit start --lan` and the access token. See `TAILSCALE.md`. |
+| Screen Recording permission (macOS only, optional) | For the terminal that starts Orbit, if `orbit_screen` should see application windows. Windows needs no permission to photograph its own screen. See `MCP.md`. |
 | Bun 1.4 or newer (developers only) | Only when working from a checkout. Install with `curl -fsSL https://bun.sh/install \| bash` and check with `bun -v`. |
 
 ## Install
 
 ### For users
 
-One executable, no runtime to install.
+One executable, no runtime to install. On macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
 ```
 
-The installer places a single executable at `~/.orbit/bin/orbit` and adds that directory to `PATH` in `~/.zshrc`. It verifies the release checksum and refuses a download that does not match.
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/GA-MO/orbit/main/install.ps1 | iex
+```
+
+`install.sh` places a single executable at `~/.orbit/bin/orbit` and adds that directory to `PATH` in `~/.zshrc`. `install.ps1` places `orbit.exe` at `%USERPROFILE%\.orbit\bin\orbit.exe` and adds that directory to your user `Path` environment variable, so a terminal opened afterwards has it. Both verify the release checksum and refuse a download that does not match; `install.sh` clears the quarantine attribute macOS puts on a downloaded file, and `install.ps1` runs `Unblock-File` for the same reason. Running `install.sh` on Windows is not a mistake you can make silently: it stops and points at the PowerShell line above.
+
+Both take the same environment variables.
 
 | Variable | Effect |
 | --- | --- |
 | `ORBIT_VERSION=v0.2.0` | Install a specific release instead of the latest. |
-| `ORBIT_INSTALL_DIR` | Install somewhere other than `~/.orbit/bin`. |
-| `ORBIT_NO_MODIFY_PATH` | Leave `~/.zshrc` alone. |
+| `ORBIT_INSTALL_DIR` | Install somewhere other than `~/.orbit/bin` (`%USERPROFILE%\.orbit\bin`). |
+| `ORBIT_NO_MODIFY_PATH` | Leave `~/.zshrc` — or the user `Path` — alone, and print the line to add yourself. |
+| `ORBIT_REPO` | Install from a fork instead of `GA-MO/orbit`. |
+| `ORBIT_LOCAL_DIR` | Install from a directory of release files already on disk instead of downloading. This is what the installer test suite uses. |
 
-Then, on the Mac:
+Then, on the machine itself:
 
 ```sh
-orbit doctor    # what this Mac has and what it is missing
+orbit doctor    # what this machine has and what it is missing
 orbit setup     # wire the hooks and the MCP server into Claude Code
 orbit start     # run it, published over your tailnet as https
 ```
@@ -72,12 +84,23 @@ make start      # run on :7788, published over the tailnet
 
 `make setup` and `make start` run the same code as the installed binary. The build step comes first because the MCP server has to exist on disk before it can be registered.
 
+`make` is a macOS convenience, and there is no Windows equivalent of it in the repository. On Windows run the commands it wraps directly:
+
+```powershell
+bun install
+bun run build
+bun server/dist/main.js setup     # then: start, doctor, stop
+bun run dev                       # what `make dev` runs
+```
+
 ## Wire it into Claude Code
 
 `orbit setup` (or `make setup` from a checkout) does two things and reports what it touched:
 
 1. Registers the MCP server with `claude mcp add -s user orbit -- <orbit> mcp`, where `<orbit>` is the full path of the executable running the command.
 2. Writes the Claude Code hooks into `~/.claude/settings.json`.
+
+Paths in this guide are written the macOS way; on Windows `~` is `%USERPROFILE%`, so `~/.claude/settings.json` is `%USERPROFILE%\.claude\settings.json` and the hook commands are written with the executable's Windows path, quoted if it contains a space.
 
 Every path is resolved from whatever is running `setup`. Nothing is copied or edited by hand. That is the whole reason the command exists: an earlier version of these docs asked you to paste JSON and replace `/Users/<you>/` yourself, and a mistake there produced no error, only features that silently went quiet.
 
@@ -99,7 +122,7 @@ claude mcp list          # expect: orbit: <path to orbit> mcp - ✔ Connected
 
 Or type `/mcp` inside Claude Code.
 
-`orbit doctor` checks which version is installed and whether a newer release exists (a Mac with no network gets a neutral line, not a failure), that Claude Code is on the PATH, that Google Chrome is present, that Tailscale is logged in, that an access token exists, that the hooks and the MCP registration are in place, and whether the server is running. It cannot check Screen Recording permission; macOS offers no way to ask.
+`orbit doctor` checks which version is installed and whether a newer release exists (a machine with no network gets a neutral line, not a failure), that Claude Code is on the PATH, that Google Chrome is present, that Tailscale is logged in, that an access token exists, that the hooks and the MCP registration are in place, and whether the server is running. It cannot check Screen Recording permission; macOS offers no way to ask, and on Windows there is no such permission to check.
 
 A Claude Code session that was already open does not see the new server. MCP servers are spawned when a session starts, so open a new one. The same applies every time you change `server/src/mcp.ts` in a checkout: `bun run build`, then start a new session.
 
@@ -111,7 +134,7 @@ orbit start      # publish :7788 over the tailnet as https, run the server
 
 `orbit start` runs `tailscale serve --bg 7788`, then starts the server, and prints `https://<mac>.<tailnet>.ts.net`. Open that on the phone with the Tailscale VPN on. That is the whole first run: no pairing, no QR to scan, nothing to type, nothing that expires.
 
-It works because the server listens on `127.0.0.1` and nowhere else, which leaves `tailscale serve` as the only way in from another device. `serve` strips any `Tailscale-User-Login` header a caller sent and stamps on the verified one, so a request carrying the Mac's own tailnet login is served with no token at all — reads, writes and the WebSocket. A different login is refused, and so is a Mac whose own login cannot be read (the token is then the only credential).
+It works because the server listens on `127.0.0.1` and nowhere else, which leaves `tailscale serve` as the only way in from another device. `serve` strips any `Tailscale-User-Login` header a caller sent and stamps on the verified one, so a request carrying the machine's own tailnet login is served with no token at all — reads, writes and the WebSocket. A different login is refused, and so is a machine whose own login cannot be read (the token is then the only credential).
 
 Add to Home Screen works the same way. The home-screen app has storage of its own, but there is nothing in it to carry over any more, so it simply opens.
 
@@ -123,7 +146,7 @@ If the front door cannot be published — Tailscale is not installed, not logged
 orbit start --lan      # or: orbit --lan, or ORBIT_LAN=1 orbit
 ```
 
-That binds every interface and prints the Mac's wi-fi address, so a phone on the same network can open `http://<mac-ip>:7788`.
+That binds every interface and prints the machine's wi-fi address, so a phone on the same network can open `http://<machine-ip>:7788`.
 
 On this path the login header is ignored completely and the access token is the only credential. Tailscale strips that header when a caller sets it, but its own documentation is explicit that the guarantee holds only while the program behind the proxy listens on localhost alone — with the wi-fi door open, anyone who can reach the port can write the header themselves. Orbit will not trust the header and the back door at once.
 
@@ -133,7 +156,7 @@ The token is stored in `~/.orbit/config.json`. To rotate it, delete only the `to
 
 **Upgrading from 0.2.x?** The wi-fi address stops answering until you pass `--lan`. Everything else is unchanged.
 
-From a checkout, `make mobile` serves the dev build on the same Wi-Fi network. Voice input and Add to Home Screen need https, so you will want Tailscale in the end.
+From a checkout on a Mac, `make mobile` serves the dev build on the same Wi-Fi network. Voice input and Add to Home Screen need https, so you will want Tailscale in the end.
 
 To stop:
 
@@ -142,7 +165,7 @@ orbit stop         # stop the server on its port and remove the tailnet front do
 make stop          # from a checkout: the same as `orbit stop`
 ```
 
-To run the server without publishing it, use plain `orbit`. It listens on `127.0.0.1:7788` — the Mac and nothing else, unless `--lan` — and `ORBIT_PORT` changes the port.
+To run the server without publishing it, use plain `orbit`. It listens on `127.0.0.1:7788` — the machine and nothing else, unless `--lan` — and `ORBIT_PORT` changes the port.
 
 ## What gets installed
 
@@ -151,7 +174,7 @@ To run the server without publishing it, use plain `orbit`. It listens on `127.0
 | Tool | What it does |
 | --- | --- |
 | `orbit_capture` | Renders a URL headless in the system Chrome and returns the image. |
-| `orbit_screen` | Captures the Mac's screen. |
+| `orbit_screen` | Captures the machine's screen. |
 | `orbit_notify` | Sends a line to the phone (kinds `waiting` and `done`). |
 | `orbit_ask` | Asks a question with up to four options and blocks until one is tapped or the question times out. |
 | `orbit_preview` | Publishes a dev-server port over the tailnet as https (from 8443 upward) and opens it on the phone. |
@@ -178,7 +201,7 @@ If you do not want this hook, it can be removed without affecting the others: de
 
 ## Where Orbit keeps its data
 
-Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* the `.orbit` directory, not the data directory itself: setting `ORBIT_HOME=/tmp/x` puts the data in `/tmp/x/.orbit`. Unset, it falls back to `HOME`, so the data directory moves without moving `HOME`.
+Everything lives in `~/.orbit` — `%USERPROFILE%\.orbit` on Windows. `ORBIT_HOME` names the directory that *holds* the `.orbit` directory, not the data directory itself: setting `ORBIT_HOME=/tmp/x` puts the data in `/tmp/x/.orbit`. Unset, it falls back to `HOME`, so the data directory moves without moving `HOME`.
 
 | Path | Contents |
 | --- | --- |
@@ -188,7 +211,7 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 | `screenshots/` | Captures, the last 50. |
 | `uploads/` | Files sent from the phone, the last 50. |
 | `push-subscriptions.json` | Web Push subscriptions. |
-| `bin/orbit` | The installed executable. |
+| `bin/orbit` | The installed executable (`bin\orbit.exe` on Windows). |
 
 ## Command reference
 
@@ -201,7 +224,7 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 | `orbit stop` | Stop whatever is listening on `:7788` (`ORBIT_PORT` changes the port) — `SIGTERM`, then `SIGKILL` if it is still there — and remove the tailnet front door. Nothing listening is not an error. |
 | `orbit setup` | Write the hooks into `~/.claude/settings.json` (backup at `settings.json.orbit.bak`) and register the MCP server. |
 | `orbit setup --uninstall` | Remove the hooks and the MCP registration. |
-| `orbit doctor` | Report what this Mac has and what it is missing. |
+| `orbit doctor` | Report what this machine has and what it is missing. |
 | `orbit update` | Replace the running executable with the latest release, after checking its published checksum. |
 | `orbit update --check` | Say which version is installed and which is available, and write nothing. |
 | `orbit start --lan` | The same, but bind every interface so a phone on the same wi-fi can reach it. The tailnet login header is ignored in this mode and the access token is the only credential. |
@@ -214,7 +237,9 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 
 `orbit start` was called `orbit phone` before. The old name still runs, and says it has been renamed.
 
-### Make targets (from a checkout)
+### Make targets (from a checkout, on macOS)
+
+The `Makefile` is a macOS convenience: it shells out to `bash`, `lsof` and the Tailscale app bundle. On Windows, run the `bun` command in the right-hand column instead — `make setup` is `bun server/dist/main.js setup`, `make test` is `bun scripts/test.ts all`, and so on.
 
 | Target | What it does |
 | --- | --- |
@@ -226,7 +251,7 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 | `make start` | Build, then `orbit start`: run on `:7788`, published over the tailnet. |
 | `make mobile` | Print the LAN URL and start the dev build for a phone on the same Wi-Fi. |
 | `make stop` | Stop the server and the tailnet front door. |
-| `make dist` | Build one executable at `dist/orbit`. `TARGETS=all` builds arm64 and x64. |
+| `make dist` | Build one executable at `dist/orbit`. `TARGETS=all` builds both Mac architectures and Windows x64; `TARGETS=mac` or `TARGETS=windows` builds one side. |
 | `make test` | Every suite against a throwaway server. |
 | `make test-smoke`, `test-touch`, `test-changes`, `test-preview-url`, `test-idle`, `test-ask`, `test-setup`, `test-install` | One suite each. |
 | `make test-clean` | Reap a server or scratch `HOME` that a killed run left behind. |
@@ -262,21 +287,22 @@ Neither touches the checkout or `~/.orbit`; sessions, the token and screenshots 
 | `/mcp` does not list `orbit` | The session was open before setup ran. Start a new session. |
 | A tool answers "not reachable on 127.0.0.1:7788" | The server is not running. Run `orbit start`, plain `orbit`, or `make start` from a checkout. |
 | The phone never notifies | Orbit is open on the phone, so notices are quiet by design. Close the app and try again. |
-| `orbit_screen` returns an image with no application windows | Screen Recording permission has not been granted. See the last section of `MCP.md`. |
+| `orbit_screen` returns an image with no application windows | On macOS, Screen Recording permission has not been granted. See the last section of `MCP.md`. Windows needs no such permission, so an empty image there is the capture itself failing. |
 | `orbit setup` cannot register the MCP server | `claude` is not on the PATH. |
 | `orbit start` reports that port 7788 is busy | An Orbit is already running. Stop it first with `orbit stop` (`make stop` from a checkout). |
-| The phone cannot open the Mac's wi-fi address any more | Expected since the server started binding `127.0.0.1`. Reach it over the tailnet, or run `orbit start --lan`. |
-| A login screen appears on the tailnet address | Orbit could not read the Mac's own tailnet login, so it fell back to the token. Check the Tailscale app is logged in (`orbit doctor` says). |
+| The phone cannot open the machine's wi-fi address any more | Expected since the server started binding `127.0.0.1`. Reach it over the tailnet, or run `orbit start --lan`. |
+| A login screen appears on the tailnet address | Orbit could not read the machine's own tailnet login, so it fell back to the token. Check the Tailscale app is logged in (`orbit doctor` says). |
 
 ## Testing
 
 ```sh
-make test           # every suite, on a throwaway server with its own port and HOME
-make test-setup     # only the installer wiring
-bash scripts/test.sh <suite>    # smoke, touch, changes, preview-url, idle, ask, setup, install, all
+bun scripts/test.ts <suite>     # smoke, touch, changes, preview-url, idle, ask, setup, install, all
+bun scripts/test.ts all         # every suite, on a throwaway server with its own port and HOME
 ```
 
-`scripts/test.sh` builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down. A run never touches `:7788` or the real `~/.orbit`. `ORBIT_BIN=dist/orbit` runs the suites against the compiled executable. If a run is killed part way and leaves a server or scratch directory behind, `make test-clean` reaps it.
+The runner is `scripts/test.ts` and it runs on both platforms. `bash scripts/test.sh <suite>` is a thin shim onto it that still works on macOS, and the `make test*` targets call the shim.
+
+It builds, starts an Orbit of its own on the first free port from `:3099` under a scratch `HOME`, runs the suites and takes it down. A run never touches `:7788` or the real `~/.orbit`. `ORBIT_BIN=dist/orbit` runs the suites against the compiled executable. If a run is killed part way and leaves a server or scratch directory behind, `make test-clean` reaps it on a Mac.
 
 The documentation images can be regenerated the same way. `make shots` walks the real app on a throwaway server and rewrites `docs/images/*.jpg`; `bun docs/site/build.mjs` then rebuilds the website from them.
 
@@ -286,6 +312,6 @@ The documentation images can be regenerated the same way. `make shots` walks the
 scripts/release.sh 0.2.0    # set the version in both package.json files, commit, tag v0.2.0, push
 ```
 
-The tag runs `.github/workflows/release.yml`, which builds the executable for arm64 and x64 and attaches both to a GitHub Release with a `.sha256` file beside each. From then on `install.sh` on any Mac installs that version as the latest.
+The tag runs `.github/workflows/release.yml`, which builds each executable on the system it is meant to run on, starts it there from a directory with the checkout moved out of the way, and only then attaches them all to a GitHub Release with a `.sha256` file beside each. A build job that fails publishes nothing. Rehearse first: `scripts/rehearse-release.sh all` proves the same ground locally for the Mac executables, and `scripts/release.sh` refuses to tag a tree that rehearsal did not name. From then on `install.sh` and `install.ps1` install that version as the latest. The full set of targets is `scripts/dist.sh all`: `orbit-darwin-arm64`, `orbit-darwin-x64` and `orbit-windows-x64.exe` — the names the two installers ask the release for.
 
-Homebrew is optional. If the repository variable `TAP_REPO` (`<owner>/homebrew-tap`) and a secret `TAP_TOKEN` that can push to that tap are set, the `tap` job writes `Formula/orbit.rb` from `packaging/homebrew/orbit.rb.tmpl`. Without them, `scripts/tap.sh v0.2.0 ../homebrew-tap` does the same by hand.
+Homebrew is a macOS path and it is optional. If the repository variable `TAP_REPO` (`<owner>/homebrew-tap`) and a secret `TAP_TOKEN` that can push to that tap are set, the `tap` job writes `Formula/orbit.rb` from `packaging/homebrew/orbit.rb.tmpl`. Without them, `scripts/tap.sh v0.2.0 ../homebrew-tap` does the same by hand.

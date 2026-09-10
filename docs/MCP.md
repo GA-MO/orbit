@@ -1,6 +1,6 @@
 # Agent Integration
 
-This page is for anyone who wants the coding agent inside an Orbit session to see its own work and to reach the person holding the phone. Normally Orbit is the phone driving the Mac: you tap capture, you paste a path for the agent. This is the other direction. Through the MCP server that ships with Orbit, the agent can render the app it is building, look at the Mac's screen, send a notice, ask a question and wait for the answer, or open a live preview on the phone. Two Claude Code hooks complete the picture by forwarding "waiting for you" moments and by routing the agent's own dangerous commands to the phone for approval. Installation from scratch is covered in `SETUP.md`.
+This page is for anyone who wants the coding agent inside an Orbit session to see its own work and to reach the person holding the phone. Normally Orbit is the phone driving the machine: you tap capture, you paste a path for the agent. This is the other direction. Through the MCP server that ships with Orbit, the agent can render the app it is building, look at the machine's screen, send a notice, ask a question and wait for the answer, or open a live preview on the phone. Two Claude Code hooks complete the picture by forwarding "waiting for you" moments and by routing the agent's own dangerous commands to the phone for approval. Installation from scratch is covered in `SETUP.md`.
 
 ## Contents
 
@@ -12,25 +12,26 @@ This page is for anyone who wants the coding agent inside an Orbit session to se
 - [The approve hook: dangerous commands](#the-approve-hook-dangerous-commands)
 - [Session identity and the HTTP API](#session-identity-and-the-http-api)
 - [Good to know](#good-to-know)
-- [Screen Recording for orbit_screen](#screen-recording-for-orbit_screen)
+- [Screen Recording for orbit_screen, on macOS](#screen-recording-for-orbit_screen-on-macos)
 
 ## The tools
 
 | Tool | What it does |
 | --- | --- |
 | `orbit_capture` | Renders a URL headless in the system Chrome and returns the image itself, not a path. The same image appears in the Preview tab on the phone. |
-| `orbit_screen` | Captures the Mac's real screen: the Simulator, Xcode, native apps, anything headless Chrome cannot see. |
+| `orbit_screen` | Captures the machine's real screen: the Simulator, Xcode, native apps, anything headless Chrome cannot see. On macOS it shells out to `screencapture`; on Windows it copies the primary display with .NET's `CopyFromScreen` through PowerShell, and needs no permission to do so. |
 | `orbit_notify` | Sends a short line to the phone, such as "done". Pass `kind: "waiting"` when the agent has stopped and needs an answer: the notice stays attached to that session until someone reads it, and the session counts as one that wants attention. Without it the kind is `done`, which only informs. |
 | `orbit_ask` | Puts a question with up to four options on the phone and blocks until one is tapped or the question times out. |
 | `orbit_preview` | Opens the running app itself on the phone, at the page you name. Not a picture: it can be tapped, scrolled and filled in, in a frame over the terminal, without leaving the session. |
 
-Every tool talks to the Orbit server on `127.0.0.1:7788` using the token in `~/.orbit/config.json`. That is what the access token is for now: the MCP server, the hooks and `orbit pair`, over loopback. A phone arriving over Tailscale is recognised by its tailnet login and types nothing. The server has to be running; otherwise the tool reports that it cannot connect, and the session carries on.
+Every tool talks to the Orbit server on `127.0.0.1:7788` using the token in `~/.orbit/config.json` (`%USERPROFILE%\.orbit\config.json` on Windows). That is what the access token is for now: the MCP server, the hooks and `orbit pair`, over loopback. A phone arriving over Tailscale is recognised by its tailnet login and types nothing. The server has to be running; otherwise the tool reports that it cannot connect, and the session carries on.
 
 ## Install
 
 ```sh
-orbit setup                    # installed binary
-make install && make setup     # from a checkout
+orbit setup                                   # installed binary
+make install && make setup                    # from a checkout on a Mac
+bun install && bun run build && bun server/dist/main.js setup   # from a checkout on Windows
 ```
 
 Setting up a machine from scratch, from the requirements to the first run, is in `SETUP.md`.
@@ -86,7 +87,7 @@ Claude Code's question boxes (`AskUserQuestion`), permission prompts and waits f
 | --- | --- |
 | `AskUserQuestion` | The actual question and its options, for example "Claude is asking: keep the current schema? Keep / Rewrite". |
 | `Notification` of a waiting type (`permission_prompt`, `idle_prompt`, `agent_needs_input`, `elicitation_dialog`) | "Claude is waiting for you". Other types, such as `auth_success`, are not sent. |
-| `Stop` | "Finished: …", only for sessions started from Orbit (recognized by the `ORBIT_SESSION=1` the PTY sets). If you are sitting at the Mac you can already see it. |
+| `Stop` | "Finished: …", only for sessions started from Orbit (recognized by the `ORBIT_SESSION=1` the PTY sets). If you are sitting at the machine you can already see it. |
 
 Every notice is sent as `quiet`. When that session is on screen on the phone, nothing is shown, because you are already looking at the terminal. You are notified only when you are not looking: a toast when you come back, or a push when the phone is locked.
 
@@ -96,7 +97,7 @@ This hook never blocks. It fires and returns at once, and if it cannot reach Orb
 
 Orbit already screens dangerous commands that you type or paste into the terminal. Commands the agent runs itself through the Bash tool never pass that gate, because they run inside the agent's process and are never typed into the PTY. This hook closes the gap with the same pattern list: `rm -rf`, `sudo`, `mkfs` and `diskutil erase`, `dd` to `/dev`, `shutdown` and `reboot`, `git push --force`, a fork bomb, `chmod 777 /`, writes to raw devices, `launchctl unload`.
 
-This one is opt-in: `orbit setup --approval` installs it as `PreToolUse` with matcher `Bash` pointing at `orbit hook approve`, with `"timeout": 190`. A plain `orbit setup` installs only the notify hooks, because a gate that stops the agent to wait for a tap is an interruption on any Mac where Claude Code runs in auto mode.
+This one is opt-in: `orbit setup --approval` installs it as `PreToolUse` with matcher `Bash` pointing at `orbit hook approve`, with `"timeout": 190`. A plain `orbit setup` installs only the notify hooks, because a gate that stops the agent to wait for a tap is an interruption on any machine where Claude Code runs in auto mode.
 
 The `timeout` is the main reason not to copy the JSON by hand. The hook waits up to 180 seconds for the phone, but Claude Code's default cuts a hook off at 60 seconds. With the timeout shorter than the wait, a dangerous command passes silently before you have had a chance to tap.
 
@@ -114,7 +115,7 @@ Behavior:
 
 Sessions that Orbit starts carry `ORBIT_SESSION=1` and `ORBIT_SESSION_ID` in the PTY environment. The tools and hooks use them to attach notices and questions to the right session.
 
-The hooks and the MCP server talk to the server over a small HTTP API, which is also available to anything else on the Mac:
+The hooks and the MCP server talk to the server over a small HTTP API, which is also available to anything else on the machine:
 
 | Route | Purpose |
 | --- | --- |
@@ -122,7 +123,7 @@ The hooks and the MCP server talk to the server over a small HTTP API, which is 
 | `POST /api/ask` | Ask a question and wait. Returns `answer`, `timedOut` and `phonesConnected`. |
 | `POST /api/ask/answer` | Answer a question from a push notification. Uses a capability carried by the notification; together with `POST /api/auth/pair` it is the only route that needs no bearer token. |
 
-Every other `/api/*` route needs `Authorization: Bearer <token>` — or, from a browser that came in through `tailscale serve` carrying the Mac's own `Tailscale-User-Login` and a matching `Origin`, nothing at all. Under `ORBIT_LAN=1` (`orbit start --lan`) that header is ignored and the token is the only credential; the MCP server and the hooks use the token either way.
+Every other `/api/*` route needs `Authorization: Bearer <token>` — or, from a browser that came in through `tailscale serve` carrying the machine's own `Tailscale-User-Login` and a matching `Origin`, nothing at all. Under `ORBIT_LAN=1` (`orbit start --lan`) that header is ignored and the token is the only credential; the MCP server and the hooks use the token either way.
 
 ## Good to know
 
@@ -130,7 +131,9 @@ Every other `/api/*` route needs `Authorization: Bearer <token>` — or, from a 
 - Images wider than 1568 px are scaled down before they reach the agent. The file on disk keeps its full size.
 - A question that is still open is sent again to a phone that has just connected. Lock the phone and unlock it later, and the question is still there.
 
-## Screen Recording for orbit_screen
+## Screen Recording for orbit_screen, on macOS
+
+This section is macOS only. Windows has no screen-capture permission to grant, and `orbit_screen` there either returns the screen or fails with an error you can read.
 
 macOS has to grant permission before application windows appear in a capture, and the trap is that without permission there is no error. You get an image of the desktop and the menu bar with no windows on it at all.
 

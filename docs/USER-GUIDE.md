@@ -1,6 +1,6 @@
 # Orbit user guide
 
-Orbit turns your MacBook into a personal AI development server: you drive Claude Code from your phone as if you were sitting at the machine. This guide walks through every feature with a worked example — building a small demo website, running its dev server, checking the result with screenshots, and talking to Claude Code — all from a phone screen.
+Orbit turns the machine you work at — a Mac or a Windows PC — into a personal AI development server: you drive Claude Code from your phone as if you were sitting at it. This guide walks through every feature with a worked example — building a small demo website, running its dev server, checking the result with screenshots, and talking to Claude Code — all from a phone screen.
 
 > All screenshots were taken in real use at an iPhone-sized viewport (390×844).
 
@@ -23,21 +23,28 @@ Orbit turns your MacBook into a personal AI development server: you drive Claude
 
 ## Getting started: open it on your phone
 
-Orbit is a single executable. Install it on the Mac:
+Orbit is a single executable. Install it on the machine you work at — on macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
 ```
 
-Then run `orbit start` (from a source checkout, `make start`). It prints an
+Or on Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/GA-MO/orbit/main/install.ps1 | iex
+```
+
+Then run `orbit start` (from a source checkout on a Mac, `make start`). It prints an
 address, `https://<machine>.<tailnet>.ts.net`, and a QR code of that address.
 **Point your phone's camera at it**, with the Tailscale VPN on, or type the
 address if you prefer. You are in — no pairing, nothing to type, nothing that
 expires, and the code works as often as you like.
 
-Tailscale is what makes that safe: the server listens on the Mac itself only,
-so the tailnet is the way in, and Tailscale tells Orbit which account is
-calling. If it is your Mac's own account, you are let in. Anyone else is not.
+Tailscale is what makes that safe: the server listens on the machine itself
+only, so the tailnet is the way in, and Tailscale tells Orbit which account is
+calling. If it is the machine's own account, you are let in. Anyone else is
+not.
 
 ### Adding it to the Home Screen just works
 
@@ -48,10 +55,10 @@ open it; it walks in the same way.
 ### If you have no Tailscale
 
 `orbit start` says so in a line, runs the server anyway, and tells you to
-re-run it as `orbit start --lan`. That opens the Mac's Wi-Fi address so a phone
-on the same network can reach it — and on that path Orbit cannot tell who is
-calling, so it asks for the access token instead. Scan the QR code the Mac
-prints, or type the token beside it (`[orbit] access token: …`); `orbit pair`
+re-run it as `orbit start --lan`. That opens the machine's Wi-Fi address so a
+phone on the same network can reach it — and on that path Orbit cannot tell who
+is calling, so it asks for the access token instead. Scan the QR code the
+machine prints, or type the token beside it (`[orbit] access token: …`); `orbit pair`
 prints a fresh code when the one on screen has expired.
 
 That gets you the terminal. Voice input and Add to Home Screen need real https,
@@ -62,7 +69,7 @@ so see [TAILSCALE.md](TAILSCALE.md) when you want those.
 | Route | URL | Limits |
 |---|---|---|
 | **HTTPS over Tailscale** (recommended) | `https://<machine>.<tailnet>.ts.net` | Every feature works, it works away from home, and there is nothing to sign in with. One-time setup in [TAILSCALE.md](TAILSCALE.md). |
-| Wi-Fi, with `orbit start --lan` | `http://<mac-ip>:7788` | Phone and Mac must be on the same Wi-Fi, the access token is asked for, and **voice input and Add to Home Screen do not work**. |
+| Wi-Fi, with `orbit start --lan` | `http://<machine-ip>:7788` | Phone and machine must be on the same Wi-Fi, the access token is asked for, and **voice input and Add to Home Screen do not work**. |
 
 Voice does not work over plain HTTP because the browser only grants the microphone and registers service workers on a secure context (HTTPS). This is a browser rule, not an Orbit limitation.
 
@@ -74,7 +81,7 @@ flashes past on the way in.
 
 ## The Terminal tab
 
-Once you are in, you see a terminal connected directly to zsh on the Mac. ANSI colors, your prompt theme, Ctrl+C and interactive TUIs all work. The header shows which session you are in, its folder, and the connection state (a spinning Orbit ring means connected).
+Once you are in, you see a terminal connected directly to the login shell on the machine — zsh on a Mac, PowerShell on Windows. ANSI colors, your prompt theme, Ctrl+C and interactive TUIs all work. The header shows which session you are in, its folder, and the connection state (a spinning Orbit ring means connected).
 
 In the screenshot: creating an `orbit-demo` project, writing `index.html`, and running `python3 -m http.server 4321` — all typed on the phone.
 
@@ -111,12 +118,12 @@ The terminal draws its own characters, so iOS offers no selection handles the wa
 
 There is deliberately no button that hands the URL to the browser. Leaving and coming back makes iOS reload the whole app, and from a Home Screen icon there is no second tab for WebKit to send a same-host URL to, so it would drag the whole app to that page instead. If you really want the page in the browser, **Copy** it and paste it there.
 
-A **plain http** link cannot be opened in the frame: Orbit is served over https and the browser blocks mixed content. The sheet then offers only **Copy** and says why. To make such links openable, put the dev server on https with `bun run preview:on`.
+A **plain http** link cannot be opened in the frame: Orbit is served over https and the browser blocks mixed content. The sheet then offers only **Copy** and says why. To make such links openable, share the port over https from the Preview tab.
 
 Some details worth knowing:
 
 - A URL that wraps onto the next line is still one link — including when the **program wrapped it itself**, as Claude Code does when it indents continuation lines by two spaces. A trailing comma is not counted as part of the link.
-- **`localhost` is rewritten to point at the Mac.** When the agent prints `http://localhost:5173`, it means the Mac, but opened as-is on the phone it would mean the phone. On tap, Orbit swaps the host for the one you are using to reach Orbit, keeping the port. This works because Vite binds every interface.
+- **`localhost` is rewritten to point at the machine.** When the agent prints `http://localhost:5173`, it means the machine Orbit runs on, but opened as-is on the phone it would mean the phone. On tap, Orbit swaps the host for the one you are using to reach Orbit, keeping the port. This works because Vite binds every interface.
 
 **Press and hold** to select the **word** under your finger. Words are split at whitespace only, so a long path such as `~/Development/orbit/web/src/Terminal.tsx` comes as one piece rather than being cut at each `/`. From there you can adjust the selection three ways:
 
@@ -212,7 +219,7 @@ Tap **+** in the Sessions tab.
 
 ## Claude Code from your phone
 
-Choose the Claude Code card and a project folder, and you get the real Claude Code running on the Mac. In the screenshot: the "demo feature" session in `orbit-demo`, switching models with `/model haiku` and sending a test prompt. The reply comes back to the phone in full.
+Choose the Claude Code card and a project folder, and you get the real Claude Code running on the machine. In the screenshot: the "demo feature" session in `orbit-demo`, switching models with `/model haiku` and sending a test prompt. The reply comes back to the phone in full.
 
 <img src="images/06-claude-code.jpg" width="390" alt="Claude Code answering a prompt from the phone">
 
@@ -246,17 +253,22 @@ iOS does not transcribe on the device. Speech goes to **Apple's dictation servic
 
 ## Sending images
 
-Tap the image button in the header, then pick a photo or take one (a screenshot of an error, or a design you want built). The file is uploaded to the Mac and **its path is typed into the terminal for you** — carry on typing what you want Claude to do with it.
+Tap the image button in the header, then pick a photo or take one (a screenshot of an error, or a design you want built). The file is uploaded to the machine and **its path is typed into the terminal for you** — carry on typing what you want Claude to do with it.
 
 ## The Preview tab
 
 The agent says it fixed the page. What does it look like now? The Preview tab
 answers that without leaving the phone.
 
-The tab is a list of **ports serving a web page on the Mac right now**, one row
-per port, with the program holding it and the project it belongs to
+The tab is a list of **ports serving a web page on the machine right now**, one
+row per port, with the program holding it and the project it belongs to
 (`:5173 node`, `:8899 Python`). Each row carries everything that port can do:
 open it live, capture it, share it, stop sharing it.
+
+On Windows a row shows the port and the program, but no project name. Finding
+which directory a process is working in is cheap on macOS and is not on
+Windows, so Orbit does not go looking; the port and the program are what you
+get.
 
 ### Capture a screenshot
 
@@ -267,7 +279,7 @@ Tap the capture button (⧉) on a row. A sheet asks for a size:
 | **Phone** / **Tablet** / **Desktop** | The page at that viewport width |
 | **Full page** | The page at the phone's width, with the height allowed to run past the fold |
 
-The Mac opens headless Chrome, renders the page and files the image in the
+The machine opens headless Chrome, renders the page and files the image in the
 gallery below at its real aspect ratio, so a desktop shot is not cropped to a
 phone shape.
 
@@ -289,7 +301,7 @@ image"). **🗑** deletes it.
 ### Try it, not just a picture
 
 A still image is not the same as pressing the buttons. Tap the body of a row
-and the app running on the Mac opens **live, inside Orbit**: tap, fill in
+and the app running on the machine opens **live, inside Orbit**: tap, fill in
 forms, scroll, all of it.
 
 Under the hood this is one gesture with two steps. A port that is only
@@ -303,7 +315,7 @@ load inside it. Sharing also gives the app under test everything it needs from a
 secure context of its own: service workers, the microphone, the camera.
 
 Each shared port gets an https port of its own on the tailnet, starting at
-`8443` and counting up (`https://<mac>.<tailnet>.ts.net:8443`). It is
+`8443` and counting up (`https://<machine>.<tailnet>.ts.net:8443`). It is
 tailnet-only; nothing is exposed to the public internet. It does not touch
 Orbit's own `tailscale serve` mapping (443 → 7788) — different ports, switched
 on and off independently. **Stop sharing :5173** on the row takes it down
@@ -313,8 +325,8 @@ The agent can do the same thing with the MCP tool `orbit_preview` (see
 [MCP.md](MCP.md)), so "share the dev server and open it for me" is a sentence
 you can type into the terminal.
 
-If you need to publish from the Mac's own terminal instead, a checkout has a
-fallback:
+If you need to publish from the machine's own terminal instead, a checkout on
+a Mac has a fallback:
 
 ```sh
 bun run preview:on                     # port 5173 at https://<mac>.<tailnet>.ts.net:8443
@@ -322,8 +334,9 @@ PREVIEW_PORT=3000 bun run preview:on   # a dev server on another port
 bun run preview:off                    # stop sharing
 ```
 
-The Preview tab is the normal path; these commands are for when the phone is
-not to hand.
+Those scripts are shell one-liners, so they are macOS only; on Windows call
+`tailscale serve` yourself. Either way the Preview tab is the normal path, and
+these commands are for when the phone is not to hand.
 
 <img src="images/04-capture-viewer.jpg" width="390" alt="Viewing a capture full screen">
 
@@ -333,12 +346,14 @@ You never type `http://localhost:5173` on a phone keyboard. The rows in the
 Preview tab are the ports that are serving a web page **right now**, and each
 one is labeled with the program that holds it.
 
-Orbit asks `lsof` what is listening and then filters in three passes:
+Orbit asks the system what is listening — `lsof` on macOS, `Get-NetTCPConnection`
+on Windows — and then filters in three passes:
 
 1. Drop the ranges that are not yours: ephemeral ports the system hands out
    (32768 and up) and ports that need root (below 1024).
-2. Drop the macOS services that sit on popular ports (Control Center holds
-   5000 and 7000).
+2. Drop the operating system's own services that sit on popular ports: Control
+   Center holds 5000 and 7000 on macOS; on Windows the kernel holds 80 and 443
+   through http.sys, and svchost, WSL and Tailscale are recognised the same way.
 3. **Make one real HTTP request.** Databases and agent processes fall out here.
 
 On the Mac this guide was written on, that took 13 listening ports down to 1.
@@ -347,25 +362,30 @@ The list is refreshed when you open the tab and when you come back from the
 lock screen. It does not poll. If the agent has just started a dev server,
 switch away from the tab and back.
 
-For a page that is not on this Mac — a staging site, say — the **Other URL**
-row takes a full address and captures it the same way. Only a port on this Mac
-can be shared over https; a remote URL can be captured but not framed.
+For a page that is not on this machine — a staging site, say — the **Other URL**
+row takes a full address and captures it the same way. Only a local port can be
+shared over https; a remote URL can be captured but not framed.
 
-### The Mac's screen belongs to the agent now
+### The machine's screen belongs to the agent now
 
 The **Mac screen** switch is gone from this tab. Whoever is holding the phone
-is, by definition, not looking at the Mac's display.
+is, by definition, not looking at the machine's display.
 
 The capability is still there; it moved to the agent's side. Ask for
 `orbit_screen` through MCP (see [MCP.md](MCP.md)) and the agent sees the iOS
-Simulator, Xcode, native apps, Figma — whatever is on the Mac's screen. The
-image still lands in your gallery, labeled **Mac screen**.
+Simulator, Xcode, native apps, Figma — whatever is on the screen. The image
+still lands in your gallery, labeled **Mac screen** — the label reads that way
+on Windows too.
 
-This needs **Screen Recording** permission for the app that runs the Orbit
-server (Terminal, iTerm, VS Code). The trap: without the permission, macOS
-**does not raise an error**. It returns an empty desktop with no application
-windows on it. When you see that, grant the permission at System Settings →
-Privacy & Security → Screen & System Audio Recording.
+On macOS this needs **Screen Recording** permission for the app that runs the
+Orbit server (Terminal, iTerm, VS Code). The trap: without the permission,
+macOS **does not raise an error**. It returns an empty desktop with no
+application windows on it. When you see that, grant the permission at System
+Settings → Privacy & Security → Screen & System Audio Recording.
+
+Windows has no such permission. The capture is taken straight from the primary
+display, so an empty or failed image there is the capture itself going wrong,
+not something to grant.
 
 ## Letting the agent act (MCP)
 
@@ -380,7 +400,7 @@ features itself instead of waiting for you — and when it captures a page it
 | Tool | What it does |
 |---|---|
 | `orbit_capture` | Capture a URL with headless Chrome at a chosen viewport; the image also appears in your Preview tab |
-| `orbit_screen` | Photograph the Mac's own screen — Simulator, Xcode, native apps |
+| `orbit_screen` | Photograph the machine's own screen — Simulator, Xcode, native apps |
 | `orbit_notify` | Send a notice to the phone, for instance when a long task is done |
 | `orbit_ask` | Ask you a question with options, and wait for the answer before continuing |
 | `orbit_preview` | Share a dev server port over https on the tailnet and open it in the app |
@@ -391,7 +411,7 @@ until you pick an option. Details of every tool are in [MCP.md](MCP.md).
 ### Notifications on a locked phone
 
 Open the Sessions tab. At the top is a row that reads **"Notify me when the
-Mac needs me"**. Tap **Turn on** once.
+machine needs me"**. Tap **Turn on** once.
 
 Two conditions apply, both imposed by iOS:
 
@@ -417,13 +437,13 @@ An `orbit_ask` that arrives while the app is closed carries the question's
 **first two options as buttons on the banner** (Allow / Deny, say). On a
 platform that shows notification actions, you answer from the lock screen —
 no unlocking, no opening the app, no waiting for the socket to reconnect. The
-agent on the Mac gets the answer at once.
+agent gets the answer at once.
 
 - A question with more than two options continues in the app. **Tap the
   banner itself**, not a button, and the question opens there.
 - On a platform that does not show buttons on notifications — **iOS is one** —
   tapping the banner opens the question in the app, exactly as before.
-- If the Mac cannot be reached when you tap a button (asleep, off the tailnet),
+- If the machine cannot be reached when you tap a button (asleep, off the tailnet),
   a banner tells you the answer was not delivered. It does not fail silently.
 - The buttons **do not carry your account token**. Each carries a single-use
   ticket for that one question. It can answer only with the options the
@@ -510,7 +530,7 @@ The same ↻ and ＋ appear on ended rows in the Sessions tab.
 
 ### Conversations from the desk
 
-Claude Code conversations you started in a terminal on the Mac itself appear in
+Claude Code conversations you started in a terminal on the machine itself appear in
 the same list, so the afternoon's work at the desk is there on the phone in the
 evening. They are read-only records, and they are not Orbit's to delete: the
 ✕ on such a row is **Hide from this phone**, not a delete. The conversation
@@ -542,10 +562,10 @@ need.
 | Know which session is waiting for you | The number on the Sessions icon; opening the session clears it |
 | Check the page after a change | Preview → ⧉ on the port → pick a size |
 | Try the page for real | Preview → tap the port row; it is shared over https and opens in the app |
-| See the Simulator or a native app on the Mac | Ask the agent to "look at the Mac's screen" (`orbit_screen`) |
+| See the Simulator or a native app on the machine | Ask the agent to "look at the screen" (`orbit_screen`) |
 | Have the agent check its own work visually | "Capture … and look at it" (`orbit_capture`) |
 | Send an error screenshot to the agent | Terminal → 🖼 → pick the image → type your request after the path |
 | Give a long instruction without typing | Terminal → 🎙 → speak → fix the transcript → Send |
 | Paste text copied from another app | Terminal → 📋 → confirm Paste |
 | Rename a session | Sessions → ✎ |
-| Pause everything | Close the browser. Every session keeps waiting on the Mac |
+| Pause everything | Close the browser. Every session keeps waiting on the machine |

@@ -1,17 +1,17 @@
 # Remote access with Tailscale
 
-**Tailscale is how Orbit works, not a convenience on top of it.** The server listens on `127.0.0.1` alone, so `tailscale serve` is the way in from another device — and because it is the only way in, the `Tailscale-User-Login` header it stamps on every request it proxies can be trusted. A request carrying your Mac's own tailnet login is served with no token at all: the phone opens the address and is simply in. A different login is refused. The one way to run Orbit without Tailscale is `orbit start --lan`, which binds every interface and falls back to the access token; see [Without Tailscale, on the Wi-Fi](#without-tailscale-on-the-wi-fi).
+**Tailscale is how Orbit works, not a convenience on top of it.** The server listens on `127.0.0.1` alone, so `tailscale serve` is the way in from another device — and because it is the only way in, the `Tailscale-User-Login` header it stamps on every request it proxies can be trusted. A request carrying the machine's own tailnet login is served with no token at all: the phone opens the address and is simply in. A different login is refused. The one way to run Orbit without Tailscale is `orbit start --lan`, which binds every interface and falls back to the access token; see [Without Tailscale, on the Wi-Fi](#without-tailscale-on-the-wi-fi).
 
-This guide is for anyone who wants to open Orbit on a phone from anywhere: on 4G/5G, on a cafe's Wi-Fi, away from the desk. It covers installing Tailscale on the Mac and the phone, publishing Orbit over the tailnet as https, publishing a dev server the same way, running the server at login, and what to check when something does not connect. Nothing here opens a port on your router, sets up dynamic DNS, or exposes anything to the public internet: Tailscale builds a private network (a tailnet) between your own devices over WireGuard, and its personal plan is free.
+This guide is for anyone who wants to open Orbit on a phone from anywhere: on 4G/5G, on a cafe's Wi-Fi, away from the desk. It covers installing Tailscale on the machine Orbit runs on — a Mac or a Windows PC — and on the phone, publishing Orbit over the tailnet as https, publishing a dev server the same way, running the server at login, and what to check when something does not connect. Nothing here opens a port on your router, sets up dynamic DNS, or exposes anything to the public internet: Tailscale builds a private network (a tailnet) between your own devices over WireGuard, and its personal plan is free.
 
 ```
-iPhone/Android ──(WireGuard tunnel)── MacBook
+iPhone/Android ──(WireGuard tunnel)── Mac or Windows PC
    Tailscale app                        Tailscale + Orbit server
 ```
 
 ## Contents
 
-- [1. Install Tailscale on the Mac](#1-install-tailscale-on-the-mac)
+- [1. Install Tailscale on the machine](#1-install-tailscale-on-the-machine)
 - [2. Install Tailscale on the phone](#2-install-tailscale-on-the-phone)
 - [3. Enable https for the tailnet](#3-enable-https-for-the-tailnet)
 - [4. Publish Orbit with `orbit start`](#4-publish-orbit-with-orbit-start)
@@ -20,27 +20,35 @@ iPhone/Android ──(WireGuard tunnel)── MacBook
 - [7. How access is protected](#7-how-access-is-protected)
 - [Troubleshooting](#troubleshooting)
 
-## 1. Install Tailscale on the Mac
+## 1. Install Tailscale on the machine
 
-Any one of these:
+On a Mac, any one of these:
 
 - Download from <https://tailscale.com/download> (recommended)
 - `brew install --cask tailscale-app`
 - The Mac App Store
 
-Open the app and choose **Log in**. Any Google, Apple, or GitHub account works; the account you pick becomes the owner of the tailnet. Once connected, the Tailscale icon appears in the menu bar.
+On Windows, download the installer from <https://tailscale.com/download/windows> and run it.
 
-The `tailscale` command line tool is used throughout this guide. Orbit looks for it on `PATH` first and falls back to `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. The App Store and direct-download installs do not put the CLI on `PATH`, so if `tailscale` is not found in your shell, call it from the bundle:
+Open the app and choose **Log in**. Any Google, Apple, or GitHub account works; the account you pick becomes the owner of the tailnet. Once connected, the Tailscale icon appears in the menu bar or the notification area.
+
+The `tailscale` command line tool is used throughout this guide. Orbit looks for it on `PATH` first and then in the place the installer puts it, which is not the same on the two platforms:
 
 ```sh
 /Applications/Tailscale.app/Contents/MacOS/Tailscale status
 ```
 
+```powershell
+& 'C:\Program Files\Tailscale\tailscale.exe' status
+```
+
+On the Mac, the App Store and direct-download installs do not put the CLI on `PATH`, which is why the bundle path is worth knowing. On Windows the installer normally does put `tailscale.exe` on `PATH`, and Orbit falls back to the Program Files path when it has not.
+
 ## 2. Install Tailscale on the phone
 
 Install **Tailscale** from the App Store or Play Store, log in with the **same account**, and turn the VPN switch on.
 
-The two devices can now see each other. Confirm from the Mac:
+The two devices can now see each other. Confirm from the machine:
 
 ```sh
 tailscale status        # lists every device with its 100.x.y.z address
@@ -48,19 +56,19 @@ tailscale status        # lists every device with its 100.x.y.z address
 
 ## 3. Enable https for the tailnet
 
-Orbit works over plain http, but only as a terminal. Everything a phone needs beyond that requires a secure context in the browser: voice input (Web Speech), Add to Home Screen, the service worker behind the offline shell, and Web Push. Over `http://<mac-ip>:7788` from `orbit start --lan`, or the Vite dev server on `:5173` from `make dev`, none of those register.
+Orbit works over plain http, but only as a terminal. Everything a phone needs beyond that requires a secure context in the browser: voice input (Web Speech), Add to Home Screen, the service worker behind the offline shell, and Web Push. Over `http://<machine-ip>:7788` from `orbit start --lan`, or the Vite dev server on `:5173` from `bun run dev`, none of those register.
 
-`tailscale serve` solves this. It gives the Mac a real https address with a real certificate, reachable only from inside your tailnet. It needs a one-time change in the [Tailscale admin console](https://login.tailscale.com/admin/dns): on the DNS tab, turn on **MagicDNS** and click **Enable HTTPS**. Without both, `tailscale serve` refuses to start.
+`tailscale serve` solves this. It gives the machine a real https address with a real certificate, reachable only from inside your tailnet. It needs a one-time change in the [Tailscale admin console](https://login.tailscale.com/admin/dns): on the DNS tab, turn on **MagicDNS** and click **Enable HTTPS**. Without both, `tailscale serve` refuses to start.
 
 ## 4. Publish Orbit with `orbit start`
 
-With Orbit installed (see `SETUP.md`; the one-line installer places the executable at `~/.orbit/bin/orbit`), run:
+With Orbit installed (see `SETUP.md`; the one-line installer places the executable at `~/.orbit/bin/orbit`, or `%USERPROFILE%\.orbit\bin\orbit.exe` on Windows), run:
 
 ```sh
 orbit start
 ```
 
-This runs `tailscale serve --bg 7788` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`. On the phone, with the Tailscale VPN on, open it. There is no login screen and nothing to type: Tailscale tells Orbit which tailnet account is calling, Orbit compares it against the Mac's own, and lets it in. Add it to the home screen and the home-screen app walks in the same way — it needs no storage of its own to remember, because there is nothing to remember.
+This runs `tailscale serve --bg 7788` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`. On the phone, with the Tailscale VPN on, open it. There is no login screen and nothing to type: Tailscale tells Orbit which tailnet account is calling, Orbit compares it against the machine's own, and lets it in. Add it to the home screen and the home-screen app walks in the same way — it needs no storage of its own to remember, because there is nothing to remember.
 
 No port is needed in the address. The terminal's WebSocket runs over `wss://` automatically, and Add to Home Screen produces a full PWA.
 
@@ -68,7 +76,7 @@ The first request can take ten seconds or more while Tailscale obtains the certi
 
 If something is already listening on `:7788`, `orbit start` points the https address at it and returns, leaving that server alone.
 
-If the front door cannot be published at all — Tailscale missing, logged out, or HTTPS not enabled in the admin console — `orbit start` no longer stops. It says which of those it is, notes that voice input and Add to Home Screen need https so this section is worth coming back to, and starts the server anyway. With no front door and no LAN, nothing but the Mac itself can reach it, so it also suggests re-running as `orbit start --lan`.
+If the front door cannot be published at all — Tailscale missing, logged out, or HTTPS not enabled in the admin console — `orbit start` no longer stops. It says which of those it is, notes that voice input and Add to Home Screen need https so this section is worth coming back to, and starts the server anyway. With no front door and no LAN, nothing but the machine itself can reach it, so it also suggests re-running as `orbit start --lan`.
 
 From a checkout of the repository, the same commands are:
 
@@ -77,15 +85,17 @@ make start        # build, then orbit start
 make stop         # stop the server on :7788 and the 443 front door
 ```
 
+`make` is a macOS convenience; on Windows run what it wraps — `bun run build`, then `bun server/dist/main.js start` and `… stop`.
+
 ### Without Tailscale, on the Wi-Fi
 
-`orbit` and `orbit start` both listen on `127.0.0.1` only, so a bare `orbit` is reachable from the Mac and nowhere else — not over the LAN, and not over the tailnet's own `100.x.y.z` address either. To open the wi-fi door instead:
+`orbit` and `orbit start` both listen on `127.0.0.1` only, so a bare `orbit` is reachable from the machine itself and nowhere else — not over the LAN, and not over the tailnet's own `100.x.y.z` address either. To open the wi-fi door instead:
 
 ```sh
 orbit start --lan     # or: orbit --lan, or ORBIT_LAN=1 orbit
 ```
 
-That binds every interface and prints the Mac's wi-fi address. Open `http://<mac-ip>:7788` on a phone on the same network.
+That binds every interface and prints the machine's wi-fi address. Open `http://<machine-ip>:7788` on a phone on the same network.
 
 On this path the `Tailscale-User-Login` header is ignored completely and the access token is the only credential. That is deliberate, and it is the point of the whole design. Tailscale strips the header if a caller sets it — but its own documentation is explicit that the guarantee holds only while the program behind the proxy listens on localhost alone. Once the wi-fi door is open, anyone who can reach the port can write the header themselves and claim to be you. So Orbit will not trust it and the back door at the same time.
 
@@ -101,7 +111,7 @@ The 443 mapping is only cleared by `orbit stop` or `make stop`. It survives the 
 
 ### The `bun run` scripts
 
-The older scripts still exist and call `tailscale` the same way, from `PATH` or the app bundle:
+The older scripts still exist and call `tailscale` from `PATH` or the Mac app bundle. They are shell one-liners, so they work on macOS only; on Windows run `tailscale serve` yourself with the same arguments.
 
 ```sh
 bun run remote:on         # tailscale serve --bg 7788
@@ -111,11 +121,11 @@ bun run remote:off        # tailscale serve --https=443 off
 
 `orbit start` is the normal way; these are for scripting or for when you want the proxy without the server. `remote:off` takes the front door down on its own, leaving a running server up.
 
-> **Never use `tailscale funnel` with Orbit.** Funnel publishes a service to the real public internet, whereas `serve` stays inside your tailnet. Orbit can control the entire Mac. Even behind a token, it does not belong out in the open. Orbit itself never calls `funnel`.
+> **Never use `tailscale funnel` with Orbit.** Funnel publishes a service to the real public internet, whereas `serve` stays inside your tailnet. Orbit can control the entire machine. Even behind a token, it does not belong out in the open. Orbit itself never calls `funnel`.
 
 ## 5. Publish a dev server over the tailnet
 
-A dev server is plain http on a port only the Mac can see. Even where it is reachable, http content cannot be shown inside Orbit's https page (mixed content), so a tapped link would only offer **Copy**, and following it means leaving the app, which on a PWA means losing the session's screen.
+A dev server is plain http on a port only the machine can see. Even where it is reachable, http content cannot be shown inside Orbit's https page (mixed content), so a tapped link would only offer **Copy**, and following it means leaving the app, which on a PWA means losing the session's screen.
 
 The **Preview** tab handles this. Type the dev server's URL into the usual field (`http://localhost:3000`) and press **Share :3000 over https**. Orbit calls `tailscale serve` itself, reserves a port from 8443 upward for each dev server, and shows each one as a row. Tap the row to open it in a frame over the terminal (the session stays connected behind it); tap the ✕ to unpublish. The published address is tailnet-only, and never `funnel`.
 
@@ -123,7 +133,7 @@ Agents can do the same through the `orbit_preview` MCP tool; see `MCP.md`.
 
 Why this beats opening `http://<machine>.<tailnet>.ts.net:3000` directly:
 
-- **The proxy runs on the Mac itself.** A dev server bound to `127.0.0.1` only (a bare `vite`, `python -m http.server`) works as is, with no change to the project's configuration.
+- **The proxy runs on the machine itself.** A dev server bound to `127.0.0.1` only (a bare `vite`, `python -m http.server`) works as is, with no change to the project's configuration.
 - **You get https.** The page opens in the frame, and the app under development gets a secure context of its own, so you can test its service worker, camera access, or PWA install from the phone.
 
 Two limits to know about:
@@ -158,7 +168,7 @@ Restart the dev server for it to take effect. The setting applies to development
 | Button | What it does |
 | --- | --- |
 | **↻** | Reloads the page. After the agent has changed the code, see the new version without closing the frame. |
-| **⧉** | Renders the **whole page** again, headless, from the Mac. Includes what is below the fold, but carries no state. |
+| **⧉** | Renders the **whole page** again, headless, from the machine. Includes what is below the fold, but carries no state. |
 | **🔗** | Copies the URL of the open page. |
 
 **⧉** finishes by inserting the capture's path into the prompt and closing the frame, since the next step is to type what you want changed.
@@ -178,11 +188,11 @@ PREVIEW_PORT=3000 bun run preview:on    # → https://<machine>.<tailnet>.ts.net
 bun run preview:off
 ```
 
-`PREVIEW_PORT` defaults to 5173, the Vite dev server.
+`PREVIEW_PORT` defaults to 5173, the Vite dev server. Like the `remote:*` scripts, these are shell one-liners and macOS only; on Windows call `tailscale serve --bg --https=8443 <port>` yourself.
 
 ## 6. Run Orbit at login
 
-Optional. Create `~/Library/LaunchAgents/com.orbit.server.plist`, replacing `YOUR_USER` with your account name:
+Optional, and written here for macOS. Create `~/Library/LaunchAgents/com.orbit.server.plist`, replacing `YOUR_USER` with your account name:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -209,14 +219,16 @@ launchctl load ~/Library/LaunchAgents/com.orbit.server.plist
 tail -f /tmp/orbit-server.log      # the address is printed here, with the token and the QR the `--lan` path needs
 ```
 
-A server started by launchd has a minimal `PATH` and no `ORBIT_HOME`, which is why the plist names the installed executable by its full path rather than `orbit`. The agents are unaffected: Orbit starts them through your login shell, which rebuilds whatever `PATH` they need. Drop the `start` argument to run the server without the https front door — which leaves it on `127.0.0.1` and reachable from the Mac alone, so add `--lan` as a second `<string>` if that is what you want.
+There is no equivalent recipe here for Windows yet. `orbit start` from a terminal is the tested path there.
+
+A server started by launchd has a minimal `PATH` and no `ORBIT_HOME`, which is why the plist names the installed executable by its full path rather than `orbit`. The agents are unaffected: Orbit starts them through your login shell, which rebuilds whatever `PATH` they need. Drop the `start` argument to run the server without the https front door — which leaves it on `127.0.0.1` and reachable from the machine alone, so add `--lan` as a second `<string>` if that is what you want.
 
 ## 7. How access is protected
 
 | Mechanism | What it does |
 | --- | --- |
 | Loopback only | The server binds `127.0.0.1` unless `--lan` is passed. Nothing on the LAN can reach the port, so `tailscale serve` is the only way in from another device — which is what makes the next row safe. |
-| Tailnet identity | `tailscale serve` strips any `Tailscale-User-Login` a caller sent and stamps on the verified one. A request whose login is the Mac's own is served with no token: reads, writes, the socket, and the cookie the socket needs. Any other login is refused, and so is a Mac whose own login cannot be read. |
+| Tailnet identity | `tailscale serve` strips any `Tailscale-User-Login` a caller sent and stamps on the verified one. A request whose login is the machine's own is served with no token: reads, writes, the socket, and the cookie the socket needs. Any other login is refused, and so is a machine whose own login cannot be read. |
 | Origin check | The login header is refused when the request carries an `Origin` belonging to another host, because `serve` stamps the header on everything it proxies — including a page served from a published preview port, which would otherwise be able to act as you. The WebSocket handshake checks `Origin` against `Host` for the same reason. |
 | Bearer token | Still there, and unchanged. It is what the MCP server, the hooks and `orbit pair` use over loopback, and under `--lan` it is the only credential — the header is ignored there entirely. It is simply no longer something a person types on the normal path. |
 | Cookie | An `HttpOnly`, `SameSite=Strict` cookie, marked `Secure` over https, holds a hash of the token. It is used only where a header cannot go: the WebSocket and images. |
@@ -234,16 +246,16 @@ Remove only the `token` key from `~/.orbit/config.json`, then restart the server
 
 | Symptom | What to check |
 | --- | --- |
-| `orbit start` says `not logged in` | Open the Tailscale app on the Mac and log in. `tailscale status` should list your devices. |
+| `orbit start` says `not logged in` | Open the Tailscale app on the machine and log in. `tailscale status` should list your devices. |
 | `orbit start` says `HTTPS must be enabled` | Turn on **Enable HTTPS** (and MagicDNS) on the DNS tab of the admin console, then run it again. |
 | The `.ts.net` name is unknown on the phone | MagicDNS is off, or the phone's VPN is not connected. Turn on MagicDNS in the admin console and check the Tailscale switch on the phone. Until then the `100.x.y.z` address still works. |
-| The phone cannot reach the Mac at all | The Tailscale VPN switch must be on in the app on both devices. From the Mac, `tailscale ping <phone-ip>`. |
+| The phone cannot reach the machine at all | The Tailscale VPN switch must be on in the app on both devices. From the machine, `tailscale ping <phone-ip>`. |
 | The first https request hangs for a long time | Tailscale is issuing the certificate. Wait ten to twenty seconds and reload; later requests are fast. |
 | The page loads but the terminal does not connect | The WebSocket is blocked. With `serve` in use, open the `https://` address, not `http://…:7788`; do not mix the two. |
 | The wi-fi address stopped answering after an upgrade | Expected. The server binds `127.0.0.1` now. Run `orbit start --lan` to get the old behaviour back, or reach it over the tailnet instead. |
-| A login screen appears on the tailnet address | Orbit could not read the Mac's own tailnet login (`tailscale status --json`), so it fell back to the token. Check the Tailscale app is logged in. |
-| The login screen appears on the `--lan` address every time | The token is stored per origin. `http://<mac-ip>:7788` and `https://….ts.net` are different origins; enter it once more for this one. |
+| A login screen appears on the tailnet address | Orbit could not read the machine's own tailnet login (`tailscale status --json`), so it fell back to the token. Check the Tailscale app is logged in. |
+| The login screen appears on the `--lan` address every time | The token is stored per origin. `http://<machine-ip>:7788` and `https://….ts.net` are different origins; enter it once more for this one. |
 | `Port 7788 already in use` | Another Orbit (or something else) is listening. `orbit start` points the https address at it and exits. Run `make stop` to stop the server on `:7788` and the front door, or set `ORBIT_PORT` to run on another port. |
-| The connection drops when the Mac sleeps | In System Settings, keep the Mac on power and turn off "Put hard disks to sleep", or use `caffeinate` or Amphetamine. |
-| `orbit_screen` returns a black or empty image | macOS needs Screen Recording permission for the process running Orbit. Grant it in System Settings > Privacy & Security > Screen Recording. |
+| The connection drops when the machine sleeps | On a Mac: in System Settings, keep it on power and turn off "Put hard disks to sleep", or use `caffeinate` or Amphetamine. On Windows: set the sleep timers under Power & battery. |
+| `orbit_screen` returns a black or empty image | On macOS, Screen Recording permission is missing for the process running Orbit; grant it in System Settings > Privacy & Security > Screen Recording. Windows asks for no such permission, so a black image there is the capture itself failing. |
 | The access token needs to change | See [Rotating the token](#rotating-the-token). |
