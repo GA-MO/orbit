@@ -137,13 +137,9 @@ const tailscaleStandIn = (): string => {
   if (process.env.ORBIT_TAILSCALE) return process.env.ORBIT_TAILSCALE
   const script = path.join(REPO, 'scripts/fake-tailscale.mjs')
   if (process.platform !== 'win32') return script
-  const compiled = path.join(SCRATCH, 'fake-tailscale.exe')
-  const built = spawnSync(process.execPath, ['build', '--compile', script, '--outfile', compiled], {
-    stdio: 'pipe',
-    encoding: 'utf8',
-  })
-  if (built.status !== 0) die(`could not compile the tailscale stand-in: ${built.stderr}`)
-  return compiled
+  const shim = path.join(SCRATCH, 'fake-tailscale.cmd')
+  fs.writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`)
+  return shim
 }
 
 const TAILSCALE = tailscaleStandIn()

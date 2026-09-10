@@ -56,12 +56,17 @@ async function findCli(): Promise<string | null> {
   if (failedWithinRetryWindow(cliFailedAt)) return null
   for (const candidate of CLI_CANDIDATES) {
     try {
-      await execFileAsync(candidate, ['version'], { timeout: CLI_TIMEOUT_MS })
+      await runCli(candidate, ['version'])
       return (cli = candidate)
     } catch {}
   }
   cliFailedAt = Date.now()
   return null
+}
+
+const runCli = (bin: string, args: string[]) => {
+  const runnable = platform.runsExecutableOnPath(bin, args)
+  return execFileAsync(runnable.file, runnable.args, { timeout: CLI_TIMEOUT_MS })
 }
 
 const firstStderrLine = (err: Error & { stderr?: string }): string | undefined =>
@@ -71,7 +76,7 @@ const run = async (args: string[]): Promise<string> => {
   const bin = await findCli()
   if (!bin) throw new Error(NOT_INSTALLED)
   try {
-    const { stdout } = await execFileAsync(bin, args, { timeout: CLI_TIMEOUT_MS })
+    const { stdout } = await runCli(bin, args)
     return stdout
   } catch (err) {
     const detail = firstStderrLine(err as Error & { stderr?: string })
