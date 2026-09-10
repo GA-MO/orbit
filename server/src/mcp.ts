@@ -114,7 +114,7 @@ const TOOLS: Tool[] = [
   {
     name: 'orbit_screen',
     description:
-      "Capture the Mac's own screen and return it as an image — for anything headless Chrome cannot render: an iOS Simulator, a native app, Xcode, a desktop tool. Requires Screen Recording permission for the process running the Orbit server.",
+      "Capture this machine's own screen and return it as an image — for anything headless Chrome cannot render: an iOS Simulator, a native app, Xcode, a desktop tool. On macOS this needs Screen Recording permission for the process running the Orbit server; on Windows it needs none.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -169,7 +169,7 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        port: { type: 'number', description: "The dev server's port on the Mac, e.g. 5173." },
+        port: { type: 'number', description: "The dev server's port on this machine, e.g. 5173." },
         path: {
           type: 'string',
           description: 'Route to land on, e.g. /settings or /orders?status=open. Defaults to /.',

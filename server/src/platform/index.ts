@@ -4,12 +4,14 @@ import type { Platform } from './contract.js'
 
 export type { Command, ListeningSocket, Platform } from './contract.js'
 
-const UNSUPPORTED = `Orbit runs on macOS and Windows — this is ${process.platform}`
+const BY_PLATFORM: Partial<Record<NodeJS.Platform, Platform>> = {
+  darwin,
+  win32,
+}
 
-export const platform: Platform =
-  process.platform === 'win32' ? win32 : process.platform === 'darwin' ? darwin : darwin
+export const supportedPlatform = (): Platform | null => BY_PLATFORM[process.platform] ?? null
 
-export const isSupportedPlatform = (): boolean =>
-  process.platform === 'darwin' || process.platform === 'win32'
+export const unsupportedPlatformMessage = (): string =>
+  `orbit: runs on macOS and Windows, and this is ${process.platform}`
 
-export const unsupportedPlatformMessage = UNSUPPORTED
+export const platform: Platform = supportedPlatform() ?? darwin

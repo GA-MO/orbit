@@ -25,7 +25,7 @@ const RESET = '\x1b[0m'
 const DIM = '\x1b[90m'
 const BOLD_CYAN = '\x1b[1;36m'
 const BOLD_MAGENTA = '\x1b[1;35m'
-const READ_FROM_MAC_HEADER = `${DIM}[this conversation happened on the Mac — Orbit is reading its transcript]${RESET}\r\n`
+const READ_FROM_MAC_HEADER = `${DIM}[this conversation happened at the desk — Orbit is reading its transcript]${RESET}\r\n`
 
 interface Candidate {
   id: string

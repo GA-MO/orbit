@@ -51,7 +51,7 @@ export const darwin: Platform = {
   }),
 
   opensInteractiveShell: (): Command => ({
-    file: process.env.SHELL ?? LOGIN_SHELL,
+    file: process.env.ORBIT_SHELL ?? process.env.SHELL ?? LOGIN_SHELL,
     args: ['-l'],
   }),
 
@@ -78,6 +78,12 @@ export const darwin: Platform = {
     'grant Screen Recording to the app running the Orbit server in System Settings → Privacy & Security',
 
   screenCapturePermissionRefused: /not authorized|permission|denied/i,
+
+  screenCapturePermission: {
+    what: 'Screen Recording',
+    detail: 'cannot be checked from here',
+    fix: 'if orbit_screen returns an empty desktop, grant it to the terminal that starts Orbit (System Settings → Privacy)',
+  },
 
   chromeExecutableCandidates: APPLICATION_DIRS.flatMap((dir) =>
     BROWSER_NAMES.map((name) => path.join(dir, `${name}.app/Contents/MacOS/${name}`)),

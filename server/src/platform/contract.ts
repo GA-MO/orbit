@@ -19,6 +19,7 @@ export interface Platform {
   capturesWholeScreen(filePath: string, display?: number): Command
   downscalesImage(source: string, destination: string, maxWidth: number): Command
   screenCaptureHint: string
+  screenCapturePermission: { what: string; detail: string; fix?: string } | null
   screenCapturePermissionRefused: RegExp
   chromeExecutableCandidates: string[]
   chromeSearchedWhere: string

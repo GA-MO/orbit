@@ -24,11 +24,11 @@ const sayWifiDoor = () => {
     say(`  ${wifi}/`)
     return
   }
-  say(`This Mac has no Wi-Fi address to offer a phone — http://localhost:${PORT} works on the Mac itself.`)
+  say(`This machine has no Wi-Fi address to offer a phone — http://localhost:${PORT} works on it directly.`)
 }
 
 const sayHowToOpenTheWifiDoor = () => {
-  say('Orbit is listening on this Mac alone, so no phone can reach it yet.')
+  say('Orbit is listening on this machine alone, so no phone can reach it yet.')
   say('Until then, to let a phone on the same Wi-Fi in:')
   say('  orbit start --lan')
 }

@@ -125,6 +125,8 @@ export const win32: Platform = {
 
   screenCapturePermissionRefused: /access is denied|unauthorized/i,
 
+  screenCapturePermission: null,
+
   chromeExecutableCandidates: programFiles().flatMap((dir) => [
     path.join(dir, 'Google/Chrome/Application/chrome.exe'),
     path.join(dir, 'Google/Chrome Beta/Application/chrome.exe'),

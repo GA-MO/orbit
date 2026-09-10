@@ -106,7 +106,7 @@ const pairingInstructions = (hasPairUrl: boolean): string[] =>
     : ["Scan it from Orbit's login screen, or type the token."]
 
 const footnoteLine = (facts: BannerFacts, localUrl: string, columns: number): string => {
-  const footnotes = facts.tailnetUrl ? [`on this Mac ${localUrl}`, 'ws /ws'] : ['ws /ws']
+  const footnotes = facts.tailnetUrl ? [`on this machine ${localUrl}`, 'ws /ws'] : ['ws /ws']
   footnotes.push(STOP_HINT)
   const footer = footnotes.join(FOOTNOTE_SEPARATOR)
   const fits = footer.length + INDENT.length <= columns

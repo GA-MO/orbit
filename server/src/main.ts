@@ -1,13 +1,15 @@
+import { supportedPlatform, unsupportedPlatformMessage } from './platform/index.js'
+
 const [command, ...rest] = process.argv.slice(2)
 
-const usage = `orbit — a phone-side console for the coding agents on this Mac
+const usage = `orbit — a phone-side console for the coding agents on this machine
 
   orbit [--lan]            run the server (ORBIT_PORT, default 7788; --lan opens it to the Wi-Fi)
   orbit start [--lan]      run it published over the tailnet as https, for the phone
   orbit stop               stop the server on that port, and the tailnet front door
   orbit setup [--approval] [--uninstall]  wire the hooks and MCP server into Claude Code (--approval adds the phone-side gate)
   orbit pair               a fresh QR to pair a phone with the running server
-  orbit doctor             what this Mac has and what it is missing
+  orbit doctor             what this machine has and what it is missing
   orbit update [--check]   replace this executable with the latest release
   orbit mcp                the MCP server on stdio (what Claude Code runs)
   orbit hook approve|notify  the Claude Code hooks (what \`setup\` installs)
@@ -32,6 +34,11 @@ const reportConfigProblemsPlainly = (err: unknown): never => {
     process.exit(2)
   }
   throw err
+}
+
+if (!supportedPlatform()) {
+  console.error(unsupportedPlatformMessage())
+  process.exit(2)
 }
 
 try {

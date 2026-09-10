@@ -66,7 +66,7 @@ const checkTailscale = async (): Promise<Line> => {
     ok: ts.available || !!ts.host,
     what: 'Tailscale',
     detail: ts.host ? `logged in as ${ts.host}` : (ts.reason ?? 'not available'),
-    fix: ts.host ? undefined : 'needed only to reach Orbit away from the Mac — install and log in, then `orbit start`',
+    fix: ts.host ? undefined : 'needed only to reach Orbit away from the desk — install and log in, then `orbit start`',
   }
 }
 
@@ -158,11 +158,9 @@ const checkVersion = async (): Promise<Line> => {
   return { ok: null, what: 'Version', detail: `${installed}, and ${latest} has been released`, fix: 'run `orbit update`' }
 }
 
-const screenRecordingLine: Line = {
-  ok: null,
-  what: 'Screen Recording',
-  detail: 'cannot be checked from here',
-  fix: 'if orbit_screen returns an empty desktop, grant it to the terminal that starts Orbit (System Settings → Privacy)',
+const screenCapturePermissionLine = (): Line | null => {
+  const permission = platform.screenCapturePermission
+  return permission ? { ok: null, ...permission } : null
 }
 
 const markFor = (ok: boolean | null): string => (ok === true ? '✔' : ok === false ? '✘' : '–')
@@ -189,8 +187,9 @@ export async function runDoctor(): Promise<number> {
     checkHooks(start),
     await checkMcp(claude, start),
     await checkServer(start),
-    screenRecordingLine,
   ]
+  const permission = screenCapturePermissionLine()
+  if (permission) lines.push(permission)
 
   printReport(lines)
   return lines.some((line) => line.ok === false) ? 1 : 0

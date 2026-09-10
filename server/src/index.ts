@@ -503,7 +503,7 @@ on('DELETE /api/sessions/:id', ({ res, params }) => {
   }
   const transcriptBelongsToTheMac = manager.isExternal(params.id)
   if (transcriptBelongsToTheMac) {
-    throw bad('this conversation belongs to the Mac — Orbit only reads it')
+    throw bad('this conversation belongs to the desktop — Orbit only reads it')
   }
   const endedAndForgotten = manager.forget(params.id)
   if (endedAndForgotten) return json(res, 200, { ok: true })
