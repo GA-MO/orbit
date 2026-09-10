@@ -85,10 +85,12 @@ export default function Login({ onSuccess, notice = null }: Props) {
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold tracking-wide">Orbit</h1>
           <p className="mt-2 text-sm leading-relaxed text-mut">
-            This Orbit was started with the LAN open, so it asks every browser for its
-            access token. Scan the QR code on your Mac’s screen, or type the token printed
-            beside it
-            (<code className="font-mono text-xs text-fore">[orbit] access token</code>)
+            Your Mac is asking for its access token. Scan the QR code on its screen, or type
+            the token printed beside it
+            (<code className="font-mono text-xs text-fore">[orbit] access token</code>).
+            Orbit asks for this when it was started with{' '}
+            <code className="font-mono text-xs text-fore">--lan</code>; over your tailnet it
+            knows you already
           </p>
         </div>
         <Field

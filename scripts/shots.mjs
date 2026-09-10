@@ -30,6 +30,7 @@ if (!SCRATCH || SCRATCH === os.homedir()) {
 }
 
 const token = JSON.parse(fs.readFileSync(path.join(SCRATCH, '.orbit/config.json'), 'utf8')).token
+const TAILNET_OWNER = 'smoke-owner@example.com'
 
 const api = async (route, body, method = 'POST') => {
   const res = await fetch(BASE + route, {
@@ -147,12 +148,17 @@ buildDemoProject()
 leaveUncommittedWork()
 
 const browser = await chromium.launch({ channel: 'chrome' })
-const context = await browser.newContext({
+const PHONE_CONTEXT = {
   viewport: PHONE,
   hasTouch: true,
   isMobile: true,
   deviceScaleFactor: 2,
   colorScheme: 'dark',
+}
+const RECOGNISED_BY_THE_TAILNET = { 'Tailscale-User-Login': TAILNET_OWNER }
+const context = await browser.newContext({
+  ...PHONE_CONTEXT,
+  extraHTTPHeaders: RECOGNISED_BY_THE_TAILNET,
 })
 
 await context.addInitScript(() => {
@@ -239,13 +245,24 @@ const PLAIN_PROMPT = "clear; export PS1='storefront $ '; exec zsh -f"
 
 console.log(`\n── shots · ${BASE} ${'─'.repeat(28)}`)
 
-await page.goto(BASE)
-await wait(700)
-if (wanted('01-login')) await shoot('01-login')
+if (wanted('01-login')) {
+  const withoutTheTailnet = await browser.newContext(PHONE_CONTEXT)
+  const loginPage = await withoutTheTailnet.newPage()
+  await loginPage.goto(BASE)
+  await loginPage.waitForTimeout(900)
+  await loginPage.screenshot({ path: path.join(OUT, '01-login.jpg'), type: 'jpeg', quality: JPEG_QUALITY })
+  taken.push('01-login')
+  console.log('  shot  01-login')
+  await withoutTheTailnet.close()
+}
 
-await page.fill('input', token)
-await page.keyboard.press('Enter')
+await page.goto(BASE)
 await wait(1200)
+const stillAskingForACredential = await page.getByPlaceholder('Access token').count()
+if (stillAskingForACredential) {
+  console.error('  the tailnet header did not let us in — every shot after this would show the wrong app')
+  process.exit(1)
+}
 
 const makeSession = (name, opts) =>
   api('/api/sessions', { provider: 'shell', cwd: APP, name, ...opts })
