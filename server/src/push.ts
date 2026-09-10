@@ -19,6 +19,7 @@ const HTTPS_ENDPOINT = /^https:\/\//
 const MAX_SUBSCRIPTIONS = 32
 const SEND_TIMEOUT_MS = 10_000
 const THIRTY_MINUTES_S = 30 * 60
+const URL_PARSE_DEPRECATION = 'DEP0169'
 
 export interface Subscription {
   endpoint: string
@@ -89,12 +90,22 @@ const assertTopicsAcceptable = () => {
   }
 }
 
+const hideWebPushUrlParseDeprecation = () => {
+  const printers = process.listeners('warning')
+  process.removeAllListeners('warning')
+  process.on('warning', (warning: Error & { code?: string }) => {
+    if (warning.code === URL_PARSE_DEPRECATION) return
+    for (const printer of printers) printer(warning)
+  })
+}
+
 const vapidContact = (): string => {
   const configured = readConfig().vapidContact
   return typeof configured === 'string' && CONTACT_SCHEME.test(configured) ? configured : DEFAULT_CONTACT
 }
 
 assertTopicsAcceptable()
+hideWebPushUrlParseDeprecation()
 
 const keys = loadKeys()
 webpush.setVapidDetails(vapidContact(), keys.publicKey, keys.privateKey)

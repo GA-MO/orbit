@@ -720,6 +720,7 @@ alternatives — keyed by the function or constant it belongs to.
 - `SEND_TIMEOUT_MS` = 10,000 guards a push service that accepts the connection and then says nothing, which would otherwise hold the notice path open indefinitely.
 - `subscribe` refuses non-https endpoints and caps at `MAX_SUBSCRIPTIONS` = 32, because the endpoint is a URL this server POSTs to on every notice. Re-subscribing replaces the same endpoint rather than duplicating it.
 - `ENDPOINT_GONE_STATUSES` = 404, 410 prune a subscription: a reinstalled app leaves a dead endpoint that fails every send otherwise.
+- `hideWebPushUrlParseDeprecation` drops `DEP0169` and passes every other warning to the printers it replaced. web-push 3.6.7 — the latest — calls `url.parse` on the endpoint, so the first push of every run printed a deprecation warning into the server log and the start-up terminal. The warning is about web-push's own call, not anything Orbit can pass differently, and there is no newer release to upgrade to.
 
 ### Auth, pairing and the HTTP layer (index.ts, auth.ts, pairing.ts)
 
