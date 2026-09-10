@@ -4,10 +4,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { packageVersion } from './banner.js'
+import { packageVersion } from './version.js'
 import { COMPILED } from './launcher.js'
 import { DEFAULT_PORT } from './port.js'
 import * as preview from './preview.js'
+import * as ui from './ui.js'
 
 const DEFAULT_REPO = 'GA-MO/orbit'
 const GITHUB_API = 'https://api.github.com'
@@ -22,7 +23,7 @@ const VERSION_SEPARATOR = '.'
 const STAGED_SUFFIX = '.orbit-update'
 const CHECK_FLAG = '--check'
 
-const say = (line = '') => console.log(line ? `  ${line}` : '')
+const say = ui.say
 
 const repo = (): string => process.env.ORBIT_REPO || DEFAULT_REPO
 
@@ -30,9 +31,11 @@ const localReleaseDir = (): string | undefined => process.env.ORBIT_LOCAL_DIR ||
 
 export const assetName = (): string => `orbit-darwin-${os.arch() === 'arm64' ? 'arm64' : 'x64'}`
 
+export type ArrivalReport = (received: number, total: number | null) => void
+
 interface ReleaseAsset {
   name: string
-  read: () => Promise<Buffer>
+  read: (onArrival?: ArrivalReport) => Promise<Buffer>
 }
 
 interface Release {
@@ -65,14 +68,34 @@ const askGitHub = async (url: string, accept: string, timeout: number): Promise<
   return response
 }
 
-const downloadAsset = (asset: { id?: number; browser_download_url?: string; name: string }) => async (): Promise<Buffer> => {
-  const url = process.env.GITHUB_TOKEN
-    ? `${GITHUB_API}/repos/${repo()}/releases/assets/${asset.id}`
-    : asset.browser_download_url
-  if (!url) throw new Error(`release asset ${asset.name} has no download address`)
-  const response = await askGitHub(url, GITHUB_BINARY, DOWNLOAD_TIMEOUT_MS)
-  return Buffer.from(await response.arrayBuffer())
+const announcedLength = (response: Response): number | null => {
+  const header = Number(response.headers.get('content-length'))
+  return Number.isFinite(header) && header > 0 ? header : null
 }
+
+const drain = async (response: Response, onArrival: ArrivalReport): Promise<Buffer> => {
+  const total = announcedLength(response)
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk)
+    received += chunk.byteLength
+    onArrival(received, total)
+  }
+  return Buffer.concat(chunks)
+}
+
+const downloadAsset =
+  (asset: { id?: number; browser_download_url?: string; name: string }) =>
+  async (onArrival?: ArrivalReport): Promise<Buffer> => {
+    const url = process.env.GITHUB_TOKEN
+      ? `${GITHUB_API}/repos/${repo()}/releases/assets/${asset.id}`
+      : asset.browser_download_url
+    if (!url) throw new Error(`release asset ${asset.name} has no download address`)
+    const response = await askGitHub(url, GITHUB_BINARY, DOWNLOAD_TIMEOUT_MS)
+    if (!onArrival || !response.body) return Buffer.from(await response.arrayBuffer())
+    return drain(response, onArrival)
+  }
 
 const releaseOnDisk = (dir: string): Release => ({
   tag: fs.readFileSync(path.join(dir, 'VERSION'), 'utf8').trim(),
@@ -150,35 +173,61 @@ const replaceExecutable = (executable: string, bytes: Buffer): void => {
   fs.renameSync(staged, executable)
 }
 
-const sayWhatIsLeftToDo = async (): Promise<void> => {
+const whatIsLeftToDo = async (): Promise<string[]> => {
+  const left: string[] = []
   const frontDoor = await preview.frontDoorTargetPort()
   if (frontDoor !== null && frontDoor !== DEFAULT_PORT) {
-    say(`Tailscale still proxies the front door to :${frontDoor}, not the default :${DEFAULT_PORT} — run \`orbit start\` to move it.`)
+    left.push(`Tailscale still proxies the front door to :${frontDoor}, not the default :${DEFAULT_PORT} — run \`orbit start\` to move it.`)
   }
-  say('A Claude Code session that is already open still holds the previous MCP server — restart it to pick this one up.')
+  left.push('A Claude Code session that is already open still holds the previous MCP server — restart it to pick this one up.')
+  return left
 }
 
-const refuseFromCheckout = (): number => {
-  say()
+const refuseFromCheckout = (installed: Installed): number => {
+  ui.heading('update', installed.version)
   say('This orbit is running from a checkout, not from an installed executable.')
-  say('Update it with git instead:  git pull && make setup')
-  say()
+  ui.closing('Update it with git instead:  git pull && make setup')
   return 1
 }
 
-const install = async (release: Release, installed: Installed): Promise<number> => {
+const CHANNELS = [
+  { key: 'release', label: 'release' },
+  { key: 'download', label: 'download' },
+  { key: 'checksum', label: 'checksum' },
+  { key: 'install', label: 'install' },
+]
+
+const SHORT_DIGEST = 12
+
+const install = async (release: Release, installed: Installed, panel: ui.Board): Promise<number> => {
   const name = assetName()
-  const binary = await assetOf(release, name).read()
+  panel.begin('download', name)
+  const binary = await assetOf(release, name).read((received, total) => {
+    if (total) panel.progress('download', received / total, `${ui.bytes(received)} / ${ui.bytes(total)}`)
+  })
+  panel.pass('download', `${name}   ${ui.bytes(binary.length)}`)
+
+  panel.begin('checksum')
   const checksum = await assetOf(release, `${name}.sha256`).read()
-  if (sha256(binary) !== publishedChecksum(checksum.toString('utf8'))) {
-    say(`The checksum of ${name} does not match the one ${release.tag} published — not installing it.`)
-    say()
+  const digest = sha256(binary)
+  if (digest !== publishedChecksum(checksum.toString('utf8'))) {
+    panel.fail('checksum', `not the digest ${release.tag} published`)
+    panel.skip('install', 'nothing written')
+    panel.close()
+    ui.closing(`The checksum of ${name} does not match the one ${release.tag} published — not installing it.`)
     return 1
   }
+  panel.pass('checksum', `sha256 ${digest.slice(0, SHORT_DIGEST)}…`)
+
+  panel.begin('install', installed.executable)
   replaceExecutable(installed.executable, binary)
-  say(`Updated ${installed.executable} from ${installed.version} to ${withoutLeadingV(release.tag)}.`)
-  await sayWhatIsLeftToDo()
-  say()
+  panel.pass('install', installed.executable)
+  panel.close()
+
+  ui.closing(
+    `Updated ${installed.executable} from ${installed.version} to ${withoutLeadingV(release.tag)}.`,
+    await whatIsLeftToDo(),
+  )
   return 0
 }
 
@@ -188,41 +237,62 @@ const whatIsThereToDo = (latest: string, installed: string): string => {
   return `orbit ${installed} is ahead of the latest release of ${repo()} — nothing to install.`
 }
 
+const runCheck = async (installed: Installed): Promise<number> => {
+  ui.heading('update --check', installed.version)
+  const panel = ui.board([
+    { key: 'installed', label: 'installed' },
+    { key: 'available', label: 'available' },
+  ])
+  panel.pass('installed', installed.version)
+  panel.begin('available', repo())
+  let latest: string
+  try {
+    latest = await latestVersion()
+  } catch (err) {
+    panel.fail('available', (err as Error).message)
+    panel.close()
+    ui.closing('Could not tell whether a newer release is out.')
+    return 1
+  }
+  panel.pass('available', `${latest}  ·  ${repo()}`)
+  panel.close()
+  ui.closing(whatIsThereToDo(latest, installed.version))
+  return 0
+}
+
 export async function runUpdate(args: string[], installed: Installed = thisInstall()): Promise<number> {
-  if (!installed.compiled) return refuseFromCheckout()
+  if (!installed.compiled) return refuseFromCheckout(installed)
+  if (args.includes(CHECK_FLAG)) return runCheck(installed)
+
+  ui.heading('update', installed.version)
+  const panel = ui.board(CHANNELS)
+  panel.begin('release', repo())
 
   let release: Release
   try {
     release = await latestRelease()
   } catch (err) {
-    say()
-    say((err as Error).message)
-    say()
+    panel.fail('release', (err as Error).message)
+    panel.close()
+    ui.closing('Nothing was installed.')
     return 1
   }
 
   const latest = withoutLeadingV(release.tag)
-  say()
-
-  if (args.includes(CHECK_FLAG)) {
-    say(`Installed:  ${installed.version}`)
-    say(`Available:  ${latest}`)
-    say(whatIsThereToDo(latest, installed.version))
-    say()
-    return 0
-  }
+  panel.pass('release', `${latest}  ·  ${repo()}`)
 
   if (!isNewerThan(latest, installed.version)) {
-    say(whatIsThereToDo(latest, installed.version))
-    say()
+    for (const key of ['download', 'checksum', 'install']) panel.skip(key, 'nothing to fetch')
+    panel.close()
+    ui.closing(whatIsThereToDo(latest, installed.version))
     return 0
   }
 
   try {
-    return await install(release, installed)
+    return await install(release, installed, panel)
   } catch (err) {
-    say((err as Error).message)
-    say()
+    panel.close()
+    ui.closing((err as Error).message)
     return 1
   }
 }

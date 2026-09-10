@@ -5,17 +5,17 @@ import path from 'node:path'
 
 import { PORT } from './port.js'
 import { orbitDir } from './home.js'
-import { packageVersion } from './banner.js'
+import { packageVersion } from './version.js'
 import { COMPILED, launcher } from './launcher.js'
 import { isNewerThan, latestVersion } from './update.js'
 import * as preview from './preview.js'
 import { hookPlan, settingsPath } from './setup.js'
+import * as ui from './ui.js'
 
 const LOGIN_SHELL = '/bin/zsh'
 const LOGIN_SHELL_ARGS = ['-l', '-i', '-c']
 const PATH_LOOKUP_TIMEOUT_MS = 8000
 const CLAUDE_MCP_TIMEOUT_MS = 15000
-const WHAT_COLUMN_WIDTH = 18
 const OUR_HOOK_COMMAND = / hook (approve|notify)$/
 
 const CHROME_LOCATIONS = ['/Applications/Google Chrome.app', path.join(os.homedir(), 'Applications/Google Chrome.app')]
@@ -47,14 +47,12 @@ const claudeMcp = (): Promise<CommandResult> =>
 
 interface Line {
   ok: boolean | null
-  what: string
   detail: string
   fix?: string
 }
 
 const checkClaude = (claude: boolean): Line => ({
   ok: claude,
-  what: 'Claude Code',
   detail: claude ? 'on the login shell PATH' : 'not on the login shell PATH',
   fix: claude ? undefined : 'install it, or the Claude provider and `orbit setup` have nothing to talk to',
 })
@@ -63,7 +61,6 @@ const checkChrome = (): Line => {
   const chrome = CHROME_LOCATIONS.find((location) => fs.existsSync(location))
   return {
     ok: !!chrome,
-    what: 'Google Chrome',
     detail: chrome ?? 'not found in /Applications',
     fix: chrome ? undefined : 'captures (orbit_capture, the Preview tab) render in system Chrome — install it',
   }
@@ -73,7 +70,6 @@ const checkTailscale = async (): Promise<Line> => {
   const ts = await preview.state(PORT)
   return {
     ok: ts.available || !!ts.host,
-    what: 'Tailscale',
     detail: ts.host ? `logged in as ${ts.host}` : (ts.reason ?? 'not available'),
     fix: ts.host ? undefined : 'needed only to reach Orbit away from the Mac — install and log in, then `orbit start`',
   }
@@ -92,7 +88,6 @@ const checkToken = (): Line => {
   const hasToken = configHasToken(config)
   return {
     ok: hasToken,
-    what: 'Access token',
     detail: hasToken ? config : `${config} not written yet`,
     fix: hasToken ? undefined : 'it is minted on the first start — run `orbit` once and pair the phone with the token it prints',
   }
@@ -123,7 +118,6 @@ const checkHooks = (start: string): Line => {
   const approval = commands.includes(`${start} hook approve`)
   return {
     ok: hooksOk,
-    what: 'Claude Code hooks',
     detail: hooksOk
       ? `installed, pointing at ${start}${approval ? '' : ' (without the approval hook)'}`
       : hooksStale
@@ -139,7 +133,6 @@ const checkMcp = async (claude: boolean, start: string): Promise<Line> => {
   const mcpOk = mcp.ok && mcp.out.includes(executable)
   return {
     ok: claude ? mcpOk : null,
-    what: 'MCP server',
     detail: !claude ? 'skipped (no Claude Code)' : mcpOk ? 'registered at user scope' : mcp.ok ? 'registered, but not as this program' : 'not registered',
     fix: !claude || mcpOk ? undefined : `run \`${start} setup\``,
   }
@@ -151,7 +144,6 @@ const checkServer = async (start: string): Promise<Line> => {
     .catch(() => false)
   return {
     ok: up ? true : null,
-    what: `Server on :${PORT}`,
     detail: up ? 'running' : 'not running',
     fix: up ? undefined : `\`${start} start\` to run it and publish it over your tailnet`,
   }
@@ -159,48 +151,65 @@ const checkServer = async (start: string): Promise<Line> => {
 
 const checkVersion = async (): Promise<Line> => {
   const installed = packageVersion()
-  if (!COMPILED) return { ok: null, what: 'Version', detail: `${installed}, running from a checkout` }
+  if (!COMPILED) return { ok: null, detail: `${installed}, running from a checkout` }
   const latest = await latestVersion().catch(() => null)
-  if (!latest) return { ok: null, what: 'Version', detail: `${installed} — could not ask GitHub whether a newer one is out` }
-  if (latest === installed) return { ok: true, what: 'Version', detail: `${installed}, the latest release` }
-  if (!isNewerThan(latest, installed)) return { ok: true, what: 'Version', detail: `${installed}, ahead of the ${latest} release` }
-  return { ok: null, what: 'Version', detail: `${installed}, and ${latest} has been released`, fix: 'run `orbit update`' }
+  if (!latest) return { ok: null, detail: `${installed} — could not ask GitHub whether a newer one is out` }
+  if (latest === installed) return { ok: true, detail: `${installed}, the latest release` }
+  if (!isNewerThan(latest, installed)) return { ok: true, detail: `${installed}, ahead of the ${latest} release` }
+  return { ok: null, detail: `${installed}, and ${latest} has been released`, fix: 'run `orbit update`' }
 }
 
 const screenRecordingLine: Line = {
   ok: null,
-  what: 'Screen Recording',
   detail: 'cannot be checked from here',
   fix: 'if orbit_screen returns an empty desktop, grant it to the terminal that starts Orbit (System Settings → Privacy)',
 }
 
-const markFor = (ok: boolean | null): string => (ok === true ? '✔' : ok === false ? '✘' : '–')
+const settle = (panel: ui.Board, key: string, line: Line): Line => {
+  if (line.ok === true) panel.pass(key, line.detail)
+  else if (line.ok === false) panel.fail(key, line.detail, line.fix)
+  else panel.skip(key, line.detail, line.fix)
+  return line
+}
 
-const printReport = (lines: Line[]) => {
-  console.log()
-  for (const line of lines) {
-    console.log(`  ${markFor(line.ok)} ${line.what.padEnd(WHAT_COLUMN_WIDTH)} ${line.detail}`)
-    if (line.fix) console.log(`    ${' '.repeat(WHAT_COLUMN_WIDTH)} → ${line.fix}`)
-  }
-  console.log()
+const verdict = (lines: Line[]): string => {
+  const broken = lines.filter((line) => line.ok === false).length
+  if (broken === 0) return 'Nothing is missing that Orbit needs.'
+  return `${broken} of ${lines.length} checks want attention — the arrows above say what to do.`
 }
 
 export async function runDoctor(): Promise<number> {
   const start = launcher()
-  const claude = await onLoginPath('claude')
 
-  const lines: Line[] = [
-    await checkVersion(),
-    checkClaude(claude),
-    checkChrome(),
-    await checkTailscale(),
-    checkToken(),
-    checkHooks(start),
-    await checkMcp(claude, start),
-    await checkServer(start),
-    screenRecordingLine,
+  ui.heading('doctor')
+  const channels = [
+    { key: 'version', label: 'Version' },
+    { key: 'claude', label: 'Claude Code' },
+    { key: 'chrome', label: 'Google Chrome' },
+    { key: 'tailscale', label: 'Tailscale' },
+    { key: 'token', label: 'Access token' },
+    { key: 'hooks', label: 'Claude Code hooks' },
+    { key: 'mcp', label: 'MCP server' },
+    { key: 'server', label: `Server on :${PORT}` },
+    { key: 'screen', label: 'Screen Recording' },
   ]
+  const panel = ui.board(channels)
+  for (const channel of channels) panel.begin(channel.key)
 
-  printReport(lines)
+  const claudeIsThere = onLoginPath('claude')
+  const lines = await Promise.all([
+    checkVersion().then((line) => settle(panel, 'version', line)),
+    claudeIsThere.then((claude) => settle(panel, 'claude', checkClaude(claude))),
+    Promise.resolve(settle(panel, 'chrome', checkChrome())),
+    checkTailscale().then((line) => settle(panel, 'tailscale', line)),
+    Promise.resolve(settle(panel, 'token', checkToken())),
+    Promise.resolve(settle(panel, 'hooks', checkHooks(start))),
+    claudeIsThere.then((claude) => checkMcp(claude, start)).then((line) => settle(panel, 'mcp', line)),
+    checkServer(start).then((line) => settle(panel, 'server', line)),
+    Promise.resolve(settle(panel, 'screen', screenRecordingLine)),
+  ])
+  panel.close()
+
+  ui.closing(verdict(lines))
   return lines.some((line) => line.ok === false) ? 1 : 0
 }

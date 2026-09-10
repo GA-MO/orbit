@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { packageVersion } from './banner.js'
+import { packageVersion } from './version.js'
 import { PORT } from './port.js'
 
 const execFileAsync = promisify(execFile)

@@ -1,12 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import fs from 'node:fs'
 import { qrBlock } from './qr.js'
 import { LAN_OPEN } from './network.js'
-
-const ACCENT = '\x1b[36m'
-const BOLD = '\x1b[1m'
-const DIM = '\x1b[2m'
-const RESET = '\x1b[0m'
+import { packageVersion } from './version.js'
+import * as ui from './ui.js'
 
 const WIDE = 64
 const DEFAULT_COLUMNS = 80
@@ -14,10 +10,7 @@ const LABEL_GAP = 3
 const INDENT = '  '
 const FOOTNOTE_SEPARATOR = '  ·  '
 const STOP_HINT = 'Ctrl-C to stop'
-const UNKNOWN_VERSION = '?'
 const LAN_INTERFACES = ['en0', 'en1']
-
-const PACKAGE_JSON_CANDIDATES = [new URL('../package.json', import.meta.url), '/$bunfs/root/package.json']
 
 export interface BannerFacts {
   port: number
@@ -27,14 +20,12 @@ export interface BannerFacts {
   pairUrl?: string | null
   version?: string
   columns?: number
-  color?: boolean
 }
 
 export function lanAddress(): string | null {
   for (const interfaceName of LAN_INTERFACES) {
     try {
-      const address = execFileSync('ipconfig', ['getifaddr', interfaceName], { encoding: 'utf8', stdio: 'pipe' }).trim()
-      if (address) return address
+      return execFileSync('ipconfig', ['getifaddr', interfaceName], { encoding: 'utf8', stdio: 'pipe' }).trim() || null
     } catch {}
   }
   return null
@@ -49,18 +40,6 @@ const wifiUrlFor = (facts: BannerFacts): string | null => {
   if (facts.lanUrl !== undefined) return facts.lanUrl
   return LAN_OPEN ? lanUrl(facts.port) : null
 }
-
-export function packageVersion(): string {
-  for (const candidate of PACKAGE_JSON_CANDIDATES) {
-    try {
-      return JSON.parse(fs.readFileSync(candidate, 'utf8')).version ?? UNKNOWN_VERSION
-    } catch {}
-  }
-  return UNKNOWN_VERSION
-}
-
-const ANSI = /\x1b\[[0-9;]*m/g
-const visibleWidth = (line: string) => line.replace(ANSI, '').length
 
 export function plainBanner(facts: BannerFacts): string {
   const version = facts.version ?? packageVersion()
@@ -118,37 +97,33 @@ const footnoteLine = (facts: BannerFacts, localUrl: string, columns: number): st
 export function banner(facts: BannerFacts): string {
   const version = facts.version ?? packageVersion()
   const columns = facts.columns ?? process.stdout.columns ?? DEFAULT_COLUMNS
-  const color = facts.color ?? !process.env.NO_COLOR
 
-  const paint = (code: string, text: string) => (color ? `${code}${text}${RESET}` : text)
-  const dim = (text: string) => paint(DIM, text)
-  const dimLine = (text: string) => `${INDENT}${dim(text)}`
+  const dimLine = (text: string) => `${INDENT}${ui.dim(text)}`
 
   const localUrl = `http://localhost:${facts.port}`
-  const out: string[] = ['', `${INDENT}${paint(BOLD, 'Orbit')} ${dim(version)}`, '']
+  const out: string[] = [...ui.headingLines(`live on :${facts.port}`, version)]
 
   const rows = addressRows(facts, localUrl, wifiUrlFor(facts))
   const labelWidth = Math.max(...rows.map(([label]) => label.length))
   const stacked = columns < WIDE
   for (const [label, value] of rows) {
-    const painted = paint(ACCENT, value)
+    const painted = ui.ink(ui.HORIZON, value)
     if (stacked) {
       out.push(dimLine(label), `${INDENT}${painted}`, '')
     } else {
-      out.push(`${INDENT}${dim(label.padEnd(labelWidth + LABEL_GAP))}${painted}`)
+      out.push(`${INDENT}${ui.dim(label.padEnd(labelWidth + LABEL_GAP))}${painted}`)
     }
   }
   if (!stacked) out.push('')
 
   const scannable = codeToScan(facts)
   const qr = scannable ? qrBlock(scannable, INDENT + INDENT) : null
-  const qrFits = qr ? Math.max(...qr.split('\n').map(visibleWidth)) <= columns : false
+  const qrFits = qr ? Math.max(...qr.split('\n').map(ui.visibleWidth)) <= columns : false
   if (qr && qrFits) out.push(qr, '')
   if (qr && !qrFits) out.push(dimLine('Widen this window to show the QR code.'))
   out.push(...instructionsFor(facts).map(dimLine))
 
-  out.push(dimLine(footnoteLine(facts, localUrl, columns)))
-  out.push('')
+  out.push('', ui.ruleLine(), `${INDENT}${ui.gradient(ui.ORB)} ${ui.dim(footnoteLine(facts, localUrl, columns))}`, '')
 
   return out.join('\n')
 }

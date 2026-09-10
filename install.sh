@@ -6,8 +6,52 @@ install_dir="${ORBIT_INSTALL_DIR:-$HOME/.orbit/bin}"
 wanted_version="${ORBIT_VERSION:-}"
 local_dir="${ORBIT_LOCAL_DIR:-}"
 
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  case "${COLORTERM:-}" in
+    *truecolor*|*24bit*)
+      accent=$'\033[38;2;56;214;238m'; violet=$'\033[38;2;178;132;252m'
+      good=$'\033[38;2;74;222;128m';   bad=$'\033[38;2;248;113;113m' ;;
+    *)
+      accent=$'\033[36m'; violet=$'\033[35m'; good=$'\033[32m'; bad=$'\033[31m' ;;
+  esac
+  faint=$'\033[2m'; strong=$'\033[1m'; off=$'\033[0m'; erase=$'\033[K'
+else
+  accent=''; violet=''; good=''; bad=''; faint=''; strong=''; off=''; erase=''
+fi
+
+orb='◍'
+steps=4
+bar_rule='══════════════════════════════════════════════'
+
 say() { printf '  %s\n' "$*"; }
-fail() { printf '  %s\n' "$*" >&2; exit 1; }
+rule() { printf '  %s%s%s\n' "$accent" "$bar_rule" "$off"; }
+
+heading() {
+  printf '\n  %s%s%s  %s%sO R B I T%s   %s▸ install%s\n' \
+    "$accent" "$orb" "$off" "$strong" "$accent" "$off" "$violet" "$off"
+  rule
+  printf '\n'
+}
+
+step() {
+  printf '%s  %s[%s/%s]%s  %s  %-9s  %s%s%s\n' \
+    "$erase" "$faint" "$1" "$steps" "$off" "$2" "$3" "$faint" "$4" "$off"
+}
+
+note() { printf '         %s└→ %s%s\n' "$faint" "$*" "$off"; }
+
+working() {
+  [ -t 1 ] || return 0
+  printf '  %s[%s/%s]%s  %s·%s  %-9s  %s%s%s\r' \
+    "$faint" "$1" "$steps" "$off" "$accent" "$off" "$2" "$faint" "$3" "$off"
+}
+
+done_step() { step "$1" "${good}✔${off}" "$2" "$3"; }
+
+fail() {
+  printf '\n  %s✘%s %s\n\n' "$bad" "$off" "$*" >&2
+  exit 1
+}
 
 [ "$(uname -s)" = "Darwin" ] || fail "Orbit runs on macOS — this is $(uname -s)."
 case "$(uname -m)" in
@@ -50,35 +94,43 @@ fetch_asset() {
   fi
 }
 
-echo
+heading
+
+working 1 release "asking $repo …"
 tag="${wanted_version:-$(latest_tag || true)}"
 [ -n "$tag" ] || fail "could not find a release of $repo — is it private? Log in with \`gh auth login\`, or set GITHUB_TOKEN."
-say "Installing orbit $tag for $arch → $install_dir"
+done_step 1 release "$tag  ·  $repo"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+
+working 2 download "$asset"
 fetch_asset "$asset" "$work/$asset" || fail "could not download $asset from $repo $tag"
 fetch_asset "$asset.sha256" "$work/$asset.sha256" || fail "release $tag carries no checksum for $asset — not installing it"
+done_step 2 download "$asset  ·  $arch"
 
+working 3 checksum "sha256 …"
 (cd "$work" && shasum -a 256 -c "$asset.sha256" >/dev/null) \
   || fail "checksum of $asset does not match the one the release published — not installing it"
+done_step 3 checksum "matches what $tag published"
 
+working 4 install "$install_dir"
 mkdir -p "$install_dir"
 install -m 755 "$work/$asset" "$install_dir/orbit"
 xattr -d com.apple.quarantine "$install_dir/orbit" 2>/dev/null || true
 
 installed_version="$("$install_dir/orbit" version 2>/dev/null || true)"
 [ -n "$installed_version" ] || fail "$install_dir/orbit did not start"
-say "Installed orbit $installed_version"
+done_step 4 install "Installed orbit $installed_version → $install_dir/orbit"
 
 add_to_path() {
   local rc="$HOME/.zshrc"
   local line="export PATH=\"$install_dir:\$PATH\""
   if [ -z "${ORBIT_NO_MODIFY_PATH:-}" ] && ! grep -qsF "$install_dir" "$rc"; then
     printf '\n# orbit\n%s\n' "$line" >> "$rc"
-    say "Added $install_dir to PATH in $rc — open a new terminal, or run:  $line"
+    note "Added $install_dir to PATH in $rc — open a new terminal, or run:  $line"
   else
-    say "Add it to your PATH:  $line"
+    note "Add it to your PATH:  $line"
   fi
 }
 
@@ -87,9 +139,10 @@ case ":$PATH:" in
   *) add_to_path ;;
 esac
 
-echo
-say "Next:"
-say "  orbit doctor    what this Mac has and is missing"
-say "  orbit setup     wire the hooks and MCP server into Claude Code"
-say "  orbit start     run it, published over your tailnet as https"
-echo
+printf '\n'
+rule
+printf '  %s%s%s Next:\n' "$accent" "$orb" "$off"
+say "  ${accent}orbit doctor${off}    ${faint}what this Mac has and is missing${off}"
+say "  ${accent}orbit setup${off}     ${faint}wire the hooks and MCP server into Claude Code${off}"
+say "  ${accent}orbit start${off}     ${faint}run it, published over your tailnet as https${off}"
+printf '\n'

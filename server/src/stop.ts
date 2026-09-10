@@ -3,11 +3,12 @@ import { setTimeout as wait } from 'node:timers/promises'
 
 import { PORT } from './port.js'
 import * as preview from './preview.js'
+import * as ui from './ui.js'
 
 const GRACE_MS = 300
 const RELEASE_POLL_MS = 50
 
-const say = (line = '') => console.log(line ? `  ${line}` : '')
+const say = ui.say
 
 export const listeningPids = (port: number): string[] => {
   try {
@@ -49,32 +50,53 @@ const waitForRelease = async (port: number): Promise<string[]> => {
   return left
 }
 
-export async function runStop(port: number = PORT): Promise<number> {
-  say()
+const CHANNELS = [
+  { key: 'server', label: 'server' },
+  { key: 'frontDoor', label: 'front door' },
+]
+
+const stopTheServer = async (port: number, panel: ui.Board): Promise<void> => {
   const pids = listeningPids(port)
   if (pids.length === 0) {
-    say(`Nothing listening on :${port}.`)
-  } else {
-    say(`Stopping PID ${pids.join(', ')} on :${port} …`)
-    signal(pids, 'SIGTERM')
-    const stubborn = await waitForRelease(port)
-    if (stubborn.length) {
-      say(`Still there — force-killing PID ${stubborn.join(', ')}.`)
-      signal(stubborn, 'SIGKILL')
-      await waitForRelease(port)
-    } else {
-      say(`Stopped PID ${pids.join(', ')}.`)
-    }
+    panel.skip('server', `Nothing listening on :${port}.`)
+    return
   }
+  panel.begin('server', `Stopping PID ${pids.join(', ')} on :${port} …`)
+  signal(pids, 'SIGTERM')
+  const stubborn = await waitForRelease(port)
+  if (!stubborn.length) {
+    panel.pass('server', `Stopped PID ${pids.join(', ')} on :${port}.`)
+    return
+  }
+  panel.begin('server', `Still there — force-killing PID ${stubborn.join(', ')}.`)
+  signal(stubborn, 'SIGKILL')
+  await waitForRelease(port)
+  panel.pass('server', `Stopped PID ${pids.join(', ')} on :${port}, the hard way.`)
+}
 
-  await takeFrontDoorDown()
+const dropTheFrontDoor = async (panel: ui.Board): Promise<void> => {
+  panel.begin('frontDoor', 'asking Tailscale …')
+  try {
+    await preview.unpublishFrontDoor()
+    panel.pass('frontDoor', 'Tailscale HTTPS (443) off.')
+  } catch (err) {
+    panel.fail('frontDoor', (err as Error).message)
+  }
+}
+
+export async function runStop(port: number = PORT): Promise<number> {
+  ui.heading('stop')
+  const panel = ui.board(CHANNELS)
+
+  await stopTheServer(port, panel)
+  await dropTheFrontDoor(panel)
+  panel.close()
 
   const held = listeningPids(port)
   if (held.length) {
-    say(`Port ${port} is still held by PID ${held.join(', ')}.`)
-    say()
+    ui.closing(`Port ${port} is still held by PID ${held.join(', ')}.`)
     return 1
   }
-  say()
+  ui.closing(`Nothing of Orbit is listening on :${port} any more.`)
   return 0
 }

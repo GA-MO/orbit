@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { launcher, launcherArgv } from './launcher.js'
+import * as ui from './ui.js'
 
 type Json = Record<string, any>
 
@@ -132,7 +133,7 @@ export const withOrbitNotify = (toml: string, start = launcher()): string => {
   return joinBack(withLineAfterTheLastKey(before, codexNotifyLine(start)), after)
 }
 
-const say = (line = '') => console.log(line ? `  ${line}` : '')
+const say = ui.say
 
 export const settingsPath = () => path.join(os.homedir(), '.claude', 'settings.json')
 
@@ -163,33 +164,37 @@ const run = (command: string, args: string[]): RunResult => {
 
 const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b)
 
-function writeSettings(settingsFile: string, after: Json, uninstall: boolean): void {
-  if (fs.existsSync(settingsFile)) {
-    fs.copyFileSync(settingsFile, `${settingsFile}.orbit.bak`)
-    say(`Backed up  ${settingsFile}.orbit.bak`)
-  }
-  fs.mkdirSync(path.dirname(settingsFile), { recursive: true })
-  fs.writeFileSync(settingsFile, `${JSON.stringify(after, null, 2)}\n`)
-  say(`${uninstall ? 'Removed hooks from' : 'Wrote hooks to'}  ${settingsFile}`)
+interface Outcome {
+  state: 'passed' | 'failed' | 'skipped'
+  detail: string
+  note?: string
 }
 
-function updateHooks(uninstall: boolean, start: string, options: SetupOptions): boolean {
+const backUp = (file: string): string | undefined => {
+  if (!fs.existsSync(file)) return undefined
+  fs.copyFileSync(file, `${file}.orbit.bak`)
+  return `backed up  ${file}.orbit.bak`
+}
+
+function writeSettings(settingsFile: string, after: Json, uninstall: boolean): Outcome {
+  const note = backUp(settingsFile)
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true })
+  fs.writeFileSync(settingsFile, `${JSON.stringify(after, null, 2)}\n`)
+  return { state: 'passed', detail: `${uninstall ? 'removed from' : 'written to'}  ${settingsFile}`, note }
+}
+
+function updateHooks(uninstall: boolean, start: string, options: SetupOptions): Outcome {
   const settingsFile = settingsPath()
   let before: Json
   try {
     before = readJson(settingsFile)
   } catch (err) {
-    say((err as Error).message)
-    return false
+    return { state: 'failed', detail: (err as Error).message }
   }
   const after = uninstall ? withoutOrbit(before) : withOrbit(before, start, options)
 
-  if (sameJson(before, after)) {
-    say(`Hooks already as they should be — ${settingsFile}`)
-  } else {
-    writeSettings(settingsFile, after, uninstall)
-  }
-  return true
+  if (sameJson(before, after)) return { state: 'passed', detail: `already as they should be — ${settingsFile}` }
+  return writeSettings(settingsFile, after, uninstall)
 }
 
 const readTextOrEmpty = (file: string): string => {
@@ -200,12 +205,11 @@ const readTextOrEmpty = (file: string): string => {
   }
 }
 
-function updateCodexNotify(uninstall: boolean, start: string): void {
+function updateCodexNotify(uninstall: boolean, start: string): Outcome {
   const configFile = codexConfigPath()
   const codexHasRun = fs.existsSync(path.dirname(configFile))
   if (!codexHasRun) {
-    if (!uninstall) say('Skipped    Codex CLI — no ~/.codex yet, so run it once and set up again')
-    return
+    return { state: 'skipped', detail: uninstall ? 'never wired' : 'no ~/.codex yet, so run it once and set up again' }
   }
 
   const before = readTextOrEmpty(configFile)
@@ -213,79 +217,105 @@ function updateCodexNotify(uninstall: boolean, start: string): void {
 
   if (after === before) {
     const theirsWon = !uninstall && !after.includes(codexNotifyLine(start))
-    say(
-      theirsWon
-        ? `Left alone  a notify of your own in ${configFile}`
-        : `Codex already as it should be — ${configFile}`,
-    )
-    return
+    return theirsWon
+      ? { state: 'skipped', detail: `left alone — a notify of your own in ${configFile}` }
+      : { state: 'passed', detail: `already as it should be — ${configFile}` }
   }
 
-  if (before) {
-    fs.copyFileSync(configFile, `${configFile}.orbit.bak`)
-    say(`Backed up  ${configFile}.orbit.bak`)
-  }
+  const note = before ? backUp(configFile) : undefined
   fs.writeFileSync(configFile, after)
-  say(`${uninstall ? 'Removed notify from' : 'Wrote notify to'}  ${configFile}`)
+  return { state: 'passed', detail: `${uninstall ? 'removed from' : 'written to'}  ${configFile}`, note }
 }
 
-function unregisterMcp(removed: RunResult): void {
-  if (removed.ok || NOT_REGISTERED.test(removed.out)) {
-    say('Unregistered  orbit (MCP)')
-    return
+function unregisterMcp(removed: RunResult): Outcome {
+  if (removed.ok || NOT_REGISTERED.test(removed.out)) return { state: 'passed', detail: 'unregistered' }
+  return {
+    state: 'failed',
+    detail: 'the `claude` CLI would not unregister it',
+    note: 'is Claude Code on PATH? Then run this again, or `claude mcp remove -s user orbit` by hand.',
   }
-  say('Could not unregister the MCP server with the `claude` CLI:')
-  console.log(removed.out)
-  say('Is Claude Code on PATH? Then run this again, or `claude mcp remove -s user orbit` by hand.')
 }
 
-function registerMcp(start: string): boolean {
+function registerMcp(start: string): { outcome: Outcome; complaint: string } {
   const added = run('claude', ['mcp', 'add', ...MCP_SCOPE_ARGS, MCP_SERVER_NAME, '--', ...launcherArgv(), 'mcp'])
-  if (added.ok) {
-    say(`Registered  orbit → ${start} mcp`)
-    return true
+  if (added.ok) return { outcome: { state: 'passed', detail: `orbit → ${start} mcp` }, complaint: '' }
+  return {
+    outcome: {
+      state: 'failed',
+      detail: 'the `claude` CLI would not register it',
+      note: 'is Claude Code installed and on PATH? Then run this again.',
+    },
+    complaint: added.out,
   }
-  say('Could not register the MCP server with the `claude` CLI:')
-  console.log(added.out)
-  say('Is Claude Code installed and on PATH? Then run this again.')
-  return false
 }
 
-function sayClosing(uninstall: boolean, start: string): void {
-  say()
-  if (uninstall) {
-    say('Done. Orbit itself is untouched — this only unwired Claude Code.')
-  } else {
-    say('Done. Restart any Claude Code session that is already open:')
-    say('the MCP server is spawned when a session starts, so this one still')
-    say('holds the previous build.')
-    say()
-    say(`Next:  ${start} start      (run it, published over Tailscale for the phone)`)
-    say(`Undo:  ${start} setup --uninstall`)
-  }
-  say()
+const closingHints = (uninstall: boolean, start: string): string[] =>
+  uninstall
+    ? []
+    : [
+        'The MCP server is spawned when a session starts, so an open one still holds the previous build.',
+        `Next:  ${start} start      (run it, published over Tailscale for the phone)`,
+        `Undo:  ${start} setup --uninstall`,
+      ]
+
+const CHANNELS = [
+  { key: 'hooks', label: 'hooks' },
+  { key: 'codex', label: 'Codex notify' },
+  { key: 'mcp', label: 'MCP server' },
+]
+
+const settle = (panel: ui.Board, key: string, outcome: Outcome): Outcome => {
+  panel[outcome.state === 'passed' ? 'pass' : outcome.state === 'failed' ? 'fail' : 'skip'](
+    key,
+    outcome.detail,
+    outcome.note,
+  )
+  return outcome
 }
 
 export function runSetup(args: string[]): number {
   const uninstall = args.includes('--uninstall')
-  const options: SetupOptions = { approval: args.includes("--approval") }
+  const options: SetupOptions = { approval: args.includes('--approval') }
   const start = launcher()
 
-  say()
-  say(uninstall ? 'Removing Orbit from Claude Code …' : `Setting up Orbit (${start}) …`)
-  if (!uninstall && options.approval) say('With the approval hook: dangerous commands wait for a tap on the phone.')
+  ui.heading(uninstall ? 'setup --uninstall' : 'setup')
+  say(ui.dim(uninstall ? 'Removing Orbit from Claude Code …' : `Wiring Orbit (${start}) into Claude Code …`))
+  if (!uninstall && options.approval) say(ui.dim('With the approval hook: dangerous commands wait for a tap on the phone.'))
   say()
 
-  if (!updateHooks(uninstall, start, options)) return 1
-  updateCodexNotify(uninstall, start)
+  const panel = ui.board(CHANNELS)
 
-  const removed = run('claude', ['mcp', 'remove', ...MCP_SCOPE_ARGS, MCP_SERVER_NAME])
-  if (uninstall) {
-    unregisterMcp(removed)
-  } else if (!registerMcp(start)) {
+  panel.begin('hooks', settingsPath())
+  const hooks = settle(panel, 'hooks', updateHooks(uninstall, start, options))
+  if (hooks.state === 'failed') {
+    panel.skip('codex', 'not reached')
+    panel.skip('mcp', 'not reached')
+    panel.close()
+    ui.closing('Nothing was changed.')
     return 1
   }
 
-  sayClosing(uninstall, start)
+  panel.begin('codex', codexConfigPath())
+  settle(panel, 'codex', updateCodexNotify(uninstall, start))
+
+  panel.begin('mcp', 'asking the `claude` CLI …')
+  const removed = run('claude', ['mcp', 'remove', ...MCP_SCOPE_ARGS, MCP_SERVER_NAME])
+  const registration = uninstall ? { outcome: unregisterMcp(removed), complaint: removed.out } : registerMcp(start)
+  const mcp = settle(panel, 'mcp', registration.outcome)
+  panel.close()
+
+  if (mcp.state === 'failed') {
+    say()
+    if (registration.complaint) console.log(registration.complaint)
+    ui.closing('Claude Code is only half wired.')
+    return 1
+  }
+
+  ui.closing(
+    uninstall
+      ? 'Done. Orbit itself is untouched — this only unwired Claude Code.'
+      : 'Done. Restart any Claude Code session that is already open.',
+    closingHints(uninstall, start),
+  )
   return 0
 }

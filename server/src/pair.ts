@@ -3,9 +3,10 @@ import fs from 'node:fs'
 import { PORT } from './port.js'
 import { orbitDir } from './home.js'
 import { qrBlock } from './qr.js'
+import * as ui from './ui.js'
 
 const QR_INDENT = '    '
-const say = (line = '') => console.log(line ? `  ${line}` : '')
+const say = ui.say
 
 const storedToken = (): string | null => {
   try {
@@ -22,37 +23,35 @@ const requestPairCode = (token: string): Promise<Response> =>
   })
 
 const sayPairingSteps = (url: string, token: string) => {
-  say()
-  say('Pair a phone')
-  say(url)
+  ui.heading('pair')
+  say(ui.ink(ui.HORIZON, url))
   say()
   console.log(qrBlock(url, QR_INDENT))
   say()
-  say("1. Point the phone's camera at it — Orbit opens, already paired.")
-  say('2. Share → Add to Home Screen.')
-  say('3. Open that app, tap Scan QR code, point it at this same code.')
+  ui.hint("1. Point the phone's camera at it — Orbit opens, already paired.")
+  ui.hint('2. Share → Add to Home Screen.')
+  ui.hint('3. Open that app, tap Scan QR code, point it at this same code.')
+  ui.closing(`Good for 10 minutes. The token, for typing instead:  ${token}`)
+}
+
+const refuse = (reason: string): number => {
+  ui.heading('pair')
+  ui.alarm(reason)
   say()
-  say('Good for 10 minutes. The token, for typing instead:')
-  say(token)
-  say()
+  return 1
 }
 
 export async function runPair(): Promise<number> {
   const token = storedToken()
-  if (token === null) {
-    say(`No token in ${orbitDir('config.json')} — start Orbit once first.`)
-    return 1
-  }
+  if (token === null) return refuse(`No token in ${orbitDir('config.json')} — start Orbit once first.`)
   let res: Response
   try {
     res = await requestPairCode(token)
   } catch {
-    say(`Orbit is not running on :${PORT} — \`orbit\` or \`orbit start\` first.`)
-    return 1
+    return refuse(`Orbit is not running on :${PORT} — \`orbit\` or \`orbit start\` first.`)
   }
   if (!res.ok) {
-    say(`Orbit on :${PORT} refused (${res.status}) — is that a different install's token?`)
-    return 1
+    return refuse(`Orbit on :${PORT} refused (${res.status}) — is that a different install's token?`)
   }
   const { url } = (await res.json()) as { url: string }
   sayPairingSteps(url, token)

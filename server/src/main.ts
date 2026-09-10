@@ -1,18 +1,35 @@
 const [command, ...rest] = process.argv.slice(2)
 
-const usage = `orbit — a phone-side console for the coding agents on this Mac
+const COMMANDS: Array<[invocation: string, blurb: string]> = [
+  ['orbit [--lan]', 'run the server (ORBIT_PORT, default 7788; --lan opens it to the Wi-Fi)'],
+  ['orbit start [--lan]', 'run it published over the tailnet as https, for the phone'],
+  ['orbit stop', 'stop the server on that port, and the tailnet front door'],
+  ['orbit setup [--approval] [--uninstall]', 'wire the hooks and MCP server into Claude Code (--approval adds the phone-side gate)'],
+  ['orbit pair', 'a fresh QR to pair a phone with the running server'],
+  ['orbit doctor', 'what this Mac has and what it is missing'],
+  ['orbit update [--check]', 'replace this executable with the latest release'],
+  ['orbit mcp', 'the MCP server on stdio (what Claude Code runs)'],
+  ['orbit hook approve|notify', 'the Claude Code hooks (what `setup` installs)'],
+  ['orbit version', 'which build this is'],
+]
 
-  orbit [--lan]            run the server (ORBIT_PORT, default 7788; --lan opens it to the Wi-Fi)
-  orbit start [--lan]      run it published over the tailnet as https, for the phone
-  orbit stop               stop the server on that port, and the tailnet front door
-  orbit setup [--approval] [--uninstall]  wire the hooks and MCP server into Claude Code (--approval adds the phone-side gate)
-  orbit pair               a fresh QR to pair a phone with the running server
-  orbit doctor             what this Mac has and what it is missing
-  orbit update [--check]   replace this executable with the latest release
-  orbit mcp                the MCP server on stdio (what Claude Code runs)
-  orbit hook approve|notify  the Claude Code hooks (what \`setup\` installs)
-  orbit version            which build this is
-`
+const usage = async (): Promise<string> => {
+  const ui = await import('./ui.js')
+  const width = Math.max(...COMMANDS.map(([invocation]) => invocation.length))
+  const lines = COMMANDS.map(
+    ([invocation, blurb]) => `  ${ui.ink(ui.HORIZON, invocation.padEnd(width))}   ${ui.dim(blurb)}`,
+  )
+  return [
+    ...ui.headingLines('help'),
+    `  ${ui.dim('a phone-side console for the coding agents on this Mac')}`,
+    '',
+    ...lines,
+    '',
+  ].join('\n')
+}
+
+const plainUsage = (): string =>
+  COMMANDS.map(([invocation, blurb]) => `  ${invocation}   ${blurb}`).join('\n')
 
 const exit = (code: number) => {
   if (code >= 0) process.exit(code)
@@ -102,15 +119,15 @@ switch (command) {
   case 'version':
   case '--version':
   case '-v':
-    console.log((await import('./banner.js')).packageVersion())
+    console.log((await import('./version.js')).packageVersion())
     break
   case 'help':
   case '--help':
   case '-h':
-    console.log(usage)
+    console.log(await usage())
     break
   default:
-    console.error(`orbit: unknown command "${command}"\n\n${usage}`)
+    console.error(`orbit: unknown command "${command}"\n\n${plainUsage()}\n`)
     process.exit(2)
 }
 }
