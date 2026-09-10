@@ -49,3 +49,14 @@ jobs:
       - run: bun scripts/test.ts smoke
       - run: bun scripts/test.ts touch
       - run: bun scripts/test.ts changes
+      # Not a gate — a record. The suites say Orbit works on this machine in
+      # words; this starts it and has it photograph its own app and the screen
+      # it is running on, so the run leaves pictures anyone can look at.
+      - name: Photograph it running here
+        run: bun scripts/evidence.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: orbit-running-on-${{ matrix.os }}
+          path: evidence/
+          if-no-files-found: error
