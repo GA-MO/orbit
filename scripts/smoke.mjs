@@ -466,6 +466,48 @@ if (!claudeThere) {
   if (resumed.body.id) await endThenForget(resumed.body.id, 300)
 }
 
+const codexThere = providers.find?.((p) => p.id === 'codex')?.available === true
+if (!codexThere) {
+  console.log('  skip  folder resume — Codex CLI is not on this server\'s PATH')
+} else {
+  const CODEX_FOLDER = path.join(HOME, 'codex-smoke')
+  fs.mkdirSync(CODEX_FOLDER, { recursive: true })
+  const older = (await api('/api/sessions', { provider: 'codex', cwd: CODEX_FOLDER, name: 'older' })).body
+  check('a Codex session holds no conversation of its own', !older.conversationId, older.conversationId ?? 'none')
+  await endSession(older.id)
+  await wait(400)
+  check(
+    'the folder\'s only ended Codex session is on offer',
+    (await listSessions()).find((s) => s.id === older.id)?.resumable === true,
+  )
+
+  const newer = (await api('/api/sessions', { provider: 'codex', cwd: CODEX_FOLDER, name: 'newer' })).body
+  await wait(400)
+  check(
+    '…and a live one in the same folder takes the offer away',
+    (await listSessions()).find((s) => s.id === older.id)?.resumable === false,
+  )
+  await endSession(newer.id)
+  await wait(400)
+  const rows = await listSessions()
+  check(
+    '…which the newest of the two ended sessions then holds alone',
+    rows.find((s) => s.id === newer.id)?.resumable === true &&
+      rows.find((s) => s.id === older.id)?.resumable === false,
+  )
+
+  const reopened = await api(`/api/sessions/${newer.id}/restart`, { resume: true })
+  check('a Codex session resumes the folder', reopened.status === 201, reopened.body.error ?? reopened.body.id)
+  check(
+    '…in that folder, still without a conversation of its own',
+    reopened.body.cwd === CODEX_FOLDER && !reopened.body.conversationId,
+    reopened.body.cwd,
+  )
+  check('…and the row it reopened is gone', !(await listSessions()).some((s) => s.id === newer.id))
+  if (reopened.body.id) await endThenForget(reopened.body.id, 300)
+  await endThenForget(older.id, 300)
+}
+
 const CONV_HOME = path.join(HOME, 'conversation-smoke')
 fs.mkdirSync(CONV_HOME, { recursive: true })
 const CONVERSATION_BOOKKEEPING_SCRIPT = `
