@@ -21,9 +21,8 @@ output_for() {
   if [ "$1" = "host" ]; then echo "dist/orbit"; else echo "dist/orbit-${1#bun-}"; fi
 }
 
-# Through Bun's API rather than `bun build --compile`: one dependency needs a
-# bundle-time patch or the executable only starts on the machine that built
-# it. The why, and the assets, are in scripts/dist-compile.ts.
+# Through Bun's API rather than `bun build --compile` so the assets the server
+# reads from disk are named in one place. See scripts/dist-compile.ts.
 compile() {
   bun scripts/dist-compile.ts "$1" "$2"
 }
