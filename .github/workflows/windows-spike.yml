@@ -24,9 +24,11 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
-      - name: does the server start at all
-        run: bun scripts/test.ts install
-      - name: setup
-        run: bun scripts/test.ts setup
       - name: smoke
         run: bun scripts/test.ts smoke
+      - name: setup
+        run: bun scripts/test.ts setup
+      - name: idle
+        run: bun scripts/test.ts idle
+      - name: ask
+        run: bun scripts/test.ts ask
