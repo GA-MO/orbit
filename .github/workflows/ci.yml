@@ -44,6 +44,9 @@ jobs:
       - name: What PowerShell the suites are handed
         if: runner.os == 'Windows'
         run: bun scripts/windows-powershell-probe.ts
+      - name: How a stand-in CLI can be started here
+        if: runner.os == 'Windows'
+        run: bun scripts/windows-cli-probe.ts
       - run: bun scripts/test.ts idle
       - run: bun scripts/test.ts ask
       - run: bun scripts/test.ts preview-url
