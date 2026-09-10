@@ -58,10 +58,10 @@ rejected — it goes in `docs/DESIGN-NOTES.md` under "Implementation
 notes", keyed by the function or constant it belongs to. Never in the
 source.
 
-## The approval hook is optional
+## Nothing waits for approval
 
-`orbit setup` installs a `PreToolUse` hook that routes an agent's
-dangerous commands (`rm -rf`, `sudo`, force-push, …) to the phone and
-waits for a tap. On a machine where Claude Code runs in auto mode that is
-an interruption, not a safeguard: `orbit setup --no-approval` installs
-only the notify hooks. `orbit doctor` says which of the two is installed.
+Claude Code here runs in auto mode, and a gate that stops the agent to
+wait for a tap is an interruption, not a safeguard. `orbit setup`
+installs only the notify hooks by default; the phone-side approval hook
+exists for other machines and is opted into with `orbit setup
+--approval`. Do not add anything else that blocks and waits.

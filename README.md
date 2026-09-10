@@ -63,8 +63,8 @@ phone is a window onto it. Nothing runs in a cloud.
   https so it opens *inside* the app.
 - **The agent's side.** An MCP server (`orbit_capture`, `orbit_screen`,
   `orbit_notify`, `orbit_ask`, `orbit_preview`) and Claude Code hooks that
-  forward "waiting for you" moments and route the agent's own dangerous
-  commands to your phone for approval.
+  forward "waiting for you" moments — and, if you opt in, hold the agent's
+  own dangerous commands until you tap Block or Run it on the phone.
 - **Know which session wants you.** Per-session attention with a badge, a
   settled-agent detector for agents that cannot say so themselves, Web Push
   that reaches a locked phone, and answer buttons on the notification itself.

@@ -96,7 +96,7 @@ This hook never blocks. It fires and returns at once, and if it cannot reach Orb
 
 Orbit already screens dangerous commands that you type or paste into the terminal. Commands the agent runs itself through the Bash tool never pass that gate, because they run inside the agent's process and are never typed into the PTY. This hook closes the gap with the same pattern list: `rm -rf`, `sudo`, `mkfs` and `diskutil erase`, `dd` to `/dev`, `shutdown` and `reboot`, `git push --force`, a fork bomb, `chmod 777 /`, writes to raw devices, `launchctl unload`.
 
-`orbit setup` installs this one too: `PreToolUse` with matcher `Bash` pointing at `orbit hook approve`, with `"timeout": 190`.
+This one is opt-in: `orbit setup --approval` installs it as `PreToolUse` with matcher `Bash` pointing at `orbit hook approve`, with `"timeout": 190`. A plain `orbit setup` installs only the notify hooks, because a gate that stops the agent to wait for a tap is an interruption on any Mac where Claude Code runs in auto mode.
 
 The `timeout` is the main reason not to copy the JSON by hand. The hook waits up to 180 seconds for the phone, but Claude Code's default cuts a hook off at 60 seconds. With the timeout shorter than the wait, a dangerous command passes silently before you have had a chance to tap.
 

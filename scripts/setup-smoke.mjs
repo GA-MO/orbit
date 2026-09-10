@@ -42,9 +42,10 @@ check(
   hookCommands(fresh)[0],
 )
 check('the entry point it names exists on disk', fs.existsSync(MAIN))
-const approveHook = hookGroups(fresh, 'PreToolUse', 'Bash')[0]?.hooks?.[0]
-check('the approval hook carries its 190s timeout', approveHook?.timeout === APPROVE_TIMEOUT_S, String(approveHook?.timeout))
-check('the approval hook is the one that screens Bash', approveHook?.command.endsWith(' hook approve'))
+const optedIn = withOrbit({}, START, { approval: true })
+const approveHook = hookGroups(optedIn, 'PreToolUse', 'Bash')[0]?.hooks?.[0]
+check('the approval hook, opted in, carries its 190s timeout', approveHook?.timeout === APPROVE_TIMEOUT_S, String(approveHook?.timeout))
+check('…and is the one that screens Bash', approveHook?.command.endsWith(' hook approve'))
 check(
   'Stop and Notification are matched by event alone',
   hookGroups(fresh, 'Stop', null).length === 1 && hookGroups(fresh, 'Notification', null).length === 1,
@@ -66,7 +67,7 @@ const merged = withOrbit(theirs)
 check('unrelated settings survive', merged.cleanupPeriodDays === 42)
 check('their own Bash hook is still there', hookCommands(merged).includes(THEIR_BASH_HOOK))
 check('an event we never touch is left alone', hookCommands(merged).includes('echo hello'))
-check('and ours were added alongside', hookGroups(merged, 'PreToolUse', 'Bash').length === 2)
+check('and their Bash hook is the only Bash hook, ours being opt-in', hookGroups(merged, 'PreToolUse', 'Bash').length === 1)
 check('the object handed in was not mutated', JSON.stringify(theirs.hooks.PreToolUse).length < 200)
 
 section('running it twice, and after the checkout moves')
@@ -84,12 +85,13 @@ check(
 const legacy = withOrbit({
   hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/usr/local/bin/node /old/orbit/scripts/orbit-approve.mjs', timeout: APPROVE_TIMEOUT_S }] }] },
 })
-check('the old scripts\' hooks are taken over, not doubled', hookGroups(legacy, 'PreToolUse', 'Bash').length === 1)
+check('the old scripts\' approval hook is taken out by a default run', hookGroups(legacy, 'PreToolUse', 'Bash').length === 0)
 check('…leaving one hook per event, not two', hookCommands(repaired).length === hookPlan().length)
-const withoutApproval = withOrbit({}, START, { approval: false })
-check('--no-approval leaves the Bash hook out', !hookCommands(withoutApproval).some((c) => c.endsWith(' hook approve')))
-check('…and keeps the three notify hooks', hookCommands(withoutApproval).length === 3)
-check('…and a later run with approval adds it without doubling', hookCommands(withOrbit(withoutApproval, START)).length === hookPlan().length)
+check('the default plan has no approval hook', !hookCommands(fresh).some((c) => c.endsWith(' hook approve')))
+check('…just the three notify hooks', hookCommands(fresh).length === 3)
+const withApproval = withOrbit({}, START, { approval: true })
+check('--approval adds the Bash hook', hookCommands(withApproval).some((c) => c.endsWith(' hook approve')))
+check('…and a later default run takes it out again without doubling', hookCommands(withOrbit(withApproval, START)).length === 3)
 
 section('taking it back out')
 

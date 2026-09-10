@@ -29,7 +29,7 @@ export interface SetupOptions {
   approval: boolean
 }
 
-export const DEFAULT_OPTIONS: SetupOptions = { approval: true }
+export const DEFAULT_OPTIONS: SetupOptions = { approval: false }
 
 export const hookPlan = (start = launcher(), options: SetupOptions = DEFAULT_OPTIONS): HookEntry[] => {
   const notify: HookEntry[] = [
@@ -188,12 +188,12 @@ function sayClosing(uninstall: boolean, start: string): void {
 
 export function runSetup(args: string[]): number {
   const uninstall = args.includes('--uninstall')
-  const options: SetupOptions = { approval: !args.includes('--no-approval') }
+  const options: SetupOptions = { approval: args.includes("--approval") }
   const start = launcher()
 
   say()
   say(uninstall ? 'Removing Orbit from Claude Code …' : `Setting up Orbit (${start}) …`)
-  if (!uninstall && !options.approval) say('Without the approval hook: the agent runs commands without asking the phone.')
+  if (!uninstall && options.approval) say('With the approval hook: dangerous commands wait for a tap on the phone.')
   say()
 
   if (!updateHooks(uninstall, start, options)) return 1
