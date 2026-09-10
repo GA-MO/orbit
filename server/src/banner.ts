@@ -94,6 +94,22 @@ const footnoteLine = (facts: BannerFacts, localUrl: string, columns: number): st
   return fits ? footer : STOP_HINT
 }
 
+const wordmarkFits = (columns: number): boolean => ui.BLOCK_WORDMARK_WIDTH + INDENT.length * 2 <= columns
+
+const blockHeadingLines = (where: string, version: string): string[] => {
+  const strap = `${ui.gradient(ui.ORB)} ${ui.ink(ui.NEBULA, where)}`
+  const stamp = ui.dim(version)
+  const gap = ui.BLOCK_WORDMARK_WIDTH - ui.visibleWidth(strap) - ui.visibleWidth(stamp)
+  return [
+    '',
+    ...ui.blockWordmark().map((line) => `${INDENT}${line}`),
+    '',
+    gap > 1 ? `${INDENT}${strap}${' '.repeat(gap)}${stamp}` : `${INDENT}${strap}`,
+    ui.ruleLine(),
+    '',
+  ]
+}
+
 export function banner(facts: BannerFacts): string {
   const version = facts.version ?? packageVersion()
   const columns = facts.columns ?? process.stdout.columns ?? DEFAULT_COLUMNS
@@ -101,7 +117,9 @@ export function banner(facts: BannerFacts): string {
   const dimLine = (text: string) => `${INDENT}${ui.dim(text)}`
 
   const localUrl = `http://localhost:${facts.port}`
-  const out: string[] = [...ui.headingLines(`live on :${facts.port}`, version)]
+  const out: string[] = wordmarkFits(columns)
+    ? blockHeadingLines(`live on :${facts.port}`, version)
+    : [...ui.headingLines(`live on :${facts.port}`, version)]
 
   const rows = addressRows(facts, localUrl, wifiUrlFor(facts))
   const labelWidth = Math.max(...rows.map(([label]) => label.length))

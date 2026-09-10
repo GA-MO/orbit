@@ -112,6 +112,48 @@ const POINTER = '▸'
 
 const wordmark = (): string => gradient([...'ORBIT'].join(' '))
 
+const LETTERFORMS: string[][] = [
+  ['1111', '1001', '1001', '1001', '1111'],
+  ['1110', '1001', '1110', '1010', '1001'],
+  ['1110', '1001', '1110', '1001', '1110'],
+  ['111', '010', '010', '010', '111'],
+  ['111', '010', '010', '010', '010'],
+]
+
+const LETTER_GAP = 1
+const LIT = '1'
+const HALF_ROWS = 3
+
+const stitchLetters = (): string[] => {
+  const rows: string[] = []
+  for (let row = 0; row < LETTERFORMS[0].length; row += 1) {
+    rows.push(LETTERFORMS.map((letter) => letter[row]).join('0'.repeat(LETTER_GAP)))
+  }
+  return rows
+}
+
+const halfBlock = (top: boolean, bottom: boolean): string =>
+  top && bottom ? '█' : top ? '▀' : bottom ? '▄' : ' '
+
+export const BLOCK_WORDMARK_WIDTH = stitchLetters()[0].length * 2
+
+export const blockWordmark = (): string[] => {
+  const pixels = stitchLetters()
+  const width = pixels[0].length
+  const painted: string[] = []
+  for (let band = 0; band < HALF_ROWS; band += 1) {
+    const top = pixels[band * 2] ?? ''
+    const bottom = pixels[band * 2 + 1] ?? ''
+    let line = ''
+    for (let column = 0; column < width; column += 1) {
+      const glyph = halfBlock(top[column] === LIT, bottom[column] === LIT)
+      line += ink(blend(HORIZON, NEBULA, column / (width - 1)), glyph.repeat(2))
+    }
+    painted.push(line)
+  }
+  return painted
+}
+
 export const headingLines = (command: string, version = packageVersion()): string[] => {
   const title = `${gradient(ORB)}  ${bold(wordmark())}   ${ink(NEBULA, `${POINTER} ${command}`)}`
   const stamp = dim(version)
