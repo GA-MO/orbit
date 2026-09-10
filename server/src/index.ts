@@ -266,7 +266,7 @@ const cacheRuleFor = (file: string) => (nameCarriesItsOwnVersion(file) ? KEEP_FO
 const statFile = (file: string) => fsp.stat(file).catch(() => null)
 
 async function serveStatic(url: URL, res: http.ServerResponse) {
-  const requestPath = path.normalize(decodeURIComponent(url.pathname)).replace(LEADING_PARENT_SEGMENTS, '')
+  const requestPath = path.posix.normalize(decodeURIComponent(url.pathname)).replace(LEADING_PARENT_SEGMENTS, '')
   let file = path.join(WEB_DIST, requestPath)
   if (!file.startsWith(WEB_DIST)) return json(res, 404, { error: 'not found' })
 

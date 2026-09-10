@@ -596,56 +596,62 @@ const ANOTHER_SIZE_TALLER = { cols: 100, rows: 36 }
 const WINCH_MARKER = 'WINCH-HIT'
 const ARM_WINCH_TRAP = `trap 'echo W""INCH-HIT' WINCH\r`
 
-const winch = (await api('/api/sessions', { provider: 'shell', cwd: HOME, name: 'winch' })).body
-started.push(winch.id)
+const SHELL_TRAPS_WINCH = process.platform !== 'win32'
+if (!SHELL_TRAPS_WINCH) {
+  console.log('  skip  resize notification — PowerShell has no WINCH trap to arm, so nothing here')
+  console.log('        could tell a resize that was delivered from one that was never sent')
+} else {
+  const winch = (await api('/api/sessions', { provider: 'shell', cwd: HOME, name: 'winch' })).body
+  started.push(winch.id)
 
-const attachAt = ({ cols, rows }) => {
-  const ws = new WebSocket(`${WS_URL}?session=${winch.id}&cols=${cols}&rows=${rows}`, BEARER)
-  const ready = new Promise((r) =>
-    ws.on('message', function untilReady(m) {
-      if (JSON.parse(m.toString()).type === 'ready') {
-        ws.off('message', untilReady)
-        r()
-      }
-    }),
-  )
-  const attached = { text: '', ws, ready }
-  ws.on('message', (m) => {
-    const msg = JSON.parse(m.toString())
-    if (msg.type === 'output') attached.text += msg.data
-  })
-  ws.on('error', () => {})
-  return attached
+  const attachAt = ({ cols, rows }) => {
+    const ws = new WebSocket(`${WS_URL}?session=${winch.id}&cols=${cols}&rows=${rows}`, BEARER)
+    const ready = new Promise((r) =>
+      ws.on('message', function untilReady(m) {
+        if (JSON.parse(m.toString()).type === 'ready') {
+          ws.off('message', untilReady)
+          r()
+        }
+      }),
+    )
+    const attached = { text: '', ws, ready }
+    ws.on('message', (m) => {
+      const msg = JSON.parse(m.toString())
+      if (msg.type === 'output') attached.text += msg.data
+    })
+    ws.on('error', () => {})
+    return attached
+  }
+
+  const held = attachAt(REPLAY_SIZE)
+  await held.ready
+  held.ws.send(JSON.stringify({ type: 'input', data: ARM_WINCH_TRAP }))
+  await wait(600)
+  const heard = () => held.text.includes(WINCH_MARKER)
+  check('the shell is armed to say when it is resized', !heard(), held.text.slice(-40))
+
+  const sameSize = attachAt(REPLAY_SIZE)
+  await sameSize.ready
+  await wait(600)
+  check('attaching at the size the replay was drawn for disturbs nothing', !heard())
+  sameSize.ws.close()
+
+  const otherSize = attachAt(ANOTHER_SIZE)
+  await otherSize.ready
+  await wait(600)
+  check('…while attaching at a different size does tell the process', heard(), held.text.slice(-40))
+  otherSize.ws.close()
+
+  held.text = ''
+  held.ws.send(JSON.stringify({ type: 'resize', ...ANOTHER_SIZE }))
+  await wait(600)
+  check('a resize to the size it is already at is dropped', !heard())
+  held.ws.send(JSON.stringify({ type: 'resize', ...ANOTHER_SIZE_TALLER }))
+  await wait(600)
+  check('…and one that moves goes through', heard(), held.text.slice(-40))
+  held.ws.close()
+  await wait(200)
 }
-
-const held = attachAt(REPLAY_SIZE)
-await held.ready
-held.ws.send(JSON.stringify({ type: 'input', data: ARM_WINCH_TRAP }))
-await wait(600)
-const heard = () => held.text.includes(WINCH_MARKER)
-check('the shell is armed to say when it is resized', !heard(), held.text.slice(-40))
-
-const sameSize = attachAt(REPLAY_SIZE)
-await sameSize.ready
-await wait(600)
-check('attaching at the size the replay was drawn for disturbs nothing', !heard())
-sameSize.ws.close()
-
-const otherSize = attachAt(ANOTHER_SIZE)
-await otherSize.ready
-await wait(600)
-check('…while attaching at a different size does tell the process', heard(), held.text.slice(-40))
-otherSize.ws.close()
-
-held.text = ''
-held.ws.send(JSON.stringify({ type: 'resize', ...ANOTHER_SIZE }))
-await wait(600)
-check('a resize to the size it is already at is dropped', !heard())
-held.ws.send(JSON.stringify({ type: 'resize', ...ANOTHER_SIZE_TALLER }))
-await wait(600)
-check('…and one that moves goes through', heard(), held.text.slice(-40))
-held.ws.close()
-await wait(200)
 
 for (const id of started) await endSession(id)
 
