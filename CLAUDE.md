@@ -59,6 +59,29 @@ rejected — it goes in `docs/DESIGN-NOTES.md` under "Implementation
 notes", keyed by the function or constant it belongs to. Never in the
 source.
 
+## Never publish a build you have not seen start elsewhere
+
+A bundler bakes absolute paths into the executable, so a build works on the
+machine that built it for reasons that do not travel. 0.2.0 was published from
+CI and died on the first Mac that ran it, looking for a `node_modules` under
+`/Users/runner`. Every local build had passed, because locally that path
+exists.
+
+So a release is not the tag; it is the rehearsal:
+
+    scripts/rehearse-release.sh all    # then scripts/release.sh <version>
+
+It builds from a copy of the tree somewhere else, deletes that somewhere else,
+installs the result through the real `install.sh`, and runs the smoke suite
+against what it installed. Building elsewhere and then deleting it is the whole
+point: it is the only way a baked-in path fails here rather than on someone's
+Mac. `release.yml` does the same on the runner before it publishes anything, so
+a red release job means fix the build, not retag.
+
+A tag that published nothing can be moved. Check `gh release view v<version>`
+first: if there are no assets, delete the tag and re-push it rather than
+burning the next number.
+
 ## Nothing waits for approval
 
 Claude Code here runs in auto mode, and a gate that stops the agent to

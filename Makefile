@@ -10,7 +10,7 @@ TS := $(shell command -v tailscale 2>/dev/null || echo /Applications/Tailscale.a
 PORT := 7788
 # Match server KEEP for screenshots / uploads
 CACHE_KEEP := 50
-ORBIT_HOME := $(HOME)/.orbit
+ORBIT_DATA_DIR := $(HOME)/.orbit
 
 help: ## Show available targets
 	@echo ""
@@ -140,7 +140,7 @@ test-clean: ## Reap test servers and scratch HOMEs left by killed runs
 
 clean: ## Prune ~/.orbit screenshots & uploads (keep newest 50 each)
 	@for name in screenshots uploads; do \
-		dir="$(ORBIT_HOME)/$$name"; \
+		dir="$(ORBIT_DATA_DIR)/$$name"; \
 		if [ ! -d "$$dir" ]; then echo "  $$dir — (missing)"; continue; fi; \
 		count=0; removed=0; \
 		for f in $$(ls -t "$$dir" 2>/dev/null); do \

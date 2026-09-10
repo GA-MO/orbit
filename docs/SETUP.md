@@ -162,7 +162,7 @@ If you do not want this hook, it can be removed without affecting the others: de
 
 ## Where Orbit keeps its data
 
-Everything lives in `~/.orbit`. Set `ORBIT_HOME` to move that directory without moving `HOME`.
+Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* the `.orbit` directory, not the data directory itself: setting `ORBIT_HOME=/tmp/x` puts the data in `/tmp/x/.orbit`. Unset, it falls back to `HOME`, so the data directory moves without moving `HOME`.
 
 | Path | Contents |
 | --- | --- |
@@ -212,7 +212,7 @@ Everything lives in `~/.orbit`. Set `ORBIT_HOME` to move that directory without 
 | `make test-smoke`, `test-touch`, `test-changes`, `test-preview-url`, `test-idle`, `test-ask`, `test-setup`, `test-install` | One suite each. |
 | `make test-clean` | Reap a server or scratch `HOME` that a killed run left behind. |
 | `make shots` | Regenerate `docs/images/*.jpg` by walking the real app on a throwaway server. |
-| `make clean` | Remove build output. |
+| `make clean` | Prune `~/.orbit/screenshots` and `~/.orbit/uploads` down to the newest 50 each. Leaves `config.json`, sessions, push subscriptions and build output alone. |
 
 ## The approval hook, if you want it
 
