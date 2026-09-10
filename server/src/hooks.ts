@@ -23,6 +23,14 @@ const WAITING_NOTIFICATIONS: Record<string, string> = {
   elicitation_dialog: 'A tool is asking you something',
 }
 
+const CODEX_WAITING: Record<string, string> = {
+  'approval-requested': 'Codex is asking for approval',
+  'plan-mode-prompt': 'Codex is waiting on a plan',
+}
+
+const CODEX_TURN_COMPLETE = 'agent-turn-complete'
+const THREAD_TITLE_KEY = 'title'
+
 type HookInput = Record<string, any>
 
 const readStdin = (limitMs: number): Promise<string> =>
@@ -41,6 +49,17 @@ const readInput = async (limitMs: number): Promise<HookInput | null> => {
     return null
   }
 }
+
+const objectOrNull = (text: string | undefined): HookInput | null => {
+  try {
+    const parsed = JSON.parse(String(text))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const lastArgument = (): HookInput | null => objectOrNull(process.argv[process.argv.length - 1])
 
 const token = (): string | null => {
   try {
@@ -131,7 +150,7 @@ export async function runApproveHook(): Promise<number> {
   return 0
 }
 
-interface NoticeText {
+export interface NoticeText {
   message: string
   kind: string
   quiet: boolean
@@ -163,7 +182,25 @@ const describeStop = (input: HookInput): NoticeText | null => {
   return { message: summary ? `Finished: ${summary}` : 'Claude finished', kind: 'done', quiet: true }
 }
 
-const describe = (input: HookInput): NoticeText | null => {
+const isTheTitleCodexGivesTheThread = (input: HookInput): boolean => {
+  const answer = objectOrNull(input['last-assistant-message'])
+  return !!answer && Object.keys(answer).length === 1 && typeof answer[THREAD_TITLE_KEY] === 'string'
+}
+
+const describeCodexTurn = (input: HookInput): NoticeText | null => {
+  if (process.env.ORBIT_SESSION !== '1') return null
+  if (isTheTitleCodexGivesTheThread(input)) return null
+  const summary = oneLine(input['last-assistant-message'], SUMMARY_MAX)
+  return { message: summary ? `Finished: ${summary}` : 'Codex finished', kind: 'done', quiet: true }
+}
+
+const describeCodex = (input: HookInput): NoticeText | null => {
+  if (input.type === CODEX_TURN_COMPLETE) return describeCodexTurn(input)
+  const waiting = CODEX_WAITING[input.type]
+  return waiting ? { message: waiting, kind: 'waiting', quiet: true } : null
+}
+
+const describeClaude = (input: HookInput): NoticeText | null => {
   switch (input.hook_event_name) {
     case 'PreToolUse':
       return describeQuestion(input)
@@ -176,8 +213,11 @@ const describe = (input: HookInput): NoticeText | null => {
   }
 }
 
+export const describe = (input: HookInput): NoticeText | null =>
+  input.hook_event_name ? describeClaude(input) : describeCodex(input)
+
 export async function runNotifyHook(): Promise<number> {
-  const input = await readInput(NOTIFY_STDIN_LIMIT_MS)
+  const input = lastArgument() ?? (await readInput(NOTIFY_STDIN_LIMIT_MS))
   if (!input) return 0
   const notice = describe(input)
   if (!notice) return 0

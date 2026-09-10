@@ -1130,6 +1130,7 @@ const runHook = (input, env = {}) =>
 
 const bash = (command) => ({ tool_name: 'Bash', tool_input: { command }, cwd: HOME })
 const PORT_WITH_NO_ORBIT = '3999'
+const NOTIFY_STDIN_LIMIT_MS = 3000
 check('a safe command passes silently', (await runHook(bash('ls -la'))) === '')
 check(
   'orbit being down does not block the agent',
@@ -1145,6 +1146,89 @@ const allower = phone(() => 'Run it')
 await allower.open
 check('an approved command passes', (await runHook(bash('git push --force origin main'))) === '')
 allower.ws.close()
+
+section('notify hook')
+
+const { describe } = await import(path.join(REPO, 'server/dist/hooks.js'))
+const NOTIFY_FOLDER = path.join(HOME, 'notify-hook-smoke')
+fs.mkdirSync(NOTIFY_FOLDER, { recursive: true })
+const hookSession = (await api('/api/sessions', { provider: 'shell', cwd: NOTIFY_FOLDER, name: 'hooked' })).body
+const IN_AN_ORBIT_SESSION = { ORBIT_SESSION: '1', ORBIT_SESSION_ID: hookSession.id }
+const codexTurn = (lastAssistantMessage) => ({
+  type: 'agent-turn-complete',
+  'thread-id': '01a08a7e-769a-7732-9af0-374186ea3902',
+  'turn-id': '01a08a7e-8bb8-78e2-8be3-f187293c5b6d',
+  cwd: NOTIFY_FOLDER,
+  client: 'codex-tui',
+  'input-messages': ['say the word MANGO and nothing else'],
+  'last-assistant-message': lastAssistantMessage,
+})
+
+const wasInASession = process.env.ORBIT_SESSION
+process.env.ORBIT_SESSION = '1'
+check(
+  'a finished Codex turn is the agent speaking, not a guess off the screen',
+  describe(codexTurn('MANGO'))?.message === 'Finished: MANGO',
+  JSON.stringify(describe(codexTurn('MANGO'))),
+)
+check(
+  'the title Codex writes for its own thread is not news',
+  describe(codexTurn('{"title":"Say MANGO"}')) === null,
+  JSON.stringify(describe(codexTurn('{"title":"Say MANGO"}'))),
+)
+check(
+  '…while an answer that is merely JSON still is',
+  describe(codexTurn('{"title":"Say MANGO","rows":3}'))?.kind === 'done',
+)
+check(
+  'Codex asking for approval is a session waiting, not one finished',
+  describe({ type: 'approval-requested', cwd: NOTIFY_FOLDER })?.kind === 'waiting',
+)
+check('a shape from neither agent says nothing', describe({ type: 'something-else' }) === null)
+delete process.env.ORBIT_SESSION
+check(
+  'a Codex run at the desk is not pushed to the phone',
+  describe(codexTurn('MANGO')) === null,
+)
+if (wasInASession === undefined) delete process.env.ORBIT_SESSION
+else process.env.ORBIT_SESSION = wasInASession
+
+const runNotify = (payload, env = {}) =>
+  new Promise((resolve) => {
+    const h = spawn(process.execPath, [path.join(REPO, 'server/dist/main.js'), 'hook', 'notify', JSON.stringify(payload)], {
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    h.on('close', resolve)
+  })
+
+const listener = phone()
+await listener.open
+const startedAt = Date.now()
+await runNotify(codexTurn('MANGO'), IN_AN_ORBIT_SESSION)
+await wait(400)
+check(
+  'Codex hands the hook its JSON as an argument, and it arrives',
+  listener.seen.some((m) => m.type === 'notice' && m.message === 'Finished: MANGO'),
+  JSON.stringify(listener.seen.filter((m) => m.type === 'notice').map((n) => n.message)),
+)
+check('…without waiting on a stdin that never closes', Date.now() - startedAt < NOTIFY_STDIN_LIMIT_MS)
+check(
+  '…filed against the session Codex was running in',
+  listener.seen.some((m) => m.type === 'notice' && m.sessionId === hookSession.id),
+)
+
+const watchingIt = phone(undefined, hookSession.id)
+await watchingIt.open
+await runNotify(codexTurn('MANGO'), IN_AN_ORBIT_SESSION)
+await wait(400)
+check(
+  'a turn that finished on the screen being watched is not pushed at it',
+  watchingIt.seen.filter((m) => m.type === 'notice').length === 0,
+)
+watchingIt.ws.close()
+listener.ws.close()
+await endThenForget(hookSession.id, 300)
 
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) FAILED.`}`)
 process.exit(failures === 0 ? 0 : 1)
