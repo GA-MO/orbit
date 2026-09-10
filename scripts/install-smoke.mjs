@@ -330,7 +330,7 @@ try {
 }
 check('…and the port is free again once it is stopped', listening(startPort) === '', listening(startPort))
 
-const FAKE_TAILSCALE = path.join(REPO, 'scripts/fake-tailscale.mjs')
+const FAKE_TAILSCALE = process.env.ORBIT_TAILSCALE ?? path.join(REPO, 'scripts/fake-tailscale.mjs')
 const publishedPort = await freeHighPort()
 check('the port the published case picked is not a live Orbit either', !LIVE_PORTS.includes(publishedPort), `:${publishedPort}`)
 const publishedHome = makeHome()

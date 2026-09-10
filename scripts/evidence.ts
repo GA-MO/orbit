@@ -63,7 +63,6 @@ const server: ChildProcess = spawn(process.execPath, [path.join(REPO, 'server/di
     HOME: home,
     ORBIT_HOME: home,
     ORBIT_PORT: String(port),
-    ORBIT_TAILSCALE: path.join(REPO, 'scripts/fake-tailscale.mjs'),
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
