@@ -15,6 +15,13 @@ cd "$REPO"
 
 TARGETS="${1:-host}"
 REHEARSED_STAMP='.rehearsed'
+NOT_PINNABLE=dirty
+
+committed_tree() {
+  [ -z "$(git status --porcelain)" ] && git rev-parse 'HEAD^{tree}' || echo "$NOT_PINNABLE"
+}
+
+TREE_THIS_REHEARSES="$(committed_tree)"
 ARCH="$( [ "$(uname -m)" = arm64 ] && echo arm64 || echo x64 )"
 WORK="$(mktemp -d /tmp/orbit-rehearse-XXXXXX)"
 BUILD_FROM="$WORK/somewhere-else/orbit"
@@ -128,11 +135,17 @@ if [ "$TARGETS" != host ] && [ -f "$ARTIFACTS/orbit-darwin-x64" ]; then
   fi
 fi
 
-if [ -z "$(git status --porcelain)" ]; then
-  printf '%s %s\n' "$(git rev-parse 'HEAD^{tree}')" "$TARGETS" > "$REPO/$REHEARSED_STAMP"
-  printf '\n  Rehearsed clean. scripts/release.sh <version> is safe to run.\n\n'
+TREE_NOW="$(committed_tree)"
+rm -f "$REPO/$REHEARSED_STAMP"
+
+if [ "$TREE_THIS_REHEARSES" = "$NOT_PINNABLE" ]; then
+  printf '\n  Rehearsed clean, but this tree had uncommitted changes when it\n'
+  printf '  started, so the release cannot be pinned to it. Commit them and\n'
+  printf '  rehearse again.\n\n'
+elif [ "$TREE_NOW" != "$TREE_THIS_REHEARSES" ]; then
+  printf '\n  Rehearsed clean, but the tree moved while this ran, so what it\n'
+  printf '  proved is not what you would tag. Rehearse again.\n\n'
 else
-  rm -f "$REPO/$REHEARSED_STAMP"
-  printf '\n  Rehearsed clean, but this tree has uncommitted changes, so the\n'
-  printf '  release cannot be pinned to it. Commit them and rehearse again.\n\n'
+  printf '%s %s\n' "$TREE_THIS_REHEARSES" "$TARGETS" > "$REPO/$REHEARSED_STAMP"
+  printf '\n  Rehearsed clean. scripts/release.sh <version> is safe to run.\n\n'
 fi

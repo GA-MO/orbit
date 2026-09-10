@@ -90,6 +90,11 @@ rehearsal writes `.rehearsed` naming the tree it proved, and `release.sh`
 refuses to tag a tree that stamp does not name. Rehearse last, tag next; do
 not rehearse, merge, then tag.
 
+The rehearsal takes minutes, and another session can land a commit inside
+those minutes — it has. So it reads the tree when it starts, checks it again
+when it finishes, and stamps nothing if the two differ. Rehearsing a tree
+while it moves proves nothing about either.
+
 A tag that published nothing can be moved. Check `gh release view v<version>`
 first: if there are no assets, delete the tag and re-push it rather than
 burning the next number.
