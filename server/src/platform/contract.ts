@@ -22,6 +22,7 @@ export interface Platform {
   screenCapturePermission: { what: string; detail: string; fix?: string } | null
   screenCapturePermissionRefused: RegExp
   chromeExecutableCandidates: string[]
+  chromeStartupTimeoutMs: number
   chromeSearchedWhere: string
   tailscaleCliCandidates: string[]
   listeningSockets(): Promise<ListeningSocket[]>

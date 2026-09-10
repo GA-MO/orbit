@@ -139,7 +139,11 @@ section('captures')
 const PRESET_WIDTHS = [['phone', 780], ['tablet', 1668], ['desktop', 1440]]
 for (const [preset, expectedWidth] of PRESET_WIDTHS) {
   const r = await api('/api/screenshot', { url: BASE, preset })
-  check(`${preset} preset`, r.body.width === expectedWidth, `${r.body.width}×${r.body.height}`)
+  check(
+    `${preset} preset`,
+    r.body.width === expectedWidth,
+    r.body.error ?? `${r.body.width}×${r.body.height}`,
+  )
 }
 const labelled = await api('/api/screenshot', { url: `${BASE}/healthz` })
 check('capture carries a label', labelled.body.label?.includes('healthz'), labelled.body.file)

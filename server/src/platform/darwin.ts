@@ -89,6 +89,8 @@ export const darwin: Platform = {
     BROWSER_NAMES.map((name) => path.join(dir, `${name}.app/Contents/MacOS/${name}`)),
   ),
 
+  chromeStartupTimeoutMs: 20_000,
+
   chromeSearchedWhere: 'not found in /Applications',
 
   tailscaleCliCandidates: ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale'],

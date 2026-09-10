@@ -133,6 +133,8 @@ export const win32: Platform = {
     path.join(dir, 'Chromium/Application/chrome.exe'),
   ]),
 
+  chromeStartupTimeoutMs: 60_000,
+
   chromeSearchedWhere: 'not found in Program Files or the local app data',
 
   tailscaleCliCandidates: [
