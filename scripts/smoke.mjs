@@ -121,7 +121,7 @@ check('the server is on the port this suite was told', (await api('/api/sessions
 
 const namesThePort = {
   'Makefile': /^PORT := (\d+)$/m,
-  'scripts/test.sh': /^LIVE_PORTS="(\d+)/m,
+  'scripts/test.ts': /^const LIVE_PORTS = \[(\d+)/m,
   'scripts/shots.sh': /^LIVE_PORTS="(\d+)/m,
   'web/vite.config.ts': /target: 'http:\/\/localhost:(\d+)'/,
   'package.json': /serve --bg (\d+)/,

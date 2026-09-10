@@ -14,3 +14,19 @@ jobs:
         with:
           bun-version: latest
       - run: bun scripts/windows-cdp-spike.ts
+
+  suites:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+      - name: does the server start at all
+        run: bun scripts/test.ts install
+      - name: setup
+        run: bun scripts/test.ts setup
+      - name: smoke
+        run: bun scripts/test.ts smoke
