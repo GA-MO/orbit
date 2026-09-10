@@ -1,7 +1,6 @@
 import http from 'node:http'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, WebSocket } from 'ws'
@@ -30,8 +29,9 @@ import * as attention from './attention.js'
 import * as push from './push.js'
 import { banner, plainBanner } from './banner.js'
 import * as pairing from './pairing.js'
+import { userHome } from './home.js'
 
-const HOME = os.homedir()
+const HOME = userHome()
 
 const BUN_VIRTUAL_FS_URL = 'file:///$bunfs/'
 const EMBEDDED_WEB_DIST = '/$bunfs/root/dist'

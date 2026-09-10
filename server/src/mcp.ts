@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { packageVersion } from './banner.js'
 import { PORT } from './port.js'
 import { platform } from './platform/index.js'
+import { userHome } from './home.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -15,7 +16,7 @@ const SERVER_INFO = { name: 'orbit', version: packageVersion() }
 const BASE = `http://127.0.0.1:${PORT}`
 const SESSION_ID = process.env.ORBIT_SESSION_ID || null
 const MAX_IMAGE_WIDTH = 1568
-const CONFIG_PATH = path.join(process.env.ORBIT_HOME || os.homedir(), '.orbit', 'config.json')
+const CONFIG_PATH = path.join(userHome(), '.orbit', 'config.json')
 const ERROR_BODY_PREVIEW_CHARS = 200
 
 const JSON_RPC_METHOD_NOT_FOUND = -32601

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import os from 'node:os'
 import { spawn } from 'bun-pty'
 
 interface PtyProcess {
@@ -22,6 +21,7 @@ import * as idle from './idle.js'
 import * as store from './store.js'
 import * as transcripts from './transcripts.js'
 import type { PersistedSession } from './store.js'
+import { userHome } from './home.js'
 
 const SCROLLBACK_LIMIT = 200_000
 const SCROLLBACK_FLUSH_MS = 2000
@@ -287,7 +287,7 @@ export class PtyManager {
       opts.command ?? (conversationId && namesConversations ? namesConversations.start(conversationId) : undefined)
 
     const session = new PtySession(
-      opts.cwd ?? os.homedir(),
+      opts.cwd ?? userHome(),
       provider,
       opts.cols ?? DEFAULT_COLS,
       opts.rows ?? DEFAULT_ROWS,

@@ -139,7 +139,7 @@ const childEnv = (extra: Record<string, string>): Record<string, string> => ({
   ...(process.env as Record<string, string>),
   ...(inheritedPath ? { PATH: inheritedPath } : {}),
   HOME: SCRATCH,
-  USERPROFILE: SCRATCH,
+  ORBIT_HOME: SCRATCH,
   ORBIT_PORT: String(PORT),
   ORBIT_TAILSCALE: TAILSCALE,
   ...extra,
@@ -195,7 +195,7 @@ if (!(await healthy(PORT))) {
   process.exit(1)
 }
 
-const suiteEnv = childEnv({ ORBIT_HOME: SCRATCH })
+const suiteEnv = childEnv({})
 const failed: string[] = []
 
 for (const name of wanted) {

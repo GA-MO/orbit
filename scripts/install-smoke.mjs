@@ -32,6 +32,11 @@ const makeRelease = (version, { corrupt = false } = {}) => {
 
 const makeHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-install-home-'))
 
+const aHomeOfItsOwn = () => {
+  const home = makeHome()
+  return { HOME: home, ORBIT_HOME: home }
+}
+
 const runInstaller = (home, env = {}) => {
   try {
     return {
@@ -39,7 +44,7 @@ const runInstaller = (home, env = {}) => {
       out: execFileSync('bash', [INSTALLER], {
         encoding: 'utf8',
         stdio: 'pipe',
-        env: { ...process.env, HOME: home, PATH: BARE_PATH, ...env },
+        env: { ...process.env, HOME: home, ORBIT_HOME: home, PATH: BARE_PATH, ...env },
       }),
     }
   } catch (err) {
@@ -229,7 +234,7 @@ const freeHighPort = () =>
 const orbit = (args, env) =>
   spawn(process.execPath, [MAIN, ...args], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, HOME: makeHome(), ORBIT_TAILSCALE: NO_TAILSCALE, ...env },
+    env: { ...process.env, ...aHomeOfItsOwn(), ORBIT_TAILSCALE: NO_TAILSCALE, ...env },
   })
 
 const orbitSays = (args, env = {}) => {
@@ -237,7 +242,7 @@ const orbitSays = (args, env = {}) => {
     return execFileSync(process.execPath, [MAIN, ...args], {
       encoding: 'utf8',
       stdio: 'pipe',
-      env: { ...process.env, HOME: makeHome(), ORBIT_TAILSCALE: NO_TAILSCALE, ...env },
+      env: { ...process.env, ...aHomeOfItsOwn(), ORBIT_TAILSCALE: NO_TAILSCALE, ...env },
     })
   } catch (err) {
     return `${err.stdout ?? ''}${err.stderr ?? ''}`

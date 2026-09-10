@@ -164,7 +164,7 @@ const runSetup = (...args) => {
       ok: true,
       out: execFileSync(process.execPath, [MAIN, 'setup', ...args], {
         encoding: 'utf8',
-        env: { ...process.env, HOME: home },
+        env: { ...process.env, HOME: home, ORBIT_HOME: home },
         stdio: 'pipe',
       }),
     }

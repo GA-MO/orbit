@@ -1,11 +1,11 @@
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import readline from 'node:readline'
 import { createReadStream } from 'node:fs'
 import type { PersistedSession } from './store.js'
+import { userHome } from './home.js'
 
-const HOME = os.homedir()
+const HOME = userHome()
 const PROJECTS_DIR = path.join(HOME, '.claude', 'projects')
 const TRANSCRIPT_EXT = '.jsonl'
 

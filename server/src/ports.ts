@@ -1,9 +1,9 @@
 import fsp from 'node:fs/promises'
 import net from 'node:net'
-import os from 'node:os'
 import path from 'node:path'
 
 import { platform, type ListeningSocket } from './platform/index.js'
+import { userHome } from './home.js'
 
 const EPHEMERAL_FROM = 32_768
 const RESERVED_BELOW = 1024
@@ -49,7 +49,7 @@ const workingDirectoriesOf = (pids: number[]): Promise<[number, string][]> =>
 async function projectNamesByPid(pids: number[]): Promise<Map<number, string>> {
   const named = new Map<number, string>()
   if (pids.length === 0) return named
-  const home = os.homedir()
+  const home = userHome()
   const found = await workingDirectoriesOf(pids)
   const names = await Promise.all(found.map(([, cwd]) => nearestRepositoryName(cwd, home)))
   found.forEach(([pid], i) => {

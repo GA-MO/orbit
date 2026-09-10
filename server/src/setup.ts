@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 
 import { launcher, launcherArgv } from './launcher.js'
+import { userHome } from './home.js'
 
 type Json = Record<string, any>
 
@@ -134,9 +134,9 @@ export const withOrbitNotify = (toml: string, start = launcher()): string => {
 
 const say = (line = '') => console.log(line ? `  ${line}` : '')
 
-export const settingsPath = () => path.join(os.homedir(), '.claude', 'settings.json')
+export const settingsPath = () => path.join(userHome(), '.claude', 'settings.json')
 
-export const codexConfigPath = () => path.join(os.homedir(), '.codex', 'config.toml')
+export const codexConfigPath = () => path.join(userHome(), '.codex', 'config.toml')
 
 const readJson = (file: string): Json => {
   try {
