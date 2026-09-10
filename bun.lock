@@ -14,7 +14,7 @@
     },
     "server": {
       "name": "@orbit/server",
-      "version": "0.2.3",
+      "version": "0.3.0",
       "dependencies": {
         "bun-pty": "^0.4.10",
         "qrcode-terminal": "^0.12.0",
