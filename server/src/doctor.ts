@@ -10,24 +10,17 @@ import { COMPILED, launcher } from './launcher.js'
 import { isNewerThan, latestVersion } from './update.js'
 import * as preview from './preview.js'
 import { hookPlan, settingsPath } from './setup.js'
+import { platform } from './platform/index.js'
 
-const LOGIN_SHELL = '/bin/zsh'
-const LOGIN_SHELL_ARGS = ['-l', '-i', '-c']
 const PATH_LOOKUP_TIMEOUT_MS = 8000
 const CLAUDE_MCP_TIMEOUT_MS = 15000
 const WHAT_COLUMN_WIDTH = 18
 const OUR_HOOK_COMMAND = / hook (approve|notify)$/
 
-const CHROME_LOCATIONS = ['/Applications/Google Chrome.app', path.join(os.homedir(), 'Applications/Google Chrome.app')]
-
 const onLoginPath = (command: string): Promise<boolean> =>
   new Promise((resolve) => {
-    execFile(
-      LOGIN_SHELL,
-      [...LOGIN_SHELL_ARGS, `command -v ${command}`],
-      { timeout: PATH_LOOKUP_TIMEOUT_MS },
-      (err) => resolve(!err),
-    )
+    const lookup = platform.looksUpCommandOnPath(command)
+    execFile(lookup.file, lookup.args, { timeout: PATH_LOOKUP_TIMEOUT_MS }, (err) => resolve(!err))
   })
 
 interface CommandResult {
@@ -37,11 +30,9 @@ interface CommandResult {
 
 const claudeMcp = (): Promise<CommandResult> =>
   new Promise((resolve) => {
-    execFile(
-      LOGIN_SHELL,
-      [...LOGIN_SHELL_ARGS, 'claude mcp get orbit'],
-      { timeout: CLAUDE_MCP_TIMEOUT_MS },
-      (err, stdout) => resolve({ ok: !err, out: String(stdout ?? '') }),
+    const run = platform.runsCommandInLoginShell('claude mcp get orbit')
+    execFile(run.file, run.args, { timeout: CLAUDE_MCP_TIMEOUT_MS }, (err, stdout) =>
+      resolve({ ok: !err, out: String(stdout ?? '') }),
     )
   })
 
@@ -60,11 +51,11 @@ const checkClaude = (claude: boolean): Line => ({
 })
 
 const checkChrome = (): Line => {
-  const chrome = CHROME_LOCATIONS.find((location) => fs.existsSync(location))
+  const chrome = platform.chromeExecutableCandidates.find((location) => fs.existsSync(location))
   return {
     ok: !!chrome,
     what: 'Google Chrome',
-    detail: chrome ?? 'not found in /Applications',
+    detail: chrome ?? platform.chromeSearchedWhere,
     fix: chrome ? undefined : 'captures (orbit_capture, the Preview tab) render in system Chrome — install it',
   }
 }

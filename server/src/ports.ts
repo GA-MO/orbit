@@ -1,32 +1,17 @@
-import { execFile } from 'node:child_process'
 import fsp from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 
-const execFileAsync = promisify(execFile)
+import { platform, type ListeningSocket } from './platform/index.js'
 
 const EPHEMERAL_FROM = 32_768
 const RESERVED_BELOW = 1024
-const LSOF_TIMEOUT_MS = 4000
 const HTTP_PROBE_TIMEOUT_MS = 600
 const HEAD_REQUEST = 'HEAD / HTTP/1.0\r\n\r\n'
 const HTTP_STATUS_PREFIX = 'HTTP/'
-const LISTEN_ADDRESS = /^(.*):(\d+)$/
 
-const MACOS_SERVICE_BY_LSOF_NAME_PREFIX: Record<string, string> = {
-  ControlCe: 'AirPlay receiver, on 5000 and 7000',
-  rapportd: 'Continuity',
-  sharingd: 'AirDrop and Handoff',
-  IPNExten: 'Tailscale',
-  Tailscal: 'Tailscale',
-  remoted: 'remoted',
-  launchd: 'launchd',
-}
-const NOT_A_DEV_SERVER = Object.keys(MACOS_SERVICE_BY_LSOF_NAME_PREFIX)
-
-const LOOPBACK_REACHABLE = new Set(['*', '127.0.0.1', '0.0.0.0', '[::1]', 'localhost'])
+const LOOPBACK_REACHABLE = new Set(['*', '127.0.0.1', '0.0.0.0', '[::1]', '::1', '::', 'localhost'])
 
 export interface DevPort {
   port: number
@@ -34,40 +19,9 @@ export interface DevPort {
   project?: string
 }
 
-interface Listener {
-  host: string
-  port: number
-  command: string
-  pid: number
-}
+type Listener = ListeningSocket
 
-const runLsofKeepingPartialOutput = async (args: string[]): Promise<string> => {
-  try {
-    const { stdout } = await execFileAsync('lsof', args, { timeout: LSOF_TIMEOUT_MS })
-    return stdout
-  } catch (err) {
-    return (err as { stdout?: string }).stdout ?? ''
-  }
-}
-
-const fieldTag = (line: string): string => line[0]
-const fieldValue = (line: string): string => line.slice(1)
-
-async function listeners(): Promise<Listener[]> {
-  const stdout = await runLsofKeepingPartialOutput(['-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcn'])
-  const found: Listener[] = []
-  let command = ''
-  let pid = 0
-  for (const line of stdout.split('\n')) {
-    if (fieldTag(line) === 'p') pid = Number(fieldValue(line))
-    else if (fieldTag(line) === 'c') command = fieldValue(line)
-    else if (fieldTag(line) === 'n') {
-      const match = fieldValue(line).match(LISTEN_ADDRESS)
-      if (match) found.push({ host: match[1], port: Number(match[2]), command, pid })
-    }
-  }
-  return found
-}
+const listeners = (): Promise<Listener[]> => platform.listeningSockets()
 
 export const speaksHttp = (port: number): Promise<boolean> =>
   new Promise((resolve) => {
@@ -89,24 +43,8 @@ export const speaksHttp = (port: number): Promise<boolean> =>
     socket.once('end', () => done(isHttpReply()))
   })
 
-const isHomeOrAboveHome = (cwd: string, home: string): boolean =>
-  !path.isAbsolute(cwd) || home.startsWith(cwd)
-
-const workingDirectoriesOf = async (pids: number[]): Promise<[number, string][]> => {
-  const stdout = await runLsofKeepingPartialOutput(['-a', '-d', 'cwd', '-F', 'pn', '-p', pids.join(',')])
-  const home = os.homedir()
-  const found: [number, string][] = []
-  let pid = 0
-  for (const line of stdout.split('\n')) {
-    if (fieldTag(line) === 'p') pid = Number(fieldValue(line))
-    else if (fieldTag(line) === 'n') {
-      const cwd = fieldValue(line)
-      if (isHomeOrAboveHome(cwd, home)) continue
-      found.push([pid, cwd])
-    }
-  }
-  return found
-}
+const workingDirectoriesOf = (pids: number[]): Promise<[number, string][]> =>
+  platform.workingDirectoriesOf(pids)
 
 async function projectNamesByPid(pids: number[]): Promise<Map<number, string>> {
   const named = new Map<number, string>()
@@ -136,8 +74,8 @@ async function nearestRepositoryName(cwd: string, home: string): Promise<string>
   return path.basename(cwd)
 }
 
-const isKnownMacosService = (command: string): boolean =>
-  NOT_A_DEV_SERVER.some((name) => command.startsWith(name))
+const isKnownSystemService = (command: string): boolean =>
+  !!platform.serviceThatIsNotADevServer(command)
 
 const couldBeDevServerPort = (port: number, orbitPort: number): boolean =>
   port !== orbitPort && port >= RESERVED_BELOW && port < EPHEMERAL_FROM
@@ -147,7 +85,7 @@ export async function devServers(orbitPort: number): Promise<DevPort[]> {
   for (const { host, port, command, pid } of await listeners()) {
     if (!LOOPBACK_REACHABLE.has(host)) continue
     if (!couldBeDevServerPort(port, orbitPort)) continue
-    if (isKnownMacosService(command)) continue
+    if (isKnownSystemService(command)) continue
     if (!candidates.has(port)) candidates.set(port, { command, pid })
   }
 

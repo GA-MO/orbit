@@ -4,11 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 
-const APPLICATION_DIRS = ['/Applications', path.join(os.homedir(), 'Applications')]
-const BROWSER_NAMES = ['Google Chrome', 'Google Chrome Beta', 'Google Chrome Canary', 'Chromium']
-const EXECUTABLE_CANDIDATES = APPLICATION_DIRS.flatMap((dir) =>
-  BROWSER_NAMES.map((name) => path.join(dir, `${name}.app/Contents/MacOS/${name}`)),
-)
+import { platform } from './platform/index.js'
+
+const EXECUTABLE_CANDIDATES = platform.chromeExecutableCandidates
 
 const NOT_INSTALLED =
   'Google Chrome was not found — install it from https://www.google.com/chrome, or point ORBIT_CHROME at a Chrome executable'

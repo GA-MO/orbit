@@ -1,12 +1,11 @@
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 
 import { packageVersion } from './banner.js'
 import { COMPILED } from './launcher.js'
 import { DEFAULT_PORT } from './port.js'
+import { platform } from './platform/index.js'
 import * as preview from './preview.js'
 
 const DEFAULT_REPO = 'GA-MO/orbit'
@@ -28,7 +27,7 @@ const repo = (): string => process.env.ORBIT_REPO || DEFAULT_REPO
 
 const localReleaseDir = (): string | undefined => process.env.ORBIT_LOCAL_DIR || undefined
 
-export const assetName = (): string => `orbit-darwin-${os.arch() === 'arm64' ? 'arm64' : 'x64'}`
+export const assetName = (): string => platform.releaseAssetName()
 
 interface ReleaseAsset {
   name: string
@@ -127,7 +126,7 @@ const thisInstall = (): Installed => ({
 
 const assetOf = (release: Release, name: string): ReleaseAsset => {
   const found = release.assets.find((asset) => asset.name === name)
-  if (!found) throw new Error(`release ${release.tag} carries no ${name} — nothing to install for this Mac.`)
+  if (!found) throw new Error(`release ${release.tag} carries no ${name} — nothing to install for this machine.`)
   return found
 }
 
@@ -135,11 +134,7 @@ const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).dig
 
 const publishedChecksum = (text: string): string => text.trim().split(WHITESPACE)[0].toLowerCase()
 
-const clearQuarantine = (file: string): void => {
-  try {
-    execFileSync('xattr', ['-d', 'com.apple.quarantine', file], { stdio: 'ignore' })
-  } catch {}
-}
+const clearQuarantine = (file: string): void => platform.clearsDownloadBlock(file)
 
 const replaceExecutable = (executable: string, bytes: Buffer): void => {
   const mode = fs.statSync(executable).mode & MODE_BITS

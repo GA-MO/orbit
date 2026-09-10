@@ -6,6 +6,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { packageVersion } from './banner.js'
 import { PORT } from './port.js'
+import { platform } from './platform/index.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -53,7 +54,8 @@ const api = async (route: string, body: unknown): Promise<any> => {
 
 const downscaledCopy = async (filePath: string): Promise<string | null> => {
   const scaled = path.join(os.tmpdir(), `orbit-mcp-${path.basename(filePath)}`)
-  const ok = await execFileAsync('/usr/bin/sips', ['-Z', String(MAX_IMAGE_WIDTH), filePath, '--out', scaled])
+  const downscale = platform.downscalesImage(filePath, scaled, MAX_IMAGE_WIDTH)
+  const ok = await execFileAsync(downscale.file, downscale.args)
     .then(() => true)
     .catch(() => false)
   return ok ? scaled : null
@@ -121,7 +123,7 @@ const TOOLS: Tool[] = [
     async run(args) {
       const shot = await api('/api/screenshot', { source: 'screen', display: args.display })
       return {
-        content: [await imageContent(shot.path, shot.width), text(`Mac screen — saved to ${shot.path}`)],
+        content: [await imageContent(shot.path, shot.width), text(`Screen — saved to ${shot.path}`)],
       }
     },
   },

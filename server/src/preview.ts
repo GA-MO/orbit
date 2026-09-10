@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process'
 import net from 'node:net'
 import { promisify } from 'node:util'
 
+import { platform } from './platform/index.js'
+
 const execFileAsync = promisify(execFile)
 
 const FIRST_PORT = 8443
@@ -22,7 +24,7 @@ const LEADING_SLASHES = /^\/+/
 const TRAILING_DOT = /\.$/
 const LOOPBACK_PROXY_PORT = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::(\d+))?/
 
-const INSTALLED_CLI_CANDIDATES = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']
+const INSTALLED_CLI_CANDIDATES = platform.tailscaleCliCandidates
 
 const CLI_CANDIDATES = process.env.ORBIT_TAILSCALE ? [process.env.ORBIT_TAILSCALE] : INSTALLED_CLI_CANDIDATES
 

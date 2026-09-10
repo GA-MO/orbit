@@ -782,6 +782,14 @@ screen. The service worker is registered in production builds only.
 
 ## Implementation notes
 
+- `server/src/platform/` exists because every OS-specific call was scattered across a dozen files, and each one was found only by tripping over it. The contract is the whole list: shells, Chrome, Tailscale, screen capture, image downscaling, listening sockets, quarantine, release asset name, hook-command quoting. Anything else that reaches for the OS belongs in it too, or the next port rediscovers the same twelve files.
+- `banner.lanAddress` reads `os.networkInterfaces()` rather than `ipconfig getifaddr en0`: the interface names were a macOS guess that missed Ethernet and every VPN, and the portable call needs no child process at all. It returns the first non-internal IPv4, which is what `en0` was standing in for.
+- `platform.downscalesImage` keeps `sips` on macOS and uses `System.Drawing` on Windows rather than resizing through the headless Chrome that is already running: reaching Chrome means either a multi-megabyte `data:` URL through CDP or handing the browser the server's access token, and both cost more than a second small child process.
+- `win32.releaseAssetName` is pinned to x64 with no arm64 branch because Bun compiles no `bun-windows-arm64` target. An ARM Windows machine runs the x64 build under emulation; naming an arm64 asset would only ask a release for something it can never carry.
+- `win32.workingDirectoriesOf` returns nothing: Windows has no cheap per-pid cwd (`lsof -d cwd` has no equivalent short of WMI or handle inspection), so the dev-server list there shows ports and process names without project names, rather than paying for them.
+- `win32.opensInteractiveShell` runs PowerShell without `-NoProfile` while `looksUpCommandOnPath` runs it with: a session must see the PATH the user's profile builds or `claude` is missing from it, and a detection probe must not pay for that profile on every call.
+- `platform.quotedForHookCommand` differs by OS because the hook command is a string a shell re-splits. `JSON.stringify` escapes backslashes, which is right for zsh and wrong for `cmd.exe`, where `C:\Users\x` would arrive with its separators eaten and the hook would simply never fire — with no error anywhere.
+
 The source carries no comments; names carry the intent, and what a name
 cannot carry is here — platform quirks, chosen constants, rejected
 alternatives — keyed by the function or constant it belongs to.

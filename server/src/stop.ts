@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process'
 import { setTimeout as wait } from 'node:timers/promises'
 
 import { PORT } from './port.js'
+import { platform } from './platform/index.js'
 import * as preview from './preview.js'
 
 const GRACE_MS = 300
@@ -9,16 +9,7 @@ const RELEASE_POLL_MS = 50
 
 const say = (line = '') => console.log(line ? `  ${line}` : '')
 
-export const listeningPids = (port: number): string[] => {
-  try {
-    return execFileSync('lsof', [`-tiTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8', stdio: 'pipe' })
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-  } catch {
-    return []
-  }
-}
+export const listeningPids = (port: number): string[] => platform.pidsListeningOn(port)
 
 export const takeFrontDoorDown = async (): Promise<number> => {
   try {

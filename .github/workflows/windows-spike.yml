@@ -1,0 +1,16 @@
+name: windows-cdp-spike
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows-support]
+
+jobs:
+  cdp:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun scripts/windows-cdp-spike.ts

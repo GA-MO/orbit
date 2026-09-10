@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import { launch, type Chrome, type Page } from './chrome.js'
+import { platform } from './platform/index.js'
 import { orbitDir } from './home.js'
 
 const execFileAsync = promisify(execFile)
@@ -24,15 +25,13 @@ const UNSAFE_LABEL_CHARS = /[^\w.:]/g
 const PNG_EXTENSION = /\.png$/
 const SAFE_FILE_NAME = /^[\w.:-]+\.png$/
 const NAVIGATION_FAILURE = /net::[A-Z_]+/
-const PERMISSION_REFUSED = /not authorized|permission|denied/i
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47])
 const PNG_HEADER_BYTES = 24
 const IHDR_WIDTH_OFFSET = 16
 const IHDR_HEIGHT_OFFSET = 20
 
-const SCREEN_RECORDING_HINT =
-  'grant Screen Recording to the app running the Orbit server in System Settings → Privacy & Security'
+const SCREEN_RECORDING_HINT = platform.screenCaptureHint
 
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true })
 
@@ -176,21 +175,13 @@ export async function capture(url: string, opts: CaptureOptions = {}): Promise<S
   }
 }
 
-const screencaptureArgs = (filePath: string, display: number | undefined): string[] => {
-  const args = ['-x', '-t', 'png']
-  if (display && display > 0) args.push('-D', String(display))
-  args.push(filePath)
-  return args
-}
-
 export async function captureScreen(opts: { display?: number } = {}): Promise<Screenshot> {
   const file = `${Date.now()}-screen.png`
   const filePath = path.join(SCREENSHOT_DIR, file)
 
   try {
-    await execFileAsync('/usr/sbin/screencapture', screencaptureArgs(filePath, opts.display), {
-      timeout: SCREENCAPTURE_TIMEOUT_MS,
-    })
+    const capture = platform.capturesWholeScreen(filePath, opts.display)
+    await execFileAsync(capture.file, capture.args, { timeout: SCREENCAPTURE_TIMEOUT_MS })
   } catch (err) {
     await fsp.rm(filePath, { force: true })
     throw new Error(screenCaptureError(err as Error & { stderr?: string }))
@@ -199,7 +190,7 @@ export async function captureScreen(opts: { display?: number } = {}): Promise<Sc
   const stat = await fsp.stat(filePath).catch(() => null)
   if (!stat?.isFile() || stat.size === 0) {
     await fsp.rm(filePath, { force: true })
-    throw new Error(`screencapture produced no image — ${SCREEN_RECORDING_HINT}`)
+    throw new Error(`the screen capture produced no image — ${SCREEN_RECORDING_HINT}`)
   }
   await prune()
   return describe(file)
@@ -207,7 +198,7 @@ export async function captureScreen(opts: { display?: number } = {}): Promise<Sc
 
 const screenCaptureError = (err: Error & { stderr?: string }): string => {
   const detail = (err.stderr ?? err.message ?? '').trim().split('\n')[0]
-  if (PERMISSION_REFUSED.test(detail)) {
+  if (platform.screenCapturePermissionRefused.test(detail)) {
     return `screen capture is not permitted — ${SCREEN_RECORDING_HINT}, then restart it`
   }
   return `screen capture failed${detail ? `: ${detail}` : ''}`

@@ -17,6 +17,7 @@ const spawnPty: (
 ) => PtyProcess = spawn
 import type { Provider } from './providers.js'
 import { getProvider } from './providers.js'
+import { platform } from './platform/index.js'
 import * as idle from './idle.js'
 import * as store from './store.js'
 import * as transcripts from './transcripts.js'
@@ -32,7 +33,6 @@ const SIGKILL_AFTER_MS = 3000
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 const TERM = 'xterm-256color'
-const LOGIN_SHELL = '/bin/zsh'
 const BACKSPACE = '\x7f'
 
 const ESCAPE_SEQUENCE = /\x1b(\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|O[A-Za-z]|.)?/g
@@ -62,9 +62,8 @@ const ptyEnv = (sessionId: string): Record<string, string> => {
 }
 
 const launchSpec = (command: string | null | undefined): [file: string, args: string[]] => {
-  if (command) return [LOGIN_SHELL, ['-l', '-i', '-c', `exec ${command}`]]
-  const usersShell = process.env.SHELL ?? LOGIN_SHELL
-  return [usersShell, ['-l']]
+  const spec = command ? platform.runsCommandInLoginShell(command) : platform.opensInteractiveShell()
+  return [spec.file, spec.args]
 }
 
 function keepTailEndingOnLineBoundary(buffer: string, limit: number): string {

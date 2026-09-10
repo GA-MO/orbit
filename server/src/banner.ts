@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import { qrBlock } from './qr.js'
 import { LAN_OPEN } from './network.js'
 
@@ -15,7 +15,6 @@ const INDENT = '  '
 const FOOTNOTE_SEPARATOR = '  ·  '
 const STOP_HINT = 'Ctrl-C to stop'
 const UNKNOWN_VERSION = '?'
-const LAN_INTERFACES = ['en0', 'en1']
 
 const PACKAGE_JSON_CANDIDATES = [new URL('../package.json', import.meta.url), '/$bunfs/root/package.json']
 
@@ -31,11 +30,10 @@ export interface BannerFacts {
 }
 
 export function lanAddress(): string | null {
-  for (const interfaceName of LAN_INTERFACES) {
-    try {
-      const address = execFileSync('ipconfig', ['getifaddr', interfaceName], { encoding: 'utf8', stdio: 'pipe' }).trim()
-      if (address) return address
-    } catch {}
+  for (const addresses of Object.values(os.networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.family === 'IPv4' && !address.internal) return address.address
+    }
   }
   return null
 }

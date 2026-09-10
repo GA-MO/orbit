@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 
+import { platform } from './platform/index.js'
+
 export interface Provider {
   id: string
   name: string
@@ -35,12 +37,8 @@ let cachedAt = 0
 
 const isOnUsersLoginShellPath = (command: string): Promise<boolean> =>
   new Promise((resolve) => {
-    execFile(
-      '/bin/zsh',
-      ['-l', '-i', '-c', `command -v ${command}`],
-      { timeout: COMMAND_LOOKUP_TIMEOUT_MS },
-      (err) => resolve(!err),
-    )
+    const lookup = platform.looksUpCommandOnPath(command)
+    execFile(lookup.file, lookup.args, { timeout: COMMAND_LOOKUP_TIMEOUT_MS }, (err) => resolve(!err))
   })
 
 export async function detectAvailability(): Promise<Record<string, boolean>> {
