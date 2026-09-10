@@ -22,11 +22,9 @@ const LEADING_SLASHES = /^\/+/
 const TRAILING_DOT = /\.$/
 const LOOPBACK_PROXY_PORT = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::(\d+))?/
 
-const CLI_CANDIDATES = [
-  process.env.ORBIT_TAILSCALE,
-  'tailscale',
-  '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
-].filter((c): c is string => !!c)
+const INSTALLED_CLI_CANDIDATES = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']
+
+const CLI_CANDIDATES = process.env.ORBIT_TAILSCALE ? [process.env.ORBIT_TAILSCALE] : INSTALLED_CLI_CANDIDATES
 
 export interface Preview {
   port: number
@@ -170,6 +168,15 @@ const describePreview = async (name: string, port: number, publicPort: number): 
   url: `https://${name}:${publicPort}/`,
   listening: await isListening(port),
 })
+
+export async function frontDoorTargetPort(): Promise<number | null> {
+  if (!(await findCli())) return null
+  try {
+    return (await mappings()).find((m) => m.publicPort === FRONT_DOOR_PORT)?.port ?? null
+  } catch {
+    return null
+  }
+}
 
 export async function state(orbitPort: number): Promise<PreviewState> {
   if (!(await findCli())) return unavailable(NOT_INSTALLED)

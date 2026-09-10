@@ -5,7 +5,9 @@ import path from 'node:path'
 
 import { PORT } from './port.js'
 import { orbitDir } from './home.js'
-import { launcher } from './launcher.js'
+import { packageVersion } from './banner.js'
+import { COMPILED, launcher } from './launcher.js'
+import { latestVersion } from './update.js'
 import * as preview from './preview.js'
 import { hookPlan, settingsPath } from './setup.js'
 
@@ -73,7 +75,7 @@ const checkTailscale = async (): Promise<Line> => {
     ok: ts.available || !!ts.host,
     what: 'Tailscale',
     detail: ts.host ? `logged in as ${ts.host}` : (ts.reason ?? 'not available'),
-    fix: ts.host ? undefined : 'needed only to reach Orbit away from the Mac — install and log in, then `orbit phone`',
+    fix: ts.host ? undefined : 'needed only to reach Orbit away from the Mac — install and log in, then `orbit start`',
   }
 }
 
@@ -155,6 +157,15 @@ const checkServer = async (start: string): Promise<Line> => {
   }
 }
 
+const checkVersion = async (): Promise<Line> => {
+  const installed = packageVersion()
+  if (!COMPILED) return { ok: null, what: 'Version', detail: `${installed}, running from a checkout` }
+  const latest = await latestVersion().catch(() => null)
+  if (!latest) return { ok: null, what: 'Version', detail: `${installed} — could not ask GitHub whether a newer one is out` }
+  if (latest === installed) return { ok: true, what: 'Version', detail: `${installed}, the latest release` }
+  return { ok: null, what: 'Version', detail: `${installed}, and ${latest} has been released`, fix: 'run `orbit update`' }
+}
+
 const screenRecordingLine: Line = {
   ok: null,
   what: 'Screen Recording',
@@ -178,6 +189,7 @@ export async function runDoctor(): Promise<number> {
   const claude = await onLoginPath('claude')
 
   const lines: Line[] = [
+    await checkVersion(),
     checkClaude(claude),
     checkChrome(),
     await checkTailscale(),

@@ -6,7 +6,8 @@ import path from 'node:path'
 const HOST = 'smoke-mac.example-tailnet.ts.net'
 const ORBIT_HOME = process.env.ORBIT_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.orbit')
 const STATE_FILE = process.env.ORBIT_FAKE_TAILSCALE_STATE ?? path.join(ORBIT_HOME, 'fake-tailscale.json')
-const FRONT_DOOR = [{ publicPort: 443, port: 7788 }]
+const FRONT_DOOR_PUBLIC_PORT = 443
+const FRONT_DOOR = [{ publicPort: FRONT_DOOR_PUBLIC_PORT, port: 7788 }]
 
 const readMappings = () => {
   try {
@@ -51,9 +52,9 @@ const serveOff = (flags) => {
 }
 
 const serveInBackground = (flags) => {
-  const publicPort = httpsPortFlag(flags)
+  const publicPort = httpsPortFlag(flags) || FRONT_DOOR_PUBLIC_PORT
   const port = Number(flags.at(-1))
-  if (!publicPort || !port) fail('serve: expected --https=<port> <target>')
+  if (!port) fail('serve: expected [--https=<port>] <target>')
   const others = readMappings().filter((mapping) => mapping.publicPort !== publicPort)
   writeMappings([...others, { publicPort, port }])
   process.stdout.write(`Available within your tailnet:\nhttps://${HOST}:${publicPort}/\n`)

@@ -112,6 +112,14 @@ most recently ended session of a folder+agent, and only while nothing is live
 there. Anywhere else it would either reopen a different conversation than the
 one tapped, or put a second agent into a conversation already in use.
 
+Codex CLI does have `codex resume <SESSION_ID>`, so the tighter rule looks
+within reach — but it has no counterpart to `claude --session-id <uuid>`,
+nothing that lets an id be chosen before the session starts. The id only
+exists once Codex has written the session out, so a row cannot be born
+holding one. Reaching the tighter rule would mean reading ids back out of
+`~/.codex/sessions` after the fact, which is a different mechanism than the
+one `conversation` describes.
+
 ### A session the Mac has forgotten is reported as gone
 
 A session id the phone remembers but the Mac no longer has is reported as
@@ -591,7 +599,7 @@ history.
 
 ### The pairing QR carries a code, never the token
 
-The QR printed by `orbit phone` and `orbit pair` encodes
+The QR printed by `orbit start` and `orbit pair` encodes
 `https://<host>/#pair=<code>`: a pairing code that lives ten minutes and
 allows a few uses, carried in the URL fragment and exchanged for the token via
 `POST /api/auth/pair`. The token itself is never in the QR.
@@ -646,7 +654,7 @@ first.
 
 In production the server serves the built web app itself, so production is a
 single port: `bun run build && bun run start`, then open
-`http://<mac-ip>:7788` (or the tailnet https address `orbit phone` publishes).
+`http://<mac-ip>:7788` (or the tailnet https address `orbit start` publishes).
 
 ### An installable PWA
 
@@ -695,7 +703,8 @@ alternatives — keyed by the function or constant it belongs to.
 - `QUIET_MS` = 10,000 is generous on purpose: the cost of waiting is a badge ten seconds late on a phone nobody has picked up; the cost of haste is calling a session "waiting" mid-tool-call and teaching the user to distrust the badge. `watch` takes `quietMs` as a parameter only so tests can shorten it.
 - `MIN_OUTPUT_SINCE_KEYSTROKE` = 200 bytes: the terminal echoes keystrokes as output, so without a floor a session opened and left alone would settle and announce itself off its own echo.
 - `MIN_STATEMENT_LENGTH` = 8: the last bytes on the wire are often a single cell repainted in place (spinner, elapsed clock, status-bar indicator) that arrive cursor-addressed and look like a short line. The floor throws them away so "Went quiet" speaks instead. Lines ending in `?` are exempt — "Retry?" is the whole point.
-- `AGENT_CHROME` lists lines an agent leaves on screen whatever it is doing (`? for shortcuts`, `esc to interrupt`, `⏵⏵`, `bypassing permissions`); they are the last thing drawn and would otherwise be the message every time.
+- `breakWhereTheCursorChangesRow` runs before the escape sequences are stripped, and turns a move to a different screen row into a newline. Codex CLI paints its whole screen with absolute cursor addressing rather than by writing lines, so stripping the sequences first left the agent's answer, the composer placeholder and the status bar as one 200-character string, and nothing that ended in `?` — the first Codex session on this machine reported `Which database should I point it at?  › Ask Codex to do anything   gpt-5.6-terra default · /priv…` as a statement. Moves within one row are joined, not broken: Codex addresses each word of a wrapped paragraph separately.
+- `AGENT_CHROME` lists lines an agent leaves on screen whatever it is doing (`? for shortcuts`, `esc to interrupt`, `⏵⏵`, `bypassing permissions`, and Codex's `Ask Codex to do anything` and its `<model> <effort> · <branch>` status line); they are the last thing drawn and would otherwise be the message every time.
 - `MISSED_KEPT` = 10 and `MISSED_MAX_AGE_MS` = 6h bound the replay-on-connect list; a missed notice carries `at` only because it is read late.
 - `broadcastPreview` returns a count and never throws on zero receivers: the fallback (a notice naming port and path) belongs to the route, which knows about push and the missed queue. Previews are never queued for a later phone — a frame opened onto work that has moved on is a confusing picture, not a stale one.
 - `answerWith`: `ANSWER_TOKEN_BYTES` = 24; a wrong nonce returns false and the route turns it into the same paced 401 a wrong token gets, so a nonce cannot be brute-forced faster than a token.
@@ -735,6 +744,7 @@ alternatives — keyed by the function or constant it belongs to.
 - `WIDE` = 64 columns is where the two-column layout starts wrapping values; below it the banner switches to one fact per line. No box is drawn because it would have to be laid out for a width the server cannot know.
 - `plainBanner`'s token line keeps its historical wording verbatim: it is what users copy and what `grep` in the troubleshooting docs matches.
 - `PACKAGE_JSON_CANDIDATES` reads `package.json` from disk (checkout) or `/$bunfs/root/package.json` (compiled) rather than importing it, avoiding `resolveJsonModule` and a bundled copy.
+- `lanAddress` runs `ipconfig getifaddr` over `LAN_INTERFACES` (`en0`, then `en1`) and the banner prints its URL as a row of its own, beside the localhost one. `http://localhost:7788` is the address the server is proudest of and the one address a phone cannot open; a Mac with only the localhost line printed left the reader to work out their own IP. It is a `null` when there is no Wi-Fi, and the row is simply absent — a guessed address is worse than none. `plainBanner` carries the same fact as `[orbit] same wi-fi: …`.
 - `renderBanner` takes the tailnet address as an argument because only `index.ts` knows whether it already paid for the `tailscale status` process; a self-fetching banner would spawn one per start and be untestable without Tailscale.
 - `qr.ts` uses a default import of `qrcode-terminal`: it assigns a whole object to `module.exports`, which the ESM loader cannot split into named exports. The `generate` callback is synchronous and is the only way to get the string instead of stdout.
 - `qrBlock` paints with `INK` = white-on-black pinned explicitly (kept even under `NO_COLOR`): small mode draws light modules with the terminal's default background, which on a dark terminal inverts the code. `QUIET` = 4 modules of margin is the spec's requirement, minus the library's own `OWN_MARGIN_MODULES` = 1.
@@ -927,7 +937,7 @@ alternatives — keyed by the function or constant it belongs to.
 
 - `scripts/test.sh` picks the port itself from 3099 up and names the scratch HOME after it: asking the caller for one used to die on "port in use", so a second session invented its own port and HOME, which is how six `/tmp/orbit-smoke-31xx` directories outlived their runs. `LIVE_PORTS` (7788 and 3001) are refused because the suites kill sessions and a real Orbit answers there; 3001 is on the list because it was the default until 0.2.2 and an instance started before that is still on it until restarted. `smoke.mjs` (`SMOKE_FORCE` overrides), `changes-smoke.mjs`, `shots.mjs` and `shots.sh` each refuse them independently.
 - `test.sh` exports `REAL_PATH` from `/bin/zsh -lic`: the scratch HOME has no rc files, so the server's login shell rebuilt PATH without `~/.local/bin` or version-manager shims and provider detection (`zsh -lic 'command -v claude'`) reported every agent "not installed" — a false negative nobody investigates.
-- `test.sh` sets `ORBIT_TAILSCALE` to `fake-tailscale.mjs`: the real CLI either skipped the preview tests or published real mappings, and `:8443 → 127.0.0.1:3099` once outlived the throwaway server and confused a debugging session weeks later. The fake keeps mappings in a JSON file under the test HOME, seeds `443 → 7788` (the front door `orbit phone` created) so Orbit must leave it alone untold, prints the CLI's words on stderr (which `preview.ts` reads), and keeps the trailing dot on `DNSName` because `preview.ts` strips it.
+- `test.sh` sets `ORBIT_TAILSCALE` to `fake-tailscale.mjs`: the real CLI either skipped the preview tests or published real mappings, and `:8443 → 127.0.0.1:3099` once outlived the throwaway server and confused a debugging session weeks later. The fake keeps mappings in a JSON file under the test HOME, seeds `443 → 7788` (the front door `orbit start` created) so Orbit must leave it alone untold, prints the CLI's words on stderr (which `preview.ts` reads), and keeps the trailing dot on `DNSName` because `preview.ts` strips it.
 - `test.sh` deletes the scratch HOME only when suites pass (a failed run's server log is what someone wants to read) and retries `rm -rf` five times at 0.3s because the server's shells write `.zsh_history` a moment after the server has gone.
 - `ORBIT_BIN` points the suites at a built executable instead of the checkout's server, absolute or relative to the checkout — a binary downloaded from a release is the thing most worth pointing them at, and it does not live in the tree.
 - `smoke.mjs` attaches the `gone` message listener before any `await`: under Bun the socket opens, is told `gone` and closes within ~3ms, before a fetch returns, so a listener attached after waits forever.
@@ -943,6 +953,7 @@ alternatives — keyed by the function or constant it belongs to.
 - `idle-smoke.mjs` uses `QUIET = 120`ms against a fake session; the echo case matters because typed input is echoed as output and restarts the clock, so what stops a report is the turn's output count resetting, not a cancelled timer.
 - `touch-smoke.mjs` taps via Playwright's touchscreen so the emulated click follows (the reason tap handling swallows clicks); press-and-hold is dispatched in-page because Playwright has no API for it. The `hold` selector keeps dispatching to the original node even once detached, because a real finger does and resolving the target afresh had silently repaired the dead-glyph swipe bug. WebKit cannot construct `Touch` but has `createTouch`; Chromium is the reverse. `spanAt` finds a word by column because xterm draws a whole unstyled row as one span. The alt-screen app is written to a file because quoting through `node -e` over a pty breaks silently, and it repaints continuously because a draw-once app cannot reproduce the detached-node case.
 - `changes-smoke.mjs` scopes the "Stage" click to the sheet with an exact match because "Stage all" sits in the list behind it and a substring match clicks through. Both browser suites reset `errors` after login because the 401 that raised the login screen is the app working; touch-smoke also ignores `40[14]` for the login probe and example.com's missing `/a/b`.
+- `install-smoke.mjs` reuses its stand-in releases for the `orbit update` cases and calls `runUpdate` in-process with a fake `Installed`, capturing `console.log`: the four that matter are that `--check` and a refused checksum leave the executable byte-for-byte as it was, that an up-to-date install stops before downloading, and that a checkout is refused — the last through a real `bun server/dist/main.js update`, which is also the check that the subcommand is wired into the dispatcher.
 - `setup-smoke.mjs` makes its own HOME regardless of the script's because it edits `~/.claude/settings.json`; it asserts the approval hook carries `timeout: 190` (the one that fails open when wrong) and that legacy `scripts/orbit-approve.mjs` hooks are taken over rather than doubled, since double hooks buzz the phone twice per question.
 - `shots.sh` moves only `ORBIT_HOME`, keeping the real `HOME`, so a photographed session has the user's shell, PATH and agent credentials; the demo project lives under the real home because Orbit refuses sessions outside it. It unsets every `CLAUDE*` env var so an agent started from inside a Claude Code session does not print "transcript saving is off" in a published picture.
 - `shots.mjs` types `export PS1='storefront $ '; exec zsh -f` first because the machine's themed prompt carries a username, hostname and path into a published page; uses `git --no-pager` because `less` fills the scrollback with tildes; clicks `.xterm-screen` before typing because xterm only takes keystrokes once touched; stubs `SpeechRecognition` and skips `getUserMedia` priming because headless Chrome has no mic; intercepts `/api/dirs` and `/api/ports` so the folder picker and Preview tab show the demo rather than client names; saves JPEG q88 because ten 2x dark-grain PNGs were 7MB per re-run in git history; kills every session at the end because a dev server holding :5199 meets the next run as a busy port.
@@ -953,6 +964,33 @@ alternatives — keyed by the function or constant it belongs to.
 - `dist.sh` passes `--external chromium-bidi` because it is an optional require inside playwright-core (for Firefox) that the bundler cannot resolve and the binary never needs; `web/dist` and `server/package.json` go in as `--asset` because the server reads them from disk (`WEB_DIST`). A `.sha256` sits beside each binary because the Homebrew formula names it and `tap.sh` reads it from the release rather than this machine.
 - `release.sh` runs `bun install --silent` after bumping both package.json files because the lockfile carries workspace versions, and tolerates an empty commit for a version the files already carry.
 - `icons.mjs` reads colours out of `web/src/styles.css` and fails loudly if a token is missing; renders each size at exact pixels in system Chrome, since scaling down a bigger PNG is what turned the old favicon to mush. Sizes below 192 drop the satellite (~5% of width, a smudge at small sizes). `RIM = rgb(255 255 255 / 0.17)` keeps the ring dark under a satellite so the sweep is the bright thing; the satellite-less favicon opens the rim up. All PNGs are full-bleed ink (iOS will not round-trip transparency; Android's legacy path drops a white plate); apple-touch-icon is 180 unrounded since iOS applies its own squircle; maskable artwork sits inside the 80% safe circle. `syncColours` rewrites manifest and theme-color from `--color-ink` because three files once disagreed.
+
+### Updating in place (update.ts)
+
+- `orbit update` exists because the executable has no package manager behind it: the one-line installer is a `curl | bash` and the alternative to a subcommand is telling people to re-run that from memory. It repeats what `install.sh` does — resolve the latest tag, take the asset for this architecture, verify the `.sha256` beside it, clear the quarantine attribute — because a release with no checksum, or one whose checksum has moved, is the case worth refusing rather than the case worth handling.
+- `runUpdate` takes an `Installed` ({executable, compiled, version}) with `thisInstall()` as its default. The three facts it needs about itself are the three the tests have to lie about, and passing them in is what lets `install-smoke.mjs` upgrade a throwaway shell script instead of compiling a 70MB binary per case.
+- `ORBIT_LOCAL_DIR` means the same thing here as in `install.sh`: a release directory on disk instead of the GitHub API, so the update suite runs with no network and no real binary.
+- `!installed.compiled` is refused rather than made to work. A checkout's `process.execPath` is `bun`, so "replace the running executable" would replace the user's Bun with an Orbit build — the worst outcome available — and the checkout's own answer, `git pull`, is one line.
+- `replaceExecutable` writes a sibling `.orbit-update` file, chmods it to the mode the old one had, and renames it over the target. Writing into the running executable is `ETXTBSY`; a rename swaps the directory entry, which the running process does not notice, and a sibling keeps it on the same filesystem so the rename is atomic. Nothing is written until the checksum matches, so a refused update leaves the old executable untouched rather than truncated.
+- The two things printed afterwards are the two the new binary cannot do for itself: `tailscale serve` still points the front door wherever `orbit start` left it (`preview.frontDoorTargetPort`, said only when that is not the default port — 0.2.2 moved it from 3001 to 7788, which is exactly the update that strands a front door), and a Claude Code session already open is still running the *previous* executable as its MCP server, since `claude mcp` spawned it at session start.
+- `checkVersion` in `doctor.ts` is `ok: null` for everything except "you have the latest", including when a newer release is out: doctor exits non-zero on any `ok: false`, and a version that is merely behind is not a broken machine. "Could not ask GitHub" is the same neutral line, with `AbortSignal.timeout(ASK_TIMEOUT_MS)` (6s) so a Mac with no network gets a dash rather than a hang.
+
+### Starting for a phone (start.ts)
+
+- `orbit start` is `orbit phone` renamed. `phone` said what it was for, not what it did, and it sat beside `stop` in the usage list as its opposite without looking like one. `main.ts` still answers to `phone`, printing `RENAMED` first, because the name is in launchd plists and in people's shell history; it is gone from the documented surface.
+- `runStart` publishes the front door and then serves, in that order: `index.ts` never returns, so anything that must happen first has to happen before the import.
+- A failure to publish no longer stops the command. It used to print the error and return 1, which meant a Mac that had never set up Tailscale — the first run, every time — got nothing at all from the one command the docs told it to type. `sayUnpublished` says which of the three it is in a sentence, says that voice input and Add to Home Screen need HTTPS so Tailscale is still worth setting up, offers the LAN address instead, and then the server starts anyway. A terminal over http is worth much more than a message.
+- `SERVER_OWNS_PROCESS` = -1 is not an exit code: it tells `main.ts`'s `exit` to leave the process alone, because the server it just imported is the thing that runs from here.
+- A port already in use is still a 0 and still returns before the import: the front door now points at whatever is there, which is the useful half of the command, and starting a second server on a taken port is not.
+
+### Stopping (stop.ts)
+
+- `orbit stop` exists because the answer to "an Orbit is already running" was `make stop` — which only a checkout has. The installed executable could publish a front door and start a server but had no way to undo either, so people reached for `kill -9` on a PID they had to find themselves.
+- It mirrors the Makefile's `stop:` target line for line, because that is the behaviour people already expect: `lsof -tiTCP:<port> -sTCP:LISTEN`, `SIGTERM`, a short grace period, `SIGKILL` only for what is still there. `waitForRelease` polls every `RELEASE_POLL_MS` (50ms) up to `GRACE_MS` (300ms) rather than sleeping the whole grace out, so the common case — a server that closes its listener at once — returns immediately, and the slow case still gets the Makefile's 0.3s.
+- The front door comes down after the process, and its failure does not fail the command. A `tailscale serve` pointing at a port with nothing behind it is worse than no front door at all, but a Mac with no Tailscale, or one not logged in, has no front door to lose — so the reason is printed and the command carries on.
+- The exit code is decided by one question asked at the end: is anything still listening on the port? Nothing listening at the start is a 0, not an error — stopping something already stopped is what a second `orbit stop` does, and scripts should not have to special-case it. Something still listening after `SIGKILL` is a 1, because that is a process the user has to look at.
+- `listeningPids` and `takeFrontDoorDown` live here and `start.ts` imports them, rather than the reverse: taking the front door down is the half of `orbit stop` that `orbit start` also needs when it cannot publish, and the duplicate `lsof` helper the two would otherwise carry is the kind that drifts.
+- `runStop` takes the port as an argument defaulting to `PORT`, for the same reason `runUpdate` takes an `Installed`: it lets `install-smoke.mjs` aim the real code at a throwaway listener on a port the test picked, instead of at the port a live Orbit answers on.
 
 ### Site builder (docs/site/build.mjs)
 

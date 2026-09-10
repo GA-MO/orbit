@@ -83,15 +83,34 @@ Then, on the Mac:
 ```sh
 orbit doctor    # what this Mac has and what it is missing
 orbit setup     # wire the hooks and the MCP server into Claude Code
-orbit phone     # run it, published over your tailnet as https
+orbit start     # run it, published over your tailnet as https
 ```
 
-`orbit phone` prints a QR code. Point the phone's camera at it: it opens
+`orbit stop` stops it again: it signals whatever holds the port, insists only
+if it has to, and takes the tailnet front door down with it, so nothing is
+left proxying to a port with nothing behind it.
+
+`orbit start` prints a QR code. Point the phone's camera at it: it opens
 Orbit already paired. Add it to the home screen, and scan the same code once
 more from the app's login screen (iOS gives a home-screen app storage of its
 own). That is the whole setup. The token is printed beside the code for
 typing, and `orbit pair` prints a fresh code when the one on screen has
 expired.
+
+If Tailscale is not installed yet, not logged in, or has HTTPS turned off in
+its admin console, `orbit start` says which of those it is and starts the
+server anyway, printing the Mac's LAN address so a phone on the same Wi-Fi
+can open it straight away. Voice input and Add to Home Screen need real
+https, so Tailscale is still worth setting up — but the first run gives you
+something to open either way. The startup banner prints that LAN address
+beside the localhost one for the same reason: `http://localhost:7788` is of
+no use from a phone.
+
+Later on, `orbit update` replaces that executable with the latest release —
+`orbit update --check` says what is out without touching anything, and `orbit
+doctor` mentions a newer release when it sees one. From a checkout it is `git
+pull && make setup` instead, and `orbit update` says so rather than
+overwriting anything.
 
 **Requirements**
 
@@ -136,7 +155,7 @@ Needs [Bun](https://bun.sh) 1.4 or newer.
 git clone https://github.com/GA-MO/orbit && cd orbit
 make install    # bun install
 make setup      # build, register the MCP server, install the hooks
-make phone      # run on :7788, published over the tailnet
+make start      # run on :7788, published over the tailnet
 ```
 
 ```sh

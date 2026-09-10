@@ -12,7 +12,7 @@ iPhone/Android ──(WireGuard tunnel)── MacBook
 - [1. Install Tailscale on the Mac](#1-install-tailscale-on-the-mac)
 - [2. Install Tailscale on the phone](#2-install-tailscale-on-the-phone)
 - [3. Enable https for the tailnet](#3-enable-https-for-the-tailnet)
-- [4. Publish Orbit with `orbit phone`](#4-publish-orbit-with-orbit-phone)
+- [4. Publish Orbit with `orbit start`](#4-publish-orbit-with-orbit-start)
 - [5. Publish a dev server over the tailnet](#5-publish-a-dev-server-over-the-tailnet)
 - [6. Run Orbit at login](#6-run-orbit-at-login)
 - [7. How access is protected](#7-how-access-is-protected)
@@ -50,12 +50,12 @@ Orbit works over plain http, but only as a terminal. Everything a phone needs be
 
 `tailscale serve` solves this. It gives the Mac a real https address with a real certificate, reachable only from inside your tailnet. It needs a one-time change in the [Tailscale admin console](https://login.tailscale.com/admin/dns): on the DNS tab, turn on **MagicDNS** and click **Enable HTTPS**. Without both, `tailscale serve` refuses to start.
 
-## 4. Publish Orbit with `orbit phone`
+## 4. Publish Orbit with `orbit start`
 
 With Orbit installed (see `SETUP.md`; the one-line installer places the executable at `~/.orbit/bin/orbit`), run:
 
 ```sh
-orbit phone
+orbit start
 ```
 
 This runs `tailscale serve --bg 7788` and then starts the server. It prints the address, `https://<machine>.<tailnet>.ts.net`, and a pairing QR code. On the phone, with the Tailscale VPN on, point the camera at the code: Orbit opens already paired. Add it to the home screen and scan the code once more from the app's login screen, because iOS gives a home-screen app storage of its own. The token is printed beside the code for typing, and `orbit pair` prints a fresh code when the one on screen has expired.
@@ -64,13 +64,14 @@ No port is needed in the address. The terminal's WebSocket runs over `wss://` au
 
 The first request can take ten seconds or more while Tailscale obtains the certificate. After that it is as fast as any local page.
 
-If something is already listening on `:7788`, `orbit phone` points the https address at it and returns, leaving that server alone.
+If something is already listening on `:7788`, `orbit start` points the https address at it and returns, leaving that server alone.
+
+If the front door cannot be published at all — Tailscale missing, logged out, or HTTPS not enabled in the admin console — `orbit start` no longer stops. It says which of those it is, notes that voice input and Add to Home Screen need https so this section is worth coming back to, prints the Mac's LAN address for a phone on the same Wi-Fi, and starts the server anyway. The startup banner carries that LAN address too, beside the localhost one.
 
 From a checkout of the repository, the same commands are:
 
 ```sh
-make phone        # build, then orbit phone
-make phone-off    # take the 443 front door down
+make start        # build, then orbit start
 make stop         # stop the server on :7788 and the 443 front door
 ```
 
@@ -87,10 +88,10 @@ Then open `http://<tailscale-ip-of-the-mac>:7788` (for example `http://100.101.1
 ### Turning the front door off
 
 ```sh
-orbit phone off   # tailscale serve --https=443 off; the server keeps running
+orbit stop        # stop the server on its port and take the 443 front door with it
 ```
 
-The 443 mapping is only cleared by `orbit phone off` or `make stop`. It survives the server exiting, so an address that answers with a connection error usually means the server is down, not Tailscale.
+The 443 mapping is only cleared by `orbit stop` or `make stop`. It survives the server exiting, so an address that answers with a connection error usually means the server is down, not Tailscale.
 
 ### The `bun run` scripts
 
@@ -102,7 +103,7 @@ bun run remote:status     # tailscale serve status
 bun run remote:off        # tailscale serve --https=443 off
 ```
 
-`orbit phone` is the normal way; these are for scripting or for when you want the proxy without the server.
+`orbit start` is the normal way; these are for scripting or for when you want the proxy without the server. `remote:off` takes the front door down on its own, leaving a running server up.
 
 > **Never use `tailscale funnel` with Orbit.** Funnel publishes a service to the real public internet, whereas `serve` stays inside your tailnet. Orbit can control the entire Mac. Even behind a token, it does not belong out in the open. Orbit itself never calls `funnel`.
 
@@ -187,7 +188,7 @@ Optional. Create `~/Library/LaunchAgents/com.orbit.server.plist`, replacing `YOU
   <key>ProgramArguments</key>
   <array>
     <string>/Users/YOUR_USER/.orbit/bin/orbit</string>
-    <string>phone</string>
+    <string>start</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -202,7 +203,7 @@ launchctl load ~/Library/LaunchAgents/com.orbit.server.plist
 tail -f /tmp/orbit-server.log      # the address, the token and the pairing QR are printed here
 ```
 
-A server started by launchd has a minimal `PATH` and no `ORBIT_HOME`, which is why the plist names the installed executable by its full path rather than `orbit`. The agents are unaffected: Orbit starts them through your login shell, which rebuilds whatever `PATH` they need. Drop the `phone` argument to run the server without the https front door.
+A server started by launchd has a minimal `PATH` and no `ORBIT_HOME`, which is why the plist names the installed executable by its full path rather than `orbit`. The agents are unaffected: Orbit starts them through your login shell, which rebuilds whatever `PATH` they need. Drop the `start` argument to run the server without the https front door.
 
 ## 7. How access is protected
 
@@ -225,14 +226,14 @@ Remove only the `token` key from `~/.orbit/config.json`, then restart the server
 
 | Symptom | What to check |
 | --- | --- |
-| `orbit phone` says `not logged in` | Open the Tailscale app on the Mac and log in. `tailscale status` should list your devices. |
-| `orbit phone` says `HTTPS must be enabled` | Turn on **Enable HTTPS** (and MagicDNS) on the DNS tab of the admin console, then run it again. |
+| `orbit start` says `not logged in` | Open the Tailscale app on the Mac and log in. `tailscale status` should list your devices. |
+| `orbit start` says `HTTPS must be enabled` | Turn on **Enable HTTPS** (and MagicDNS) on the DNS tab of the admin console, then run it again. |
 | The `.ts.net` name is unknown on the phone | MagicDNS is off, or the phone's VPN is not connected. Turn on MagicDNS in the admin console and check the Tailscale switch on the phone. Until then the `100.x.y.z` address still works. |
 | The phone cannot reach the Mac at all | The Tailscale VPN switch must be on in the app on both devices. From the Mac, `tailscale ping <phone-ip>`. |
 | The first https request hangs for a long time | Tailscale is issuing the certificate. Wait ten to twenty seconds and reload; later requests are fast. |
 | The page loads but the terminal does not connect | The WebSocket is blocked. With `serve` in use, open the `https://` address, not `http://…:7788`; do not mix the two. |
 | The login screen appears even though the token was entered | The token is stored per origin. `http://100.x…:7788` and `https://….ts.net` are different origins; enter it once more. |
-| `Port 7788 already in use` | Another Orbit (or something else) is listening. `orbit phone` points the https address at it and exits. Run `make stop` to stop the server on `:7788` and the front door, or set `ORBIT_PORT` to run on another port. |
+| `Port 7788 already in use` | Another Orbit (or something else) is listening. `orbit start` points the https address at it and exits. Run `make stop` to stop the server on `:7788` and the front door, or set `ORBIT_PORT` to run on another port. |
 | The connection drops when the Mac sleeps | In System Settings, keep the Mac on power and turn off "Put hard disks to sleep", or use `caffeinate` or Amphetamine. |
 | `orbit_screen` returns a black or empty image | macOS needs Screen Recording permission for the process running Orbit. Grant it in System Settings > Privacy & Security > Screen Recording. |
 | The access token needs to change | See [Rotating the token](#rotating-the-token). |

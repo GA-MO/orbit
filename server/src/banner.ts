@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { qrBlock } from './qr.js'
 
@@ -13,6 +14,7 @@ const INDENT = '  '
 const FOOTNOTE_SEPARATOR = '  ·  '
 const STOP_HINT = 'Ctrl-C to stop'
 const UNKNOWN_VERSION = '?'
+const LAN_INTERFACES = ['en0', 'en1']
 
 const PACKAGE_JSON_CANDIDATES = [new URL('../package.json', import.meta.url), '/$bunfs/root/package.json']
 
@@ -20,11 +22,30 @@ export interface BannerFacts {
   port: number
   token: string
   tailnetUrl?: string | null
+  lanUrl?: string | null
   pairUrl?: string | null
   version?: string
   columns?: number
   color?: boolean
 }
+
+export function lanAddress(): string | null {
+  for (const interfaceName of LAN_INTERFACES) {
+    try {
+      const address = execFileSync('ipconfig', ['getifaddr', interfaceName], { encoding: 'utf8', stdio: 'pipe' }).trim()
+      if (address) return address
+    } catch {}
+  }
+  return null
+}
+
+export function lanUrl(port: number): string | null {
+  const address = lanAddress()
+  return address ? `http://${address}:${port}` : null
+}
+
+const wifiUrlFor = (facts: BannerFacts): string | null =>
+  facts.lanUrl === undefined ? lanUrl(facts.port) : facts.lanUrl
 
 export function packageVersion(): string {
   for (const candidate of PACKAGE_JSON_CANDIDATES) {
@@ -45,21 +66,19 @@ export function plainBanner(facts: BannerFacts): string {
     `[orbit] access token: ${facts.token}`,
   ]
   if (facts.tailnetUrl) lines.push(`[orbit] tailnet: ${facts.tailnetUrl}`)
+  const wifiUrl = wifiUrlFor(facts)
+  if (wifiUrl) lines.push(`[orbit] same wi-fi: ${wifiUrl}`)
   return lines.join('\n')
 }
 
 type Row = [label: string, value: string]
 
-const addressRows = (facts: BannerFacts, localUrl: string): Row[] =>
-  facts.tailnetUrl
-    ? [
-        ['Phone', facts.tailnetUrl],
-        ['Token', facts.token],
-      ]
-    : [
-        ['Browser', `${localUrl}/`],
-        ['Token', facts.token],
-      ]
+const addressRows = (facts: BannerFacts, localUrl: string, wifiUrl: string | null): Row[] => {
+  const rows: Row[] = [facts.tailnetUrl ? ['Phone', facts.tailnetUrl] : ['Browser', `${localUrl}/`]]
+  if (wifiUrl) rows.push(['Same wi-fi', `${wifiUrl}/`])
+  rows.push(['Token', facts.token])
+  return rows
+}
 
 const pairingInstructions = (hasPairUrl: boolean): string[] =>
   hasPairUrl
@@ -91,7 +110,7 @@ export function banner(facts: BannerFacts): string {
   const localUrl = `http://localhost:${facts.port}`
   const out: string[] = ['', `${INDENT}${paint(BOLD, 'Orbit')} ${dim(version)}`, '']
 
-  const rows = addressRows(facts, localUrl)
+  const rows = addressRows(facts, localUrl, wifiUrlFor(facts))
   const labelWidth = Math.max(...rows.map(([label]) => label.length))
   const stacked = columns < WIDE
   for (const [label, value] of rows) {

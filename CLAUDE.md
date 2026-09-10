@@ -41,8 +41,9 @@ stops a hand-rolled command.
 - **The live Orbit** — :7788 by default, and :3001 for one started before that
   was the default. `make stop` or a restart ends the conversation that asked
   for it. Hand the restart to the user, and write down where you got to first.
-- **Tailscale serve on 443** — `orbit phone` set it up to proxy the live
-  Orbit. It is meant to be there; it is not a leftover.
+- **Tailscale serve on 443** — `orbit start` (`make start`) set it up to proxy
+  the live Orbit. It is meant to be there; it is not a leftover. `orbit stop`
+  takes it down along with the server, which is exactly what not to run here.
 
 ## No comments in the source
 

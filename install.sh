@@ -91,5 +91,5 @@ echo
 say "Next:"
 say "  orbit doctor    what this Mac has and is missing"
 say "  orbit setup     wire the hooks and MCP server into Claude Code"
-say "  orbit phone     run it, published over your tailnet as https"
+say "  orbit start     run it, published over your tailnet as https"
 echo

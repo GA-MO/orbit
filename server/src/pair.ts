@@ -47,7 +47,7 @@ export async function runPair(): Promise<number> {
   try {
     res = await requestPairCode(token)
   } catch {
-    say(`Orbit is not running on :${PORT} — \`orbit\` or \`orbit phone\` first.`)
+    say(`Orbit is not running on :${PORT} — \`orbit\` or \`orbit start\` first.`)
     return 1
   }
   if (!res.ok) {

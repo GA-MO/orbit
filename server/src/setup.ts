@@ -180,7 +180,7 @@ function sayClosing(uninstall: boolean, start: string): void {
     say('the MCP server is spawned when a session starts, so this one still')
     say('holds the previous build.')
     say()
-    say(`Next:  ${start} phone      (serve over Tailscale, open it on the phone)`)
+    say(`Next:  ${start} start      (run it, published over Tailscale for the phone)`)
     say(`Undo:  ${start} setup --uninstall`)
   }
   say()

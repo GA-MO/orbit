@@ -29,7 +29,9 @@ Orbit is a single executable. Install it on the Mac:
 curl -fsSL https://raw.githubusercontent.com/GA-MO/orbit/main/install.sh | bash
 ```
 
-Then run `orbit phone` (from a source checkout, `make phone`). The console prints a QR code. **Point your phone's camera at it** — the code is a link into Orbit that carries a pairing code valid for 10 minutes. The page opens already paired; there is nothing to type. If the code has expired, `orbit pair` prints a fresh one.
+Then run `orbit start` (from a source checkout, `make start`). The console prints a QR code. **Point your phone's camera at it** — the code is a link into Orbit that carries a pairing code valid for 10 minutes. The page opens already paired; there is nothing to type. If the code has expired, `orbit pair` prints a fresh one.
+
+If Tailscale is not set up yet, `orbit start` says so in a line and runs the server anyway, printing the Mac's LAN address for a phone on the same Wi-Fi. That gets you the terminal; voice input and Add to Home Screen need real https, so see [TAILSCALE.md](TAILSCALE.md) when you want those.
 
 ### The home-screen app pairs once more
 
@@ -500,7 +502,7 @@ screen that opens full screen, with no browser chrome.
 
 The installed app has **storage of its own**, separate from Safari's, so it
 starts signed out. Pair it once: on its login screen, scan the QR code that
-`orbit phone` printed (or `orbit pair` for a fresh one). That is the whole
+`orbit start` printed (or `orbit pair` for a fresh one). That is the whole
 setup, and it is the app that push notifications and voice input need.
 
 ## Everyday flows

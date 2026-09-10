@@ -56,7 +56,7 @@ Then, on the Mac:
 ```sh
 orbit doctor    # what this Mac has and what it is missing
 orbit setup     # wire the hooks and the MCP server into Claude Code
-orbit phone     # run it, published over your tailnet as https
+orbit start     # run it, published over your tailnet as https
 ```
 
 ### For developers
@@ -67,10 +67,10 @@ Working from a checkout needs Bun 1.4 or newer.
 git clone https://github.com/GA-MO/orbit && cd orbit
 make install    # bun install
 make setup      # build, then bun server/dist/main.js setup
-make phone      # run on :7788, published over the tailnet
+make start      # run on :7788, published over the tailnet
 ```
 
-`make setup` and `make phone` run the same code as the installed binary. The build step comes first because the MCP server has to exist on disk before it can be registered.
+`make setup` and `make start` run the same code as the installed binary. The build step comes first because the MCP server has to exist on disk before it can be registered.
 
 ## Wire it into Claude Code
 
@@ -99,19 +99,21 @@ claude mcp list          # expect: orbit: <path to orbit> mcp - ✔ Connected
 
 Or type `/mcp` inside Claude Code.
 
-`orbit doctor` checks that Claude Code is on the PATH, that Google Chrome is present, that Tailscale is logged in, that an access token exists, that the hooks and the MCP registration are in place, and whether the server is running. It cannot check Screen Recording permission; macOS offers no way to ask.
+`orbit doctor` checks which version is installed and whether a newer release exists (a Mac with no network gets a neutral line, not a failure), that Claude Code is on the PATH, that Google Chrome is present, that Tailscale is logged in, that an access token exists, that the hooks and the MCP registration are in place, and whether the server is running. It cannot check Screen Recording permission; macOS offers no way to ask.
 
 A Claude Code session that was already open does not see the new server. MCP servers are spawned when a session starts, so open a new one. The same applies every time you change `server/src/mcp.ts` in a checkout: `bun run build`, then start a new session.
 
 ## First run and pairing
 
 ```sh
-orbit phone      # publish :7788 over the tailnet as https, print a QR code, run the server
+orbit start      # publish :7788 over the tailnet as https, print a QR code, run the server
 ```
 
-`orbit phone` runs `tailscale serve --bg 7788`, prints a QR code, and then starts the server. The QR code encodes `https://<mac>.<tailnet>.ts.net/#pair=<code>`. Point the phone's camera at it and Orbit opens already paired. The code lives for 10 minutes and is good for a handful of uses; `orbit pair` prints a fresh one.
+`orbit start` runs `tailscale serve --bg 7788`, prints a QR code, and then starts the server. The QR code encodes `https://<mac>.<tailnet>.ts.net/#pair=<code>`. Point the phone's camera at it and Orbit opens already paired. The code lives for 10 minutes and is good for a handful of uses; `orbit pair` prints a fresh one.
 
-Next to the QR code the console prints `[orbit] access token: …` for typing the token by hand.
+If the front door cannot be published — Tailscale is not installed, not logged in, or has HTTPS turned off in the admin console — `orbit start` says which of those it is in one line, notes that voice input and Add to Home Screen need https so Tailscale is worth setting up later, prints the Mac's LAN address for a phone on the same Wi-Fi, and then runs the server anyway. A Mac that has never touched Tailscale still gets a working Orbit on the first run.
+
+Next to the QR code the console prints `[orbit] access token: …` for typing the token by hand. The banner prints the Mac's LAN address next to the localhost one, since `http://localhost:7788` cannot be opened from a phone.
 
 To install Orbit on the phone, use Add to Home Screen, open the home-screen app, tap "Scan QR code", and scan the same code again. iOS gives a home-screen app storage of its own, so the pairing from the browser does not carry over.
 
@@ -122,8 +124,8 @@ Without Tailscale, `make mobile` from a checkout serves the dev build on the sam
 To stop:
 
 ```sh
-orbit phone off    # remove the tailnet front door
-make stop          # from a checkout: stop the server and the front door
+orbit stop         # stop the server on its port and remove the tailnet front door
+make stop          # from a checkout: the same as `orbit stop`
 ```
 
 To run the server without publishing it, use plain `orbit`. It listens on `:7788`; set `ORBIT_PORT` to change that.
@@ -181,17 +183,21 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 | Command | What it does |
 | --- | --- |
 | `orbit` | Run the server on `:7788`. `ORBIT_PORT` changes the port. |
-| `orbit phone` | Publish `:7788` over the tailnet as https (`tailscale serve --bg 7788`), print a pairing QR code, then run the server. |
-| `orbit phone off` | Remove the tailnet front door. |
+| `orbit start` | Publish `:7788` over the tailnet as https (`tailscale serve --bg 7788`), print a pairing QR code, then run the server. If it cannot publish, it says why, prints the LAN address instead, and runs the server anyway. Takes no flags. |
+| `orbit stop` | Stop whatever is listening on `:7788` (`ORBIT_PORT` changes the port) — `SIGTERM`, then `SIGKILL` if it is still there — and remove the tailnet front door. Nothing listening is not an error. |
 | `orbit setup` | Write the hooks into `~/.claude/settings.json` (backup at `settings.json.orbit.bak`) and register the MCP server. |
 | `orbit setup --uninstall` | Remove the hooks and the MCP registration. |
 | `orbit doctor` | Report what this Mac has and what it is missing. |
+| `orbit update` | Replace the running executable with the latest release, after checking its published checksum. |
+| `orbit update --check` | Say which version is installed and which is available, and write nothing. |
 | `orbit pair` | Print a fresh pairing QR code. |
 | `orbit mcp` | Run the MCP server on stdio. Claude Code starts this; you do not. |
 | `orbit hook approve` | The approval hook. Claude Code runs this. |
 | `orbit hook notify` | The notification hook. Claude Code runs this. |
 | `orbit version` | Print the version. |
 | `orbit help` | Print usage. |
+
+`orbit start` was called `orbit phone` before. The old name still runs, and says it has been renamed.
 
 ### Make targets (from a checkout)
 
@@ -202,9 +208,7 @@ Everything lives in `~/.orbit`. `ORBIT_HOME` names the directory that *holds* th
 | `make unsetup` | Remove the hooks and the MCP registration. |
 | `make doctor` | The same check the installed binary offers. |
 | `make dev` | Vite on `:5173` with HMR and the server on `:7788`. |
-| `make start` | Build and run production on `:7788` without Tailscale. |
-| `make phone` | Build, then run on `:7788` published over the tailnet. |
-| `make phone-off` | Remove the tailnet front door. |
+| `make start` | Build, then `orbit start`: run on `:7788`, published over the tailnet. |
 | `make mobile` | Print the LAN URL and start the dev build for a phone on the same Wi-Fi. |
 | `make stop` | Stop the server and the tailnet front door. |
 | `make dist` | Build one executable at `dist/orbit`. `TARGETS=all` builds arm64 and x64. |
@@ -241,11 +245,11 @@ Neither touches the checkout or `~/.orbit`; sessions, the token and screenshots 
 | Symptom | Usual cause |
 | --- | --- |
 | `/mcp` does not list `orbit` | The session was open before setup ran. Start a new session. |
-| A tool answers "not reachable on 127.0.0.1:7788" | The server is not running. Run `orbit phone`, `orbit`, or `make phone` / `make start` from a checkout. |
+| A tool answers "not reachable on 127.0.0.1:7788" | The server is not running. Run `orbit start`, plain `orbit`, or `make start` from a checkout. |
 | The phone never notifies | Orbit is open on the phone, so notices are quiet by design. Close the app and try again. |
 | `orbit_screen` returns an image with no application windows | Screen Recording permission has not been granted. See the last section of `MCP.md`. |
 | `orbit setup` cannot register the MCP server | `claude` is not on the PATH. |
-| `orbit phone` reports that port 7788 is busy | An Orbit is already running. Stop it first (`make stop` from a checkout). |
+| `orbit start` reports that port 7788 is busy | An Orbit is already running. Stop it first with `orbit stop` (`make stop` from a checkout). |
 
 ## Testing
 

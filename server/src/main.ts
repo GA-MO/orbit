@@ -3,10 +3,12 @@ const [command, ...rest] = process.argv.slice(2)
 const usage = `orbit — a phone-side console for the coding agents on this Mac
 
   orbit                    run the server (ORBIT_PORT, default 7788)
-  orbit phone [off]        run it published over the tailnet as https
+  orbit start              run it published over the tailnet as https, for the phone
+  orbit stop               stop the server on that port, and the tailnet front door
   orbit setup [--approval] [--uninstall]  wire the hooks and MCP server into Claude Code (--approval adds the phone-side gate)
   orbit pair               a fresh QR to pair a phone with the running server
   orbit doctor             what this Mac has and what it is missing
+  orbit update [--check]   replace this executable with the latest release
   orbit mcp                the MCP server on stdio (what Claude Code runs)
   orbit hook approve|notify  the Claude Code hooks (what \`setup\` installs)
   orbit version            which build this is
@@ -41,8 +43,22 @@ switch (command) {
   case 'mcp':
     await import('./mcp.js')
     break
-  case 'phone':
-    exit(await (await import('./phone.js')).runPhone(rest))
+  case 'start':
+    exit(await (await import('./start.js')).runStart())
+    break
+  case 'phone': {
+    const start = await import('./start.js')
+    if (rest[0] === 'off') {
+      console.log(`  ${start.RENAMED_OFF}`)
+      exit(await (await import('./stop.js')).takeFrontDoorDown())
+      break
+    }
+    console.log(`  ${start.RENAMED}`)
+    exit(await start.runStart())
+    break
+  }
+  case 'stop':
+    exit(await (await import('./stop.js')).runStop())
     break
   case 'setup':
     exit((await import('./setup.js')).runSetup(rest))
@@ -52,6 +68,9 @@ switch (command) {
     break
   case 'doctor':
     exit(await (await import('./doctor.js')).runDoctor())
+    break
+  case 'update':
+    exit(await (await import('./update.js')).runUpdate(rest))
     break
   case 'hook': {
     const hooks = await import('./hooks.js')
