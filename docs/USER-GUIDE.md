@@ -181,7 +181,7 @@ The same bookkeeping means **a notification tapped on the lock screen takes you 
 
 ### Even when the agent says nothing
 
-Everything above depends on the agent **choosing to speak**, through MCP (`orbit_notify`) or through Claude Code hooks, which have to be set up first. Codex, Gemini, and a Claude without hooks have neither, so they used to sit at "Do you want to proceed?" while the phone stayed silent.
+Everything above depends on the agent **choosing to speak**, through MCP (`orbit_notify`) or through Claude Code hooks, which have to be set up first. Codex, and a Claude without hooks, have neither, so they used to sit at "Do you want to proceed?" while the phone stayed silent.
 
 Now Orbit **watches the screen itself.** A working agent is an agent that is drawing — a spinner, a timer, tool output. If nothing has been drawn for 10 seconds, the frame is complete and the cursor is waiting at the input box. The row gets a badge on its own, with the last readable line from the screen (a line ending in `?` is preferred, since what it stopped for usually sits just above the input box).
 
@@ -501,7 +501,7 @@ To pick the work back up, two buttons sit at the top right of the terminal:
   most recently ended session of that folder and agent, and only while nothing
   is still running there — otherwise it would either promise a conversation it
   cannot reach or put a second agent into one that is already being held.
-  Shell and Gemini have no resume command and no button.
+  Shell has no resume command and no button.
 - **＋ New** starts over: same agent, same folder, same name, no history.
 
 The same ↻ and ＋ appear on ended rows in the Sessions tab.

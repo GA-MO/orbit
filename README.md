@@ -6,7 +6,7 @@
 
 <p align="center">
   Your MacBook as a personal AI dev server — driven from your phone.<br>
-  A real terminal for Claude Code, Codex and Gemini CLI, in an installable web app.
+  A real terminal for Claude Code and Codex CLI, in an installable web app.
 </p>
 
 <p align="center">
@@ -49,7 +49,7 @@ phone is a window onto it. Nothing runs in a cloud.
 - **A real terminal.** xterm.js over a WebSocket to a PTY: colours, cursor
   movement, interactive prompts, Ctrl+C, resize. Sessions outlive the phone
   disconnecting and the server restarting; reconnecting replays the screen.
-- **Agents as providers.** Claude Code, Codex CLI, Gemini CLI or a plain
+- **Agents as providers.** Claude Code, Codex CLI or a plain
   shell, started through your login shell so your PATH applies. Ended
   sessions resume as the same conversation; conversations you started at the
   desk show up on the phone too.
@@ -126,7 +126,7 @@ overwriting anything.
 |---|---|
 | macOS | Apple silicon or Intel |
 | [Tailscale](https://tailscale.com) | how a phone reaches the Mac at all, and who it says you are — with real https (voice and Add to Home Screen need it). Without it, `orbit start --lan` and the access token |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex CLI, Gemini CLI | whichever you use — Orbit finds what is on your PATH |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex CLI | whichever you use — Orbit finds what is on your PATH |
 | Google Chrome | optional, for captures of the app under development |
 
 The installer takes `ORBIT_VERSION=v0.2.0`, `ORBIT_INSTALL_DIR` and
@@ -136,7 +136,7 @@ download that does not match.
 ## How it works
 
 ```
-  phone (PWA)  ──https, tailnet only──▶  orbit  ──bun-pty──▶  zsh -l  ──▶  claude / codex / gemini
+  phone (PWA)  ──https, tailnet only──▶  orbit  ──bun-pty──▶  zsh -l  ──▶  claude / codex
        ▲                                  │                                       │
        │   notices, questions, push       │◀────── MCP tools + hooks ─────────────┘
        └──────────────────────────────────┘

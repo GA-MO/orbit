@@ -428,15 +428,10 @@ const GlyphCodex = icon(
     <circle cx="12" cy="12" r="3" />
   </>,
 );
-const GlyphGemini = icon(
-  <path d="M12 4c0 4.4 3.6 8 8 8-4.4 0-8 3.6-8 8 0-4.4-3.6-8-8-8 4.4 0 8-3.6 8-8Z" />,
-);
-
 const PROVIDER_GLYPHS: Record<string, typeof GlyphShell> = {
   shell: GlyphShell,
   claude: GlyphClaude,
   codex: GlyphCodex,
-  gemini: GlyphGemini,
 };
 
 export function ProviderGlyph({

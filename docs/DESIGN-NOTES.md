@@ -38,7 +38,7 @@ server, bun-pty on the Mac, `zsh` underneath. It carries:
 ### Agents launch through the login shell
 
 Agent CLIs launch via `zsh -lic 'exec <cmd>'` so the user's real PATH applies
-— whatever `claude`, `codex` or `gemini` resolves to at the desk resolves to
+— whatever `claude` or `codex` resolves to at the desk resolves to
 the same thing here. Exiting the agent ends the session.
 
 ### A redraw whenever the phone comes back
@@ -58,7 +58,9 @@ ignore.
 
 ### Providers are detected, not configured
 
-Providers are Claude Code, Codex CLI, Gemini CLI and a plain shell.
+Providers are Claude Code, Codex CLI and a plain shell. Gemini CLI was one
+too and was taken back out: nothing here had been run against it, so listing
+it promised support that had never been tested.
 Availability is auto-detected through the user's login shell and reported by
 `GET /api/providers`, so an agent installed at the desk is available on the
 phone with nothing to declare.
@@ -547,7 +549,7 @@ was understood.
 ### A session that goes quiet is noticed without being told
 
 Everything above is an agent *choosing* to speak, through the MCP server or a
-hook that has to be registered first. Codex, Gemini and a plain shell have
+hook that has to be registered first. Codex and a plain shell have
 neither, and neither does Claude before the hook is installed — so the phone
 showed nothing at all while the terminal sat on "Do you want to proceed?",
 the one moment the app exists for.

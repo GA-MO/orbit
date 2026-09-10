@@ -27,7 +27,7 @@ Orbit runs on Bun only. Node, npm and npx are not needed anywhere, and the insta
 | Requirement | Why |
 | --- | --- |
 | macOS (Apple silicon or Intel) | Orbit drives a real PTY and captures the Mac's screen. |
-| Claude Code, Codex CLI or Gemini CLI on the login-shell PATH | Orbit finds whichever you use with `zsh -lic`. `orbit setup` calls `claude mcp add`, and the hooks belong to Claude Code. |
+| Claude Code or Codex CLI on the login-shell PATH | Orbit finds whichever you use with `zsh -lic`. `orbit setup` calls `claude mcp add`, and the hooks belong to Claude Code. |
 | Google Chrome (optional) | Driven headless by `orbit_capture` over the DevTools protocol. No extra browser is downloaded. |
 | Tailscale (can come later) | How a phone reaches the Mac at all: the server binds `127.0.0.1`, and `tailscale serve` is the way in from another device — and the thing that tells Orbit the caller is you, so no token is typed. Also where https comes from; voice input and Add to Home Screen require a secure context. Without it, `orbit start --lan` and the access token. See `TAILSCALE.md`. |
 | Screen Recording permission (optional) | For the terminal that starts Orbit, if `orbit_screen` should see application windows. See `MCP.md`. |
