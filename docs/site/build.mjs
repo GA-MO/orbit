@@ -12,10 +12,6 @@ const FONT = path.join(
   root,
   'node_modules/@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2',
 )
-const FONT_THAI = path.join(
-  root,
-  'node_modules/@fontsource-variable/anuphan/files/anuphan-thai-wght-normal.woff2',
-)
 const SHOT_DIR = path.join(root, 'docs/images')
 const SHOT_WIDTH = 780
 const SHOT_QUALITY = 82
@@ -24,7 +20,6 @@ const KB = 1024
 
 const PAGES = [
   { template: 'template.html', out: 'index.html' },
-  { template: 'template.th.html', out: path.join('th', 'index.html') },
 ]
 
 function fontDataUri(file) {
@@ -83,7 +78,6 @@ function renderPage(page, images) {
   const template = fs.readFileSync(path.join(here, page.template), 'utf8')
   const html = template
     .replace('{{FONT}}', () => fontDataUri(FONT))
-    .replace('{{FONT_THAI}}', () => fontDataUri(FONT_THAI))
     .replace('{{SHOTS_JSON}}', () => JSON.stringify(images))
     .replace(/\{\{SHOT:([\w-]+)\}\}/g, (_, name) => {
       if (!images[name]) throw new Error(`no screenshot named ${name} in docs/images`)

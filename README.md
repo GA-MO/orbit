@@ -179,8 +179,7 @@ executables and publishes them as a release with checksums — see
 - [Agent integration](docs/MCP.md) — the MCP tools and the hooks, from the agent's side
 - [Remote access](docs/TAILSCALE.md) — Tailscale, https, running at login, security
 - [Design notes](docs/DESIGN-NOTES.md) — why each piece is shaped the way it is
-- [Website](https://ga-mo.github.io/orbit/) — the product page ([Thai](https://ga-mo.github.io/orbit/th/))
-- ภาษาไทย — [คู่มือใช้งาน](docs/th/USER-GUIDE.md), [ติดตั้ง](docs/th/SETUP.md), [ฝั่ง agent](docs/th/MCP.md), [ใช้จากนอกบ้าน](docs/th/TAILSCALE.md)
+- [Website](https://ga-mo.github.io/orbit/) — the product page
 
 ## Status
 

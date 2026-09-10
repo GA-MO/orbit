@@ -8,7 +8,5 @@
 | [Remote access](TAILSCALE.md) | Tailscale, https, running at login, security |
 | [Design notes](DESIGN-NOTES.md) | Why each piece is shaped the way it is |
 
-ภาษาไทย: [คู่มือใช้งาน](th/USER-GUIDE.md) · [ติดตั้ง](th/SETUP.md) · [ฝั่ง agent](th/MCP.md) · [ใช้จากนอกบ้าน](th/TAILSCALE.md)
-
 `archive/` holds the original brief and the development journal; neither
 describes the current product.

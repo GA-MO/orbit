@@ -29,17 +29,6 @@
     font-display: swap;
     src: url({{FONT}}) format('woff2');
   }
-  /* Space Grotesk has no Thai. Anuphan is loopless and cut to sit beside a
-     geometric Latin sans; it is second in every stack because Latin never
-     reaches it and Thai never reaches Space Grotesk. */
-  @font-face {
-    font-family: 'Anuphan Site';
-    font-style: normal;
-    font-weight: 300 700;
-    font-display: swap;
-    size-adjust: 106%;
-    src: url({{FONT_THAI}}) format('woff2');
-  }
 
   :root {
     color-scheme: dark;
@@ -61,7 +50,7 @@
     --edge-strong: rgb(255 255 255 / 0.14);
     --lift: 0 1px 1px rgb(0 0 0 / 0.4), 0 8px 20px -12px rgb(0 0 0 / 0.7);
 
-    --display: 'Space Grotesk Site', 'Anuphan Site', 'Noto Sans Thai', system-ui, sans-serif;
+    --display: 'Space Grotesk Site', system-ui, sans-serif;
     --sans: 'Space Grotesk Site', 'Anuphan Site', 'Noto Sans Thai', -apple-system,
       BlinkMacSystemFont, system-ui, sans-serif;
     --mono: ui-monospace, 'SF Mono', Menlo, Monaco, 'Anuphan Site', monospace;
@@ -328,7 +317,6 @@
       <a href="#agent">Agent side</a>
       <a href="#safety">Safety</a>
       <a href="#start">Get started</a>
-      <a href="th/" hreflang="th" lang="th">ไทย</a>
     </nav>
   </div>
 </header>

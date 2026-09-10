@@ -23,7 +23,6 @@
     "preview:off": "$(command -v tailscale || echo /Applications/Tailscale.app/Contents/MacOS/Tailscale) serve --https=8443 off"
   },
   "devDependencies": {
-    "@fontsource-variable/anuphan": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
     "concurrently": "^9.1.0",
     "playwright-core": "^1.62.1",

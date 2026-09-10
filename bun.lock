@@ -5,7 +5,6 @@
     "": {
       "name": "orbit",
       "devDependencies": {
-        "@fontsource-variable/anuphan": "^5.3.0",
         "@fontsource-variable/space-grotesk": "^5.3.0",
         "concurrently": "^9.1.0",
         "playwright-core": "^1.62.1",
@@ -142,8 +141,6 @@
     "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.25.12", "", { "os": "win32", "cpu": "ia32" }, "sha512-HkqnmmBoCbCwxUKKNPBixiWDGCpQGVsrQfJoVGYLPT41XWF8lHuE5N6WhVia2n4o5QK5M4tYr21827fNhi4byQ=="],
 
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
-
-    "@fontsource-variable/anuphan": ["@fontsource-variable/anuphan@5.3.0", "", {}, "sha512-4kR8VqHI5El8z3tvCeKB4EE23Xj/R41UpAlsez4spDCZTMHGrlp1CzE65SAu/hGVIhNcJHaTyHNdZ2yfPl/w/A=="],
 
     "@fontsource-variable/space-grotesk": ["@fontsource-variable/space-grotesk@5.3.0", "", {}, "sha512-2IxmvfB08i9vnGB3Ym/AXvhRE+8XOjWMXIyDum03c+tPwH0FUoMNQfGpU8NXPxjbws0Vvss3AH0Zqt4oJBBAdw=="],
 
