@@ -1066,6 +1066,32 @@ check(
 )
 check('…while the token still works', (await fetch(`${BASE}/api/auth/check`, { headers: H })).status === 200)
 
+section('the app shell a phone keeps coming back to')
+const appShell = await fetch(`${BASE}/`, { headers: H })
+const shellHtml = await appShell.text()
+check('the shell is served', appShell.status === 200, appShell.status)
+check(
+  'the shell is never cached without asking first',
+  appShell.headers.get('cache-control') === 'no-cache',
+  appShell.headers.get('cache-control'),
+)
+const HASHED_ASSET = /\/assets\/[^"']+\.js/
+const assetPath = shellHtml.match(HASHED_ASSET)?.[0] ?? ''
+check('the shell names a hashed asset', !!assetPath, assetPath)
+const asset = await fetch(`${BASE}${assetPath}`, { headers: H })
+check('…which is there', asset.status === 200, asset.status)
+check(
+  '…and may be kept forever, since its name changes when it does',
+  (asset.headers.get('cache-control') ?? '').includes('immutable'),
+  asset.headers.get('cache-control'),
+)
+const worker = await fetch(`${BASE}/sw.js`, { headers: H })
+check(
+  'the service worker is revalidated too, or it could pin the old shell',
+  worker.headers.get('cache-control') === 'no-cache',
+  worker.headers.get('cache-control'),
+)
+
 section('mcp server')
 const MCP_TOOLS = ['orbit_capture', 'orbit_screen', 'orbit_notify', 'orbit_preview', 'orbit_ask']
 const mcpSession = (await api('/api/sessions', { provider: 'shell', name: 'mcp' })).body

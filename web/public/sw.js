@@ -106,13 +106,19 @@ const isUncacheable = (url) =>
 
 const isCacheableResponse = (response) => response.ok && response.type === 'basic'
 
+const NAVIGATION = 'navigate'
+const PAST_THE_HTTP_CACHE = 'reload'
+
+const fromTheNetwork = (request) =>
+  request.mode === NAVIGATION ? fetch(new Request(request, { cache: PAST_THE_HTTP_CACHE })) : fetch(request)
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
   if (request.method !== 'GET') return
   if (isUncacheable(new URL(request.url))) return
 
   event.respondWith(
-    fetch(request)
+    fromTheNetwork(request)
       .then((response) => {
         if (isCacheableResponse(response)) {
           const copy = response.clone()

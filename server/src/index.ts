@@ -255,6 +255,14 @@ const LEADING_PARENT_SEGMENTS = /^(\.\.[/\\])+/
 
 const isAppShellPath = (requestPath: string) => requestPath === '/' || requestPath === '/index.html'
 
+const A_YEAR_IN_SECONDS = 31_536_000
+const REVALIDATE_EVERY_TIME = 'no-cache'
+const KEEP_FOREVER = `public, max-age=${A_YEAR_IN_SECONDS}, immutable`
+
+const nameCarriesItsOwnVersion = (file: string) => path.dirname(file) === path.join(WEB_DIST, 'assets')
+
+const cacheRuleFor = (file: string) => (nameCarriesItsOwnVersion(file) ? KEEP_FOREVER : REVALIDATE_EVERY_TIME)
+
 const statFile = (file: string) => fsp.stat(file).catch(() => null)
 
 async function serveStatic(url: URL, res: http.ServerResponse) {
@@ -280,6 +288,7 @@ async function serveStatic(url: URL, res: http.ServerResponse) {
   res.writeHead(200, {
     'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream',
     'Content-Length': stat.size,
+    'Cache-Control': cacheRuleFor(file),
   })
   await sendFileBody(file, res)
 }
